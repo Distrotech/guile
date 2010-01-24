@@ -200,13 +200,13 @@ Emacs to display an error or trap so that the user can debug it."
 				   (format "%S" gds-scheme-directory)
 				   " %load-path))")
 			 "")))
-         (proc (start-process procname
-                              (get-buffer-create procname)
-                              gds-guile-program
-                              "-q"
-                              "--debug"
-                              "-c"
-                              code)))
+         (proc (apply (function start-process)
+                      procname
+                      (get-buffer-create procname)
+                      (append (if (listp gds-guile-program)
+                                  gds-guile-program
+                                (list gds-guile-program))
+                              (list "-q" "--debug" "-c" code)))))
     ;; Note that this process can be killed automatically on Emacs
     ;; exit.
     (process-kill-without-query proc)

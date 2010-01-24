@@ -34,8 +34,11 @@
 
 ;; The guile executable used by the GDS server process.
 (defcustom gds-guile-program "guile"
-  "*The guile executable used by the GDS server process."
-  :type 'string
+  "*The guile executable that GDS should use.
+This can be a single string, such as \"guile\", or a list of strings
+such as (\"<your-guile-srcdir>/meta/uninstalled-env\" \"guile\")."
+  :type '(choice (string :tag "Single command word")
+                 (repeat :tag "List of command words" string))
   :group 'gds)
 
 (defcustom gds-scheme-directory nil
@@ -62,13 +65,13 @@ one protocol form."
                          unix-socket-name
 			 tcp-port))
            (process-connection-type nil) ; use a pipe
-           (proc (start-process procname
-                                (current-buffer)
-                                gds-guile-program
-                                "-q"
-                                "--debug"
-                                "-c"
-                                code)))
+           (proc (apply (function start-process)
+                        procname
+                        (current-buffer)
+                        (append (if (listp gds-guile-program)
+                                    gds-guile-program
+                                  (list gds-guile-program))
+                                (list "-q" "--debug" "-c" code)))))
       (set (make-local-variable 'gds-read-cursor) (point-min))
       (set (make-local-variable 'gds-protocol-handler) protocol-handler)
       (set-process-filter proc (function gds-filter))

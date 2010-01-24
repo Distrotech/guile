@@ -9,6 +9,8 @@
   #:use-module (ice-9 regex)
   #:use-module (ice-9 session)
   #:use-module (ice-9 string-fun)
+  #:use-module (system vm frame)
+  #:use-module (system vm vm)
   #:export (gds-debug-trap
 	    run-utility
 	    gds-accept-input))
@@ -97,9 +99,21 @@
                       ;; Return frame info.
                       (let ((frame (stack-ref stack (cadr protocol))))
                         (write-form (list 'info-result
-                                          (with-output-to-string
-                                            (lambda ()
-                                              (write-frame-long frame))))))
+                                          (format #f "\
+bindings: ~s
+arguments: ~s
+source: ~s
+call-representation: ~s
+environment: ~s"
+                                                  (frame-bindings frame)
+                                                  (frame-arguments frame)
+                                                  (frame-source frame)
+                                                  (frame-call-representation frame)
+                                                  (frame-environment frame))
+                                          ;(with-output-to-string
+                                          ;  (lambda ()
+                                          ;    (write-frame-long frame)))
+                                          )))
                       (loop (gds-debug-read)))
                      ((info-args)
                       ;; Return frame args.
@@ -578,5 +592,33 @@ Thanks!\n\n"
     (at-exit (tc:depth trap-context)
 	     (lambda (trap-context)
 	       (uninstall-trap step-trap)))))
+
+(define-public (gds-debug-vm)
+  (define (hook-proc sym)
+    (lambda args
+;      (write (cons sym args))
+;      (newline)
+      (let ((stack (make-stack #t)))
+        (if (or-map (lambda (i)
+                      (let ((source (frame-source (stack-ref stack i))))
+                        (and source
+                             (string? (cadr source))
+                             ;(string-contains (cadr source) "rdelim")
+                             )))
+                    (iota (stack-length stack)))
+            (gds-debug-trap (let ((ctx (make <trap-context>
+                                         #:type sym
+                                         #:continuation #f)))
+                              (slot-set! ctx 'stack stack)
+                              ctx))))))
+;  (add-hook! (vm-enter-hook (the-vm)) (hook-proc #:evaluation))
+  (add-hook! (vm-boot-hook (the-vm)) (hook-proc #:boot))
+;  (add-hook! (vm-exit-hook (the-vm)) (hook-proc #:return))
+  (add-hook! (vm-return-hook (the-vm)) (hook-proc #:return))
+  (add-hook! (vm-apply-hook (the-vm)) (hook-proc #:application))
+;  (add-hook! (vm-next-hook (the-vm)) (hook-proc #:next))
+  (add-hook! (vm-break-hook (the-vm)) (hook-proc #:break))
+  (add-hook! (vm-halt-hook (the-vm)) (hook-proc #:halt))
+  (set-vm-trace-level! (the-vm) 1))
 
 ;;; (ice-9 gds-client) ends here.

@@ -31,6 +31,7 @@
   #:use-module (ice-9 debugging trc)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-2)
+  #:use-module (system vm frame)
   #:export (tc:type
             tc:continuation
             tc:expression
@@ -790,18 +791,22 @@ it twice."
 	       #t)))))
 
 (define (frame->source-position frame)
-  (let ((source (if (frame-procedure? frame)
-		    (or (frame-source frame)
-			(let ((proc (frame-procedure frame)))
-			  (and proc
-			       (procedure? proc)
-			       (procedure-source proc))))
-		    (frame-source frame))))
+  (let ((source (frame-source frame)))
     (and source
-	 (string? (source-property source 'filename))
-	 (list (source-property source 'filename)
-	       (source-property source 'line)
-	       (source-property source 'column)))))
+         (string? (cadr source))
+         (list (cadr source) (caddr source) (cdddr source)))))
+;;  (let ((source (if (frame-procedure? frame)
+;;		    (or (frame-source frame)
+;;			(let ((proc (frame-procedure frame)))
+;;			  (and proc
+;;			       (procedure? proc)
+;;			       (procedure-source proc))))
+;;		    (frame-source frame))))
+;;    (and source
+;;	 (string? (source-property source 'filename))
+;;	 (list (source-property source 'filename)
+;;	       (source-property source 'line)
+;;	       (source-property source 'column)))))
 
 (define (frame-file-name frame)
   (cond ((frame->source-position frame) => car)

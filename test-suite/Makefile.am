@@ -69,6 +69,7 @@ SCM_TESTS = tests/alist.test			\
 	    tests/r5rs_pitfall.test		\
 	    tests/r6rs-ports.test		\
 	    tests/ramap.test			\
+	    tests/rdelim.test			\
 	    tests/reader.test			\
 	    tests/receive.test			\
 	    tests/regexp.test			\

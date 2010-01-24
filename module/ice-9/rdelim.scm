@@ -22,8 +22,10 @@
 ;;; similar to (scsh rdelim) but somewhat incompatible.
 
 (define-module (ice-9 rdelim)
-  :export (read-line read-line! read-delimited read-delimited!
-	   %read-delimited! %read-line write-line)  ; C
+  #:autoload (ice-9 regex) (string-match)
+  #:export (read-line read-line! read-delimited read-delimited!
+            skip-byte-order-mark!          
+            %read-delimited! %read-line write-line)  ; C
   )
 
 (%init-rdelim-builtins)
@@ -170,3 +172,23 @@
 	      line)
       (else
        (error "unexpected handle-delim value: " handle-delim)))))
+
+(define byte-order-mark-alist
+  '(("^utf16" #xFEFF)))
+
+(define* (skip-byte-order-mark! #:optional (port (current-input-port)))
+  "Tell Guile that subsequent reads on PORT should not return a byte
+order mark, if the port has one."
+  ;; This implementation works by actually reading and discarding the byte order
+  ;; mark character if we are still at the start of the port.
+  (let ((encoding (port-encoding port)))
+    (if (and encoding
+             (zero? (port-line port))
+             (zero? (port-column port)))
+       (let loop ((bom-alist byte-order-mark-alist))
+         (or (null? bom-alist)
+             (if (string-match (caar bom-alist) encoding)
+                 (let ((possible-bom (char->integer (peek-char port))))
+                   (if (memq possible-bom (cdar bom-alist))
+                       (read-char port)))
+                 (loop (cdr bom-alist))))))))

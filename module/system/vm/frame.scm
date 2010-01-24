@@ -29,7 +29,16 @@
             frame-binding-ref frame-binding-set!
             frame-source frame-call-representation
             frame-environment
-            frame-object-binding frame-object-name))
+            frame-object-binding frame-object-name
+            ;; For compatibility...
+            frame-procedure?
+            frame-real?))
+
+(define (frame-procedure? frame)
+  #t)
+
+(define (frame-real? frame)
+  #t)
 
 (define (frame-bindings frame)
   (program-bindings-for-ip (frame-procedure frame)

@@ -32,6 +32,7 @@
 (require 'cl)
 (require 'gds-server)
 (require 'gds-scheme)
+(require 'comint)
 
 ;; The subprocess object for the debug server.
 (defvar gds-debug-server nil)
@@ -612,6 +613,33 @@ you would add an element to this alist to transform
   (define-key gds-mode-map [menu-bar gds-debug]
     (cons "Guile-Debug" gds-menu)))
 
+
+;;;; Run a Guile script in a comint buffer, with debugging.
+
+(defun gds (command-line working-directory)
+  (interactive
+   (list (read-string "Run: " (buffer-file-name))
+         (read-directory-name "Working directory: ")))
+  (let* ((script-args (split-string-and-unquote command-line))
+         (script (car script-args))
+         (args (append (if (listp gds-guile-program)
+                           gds-guile-program
+                         (list gds-guile-program))
+                       (list "--debug"
+                             "-c"
+                             "(begin\
+ (use-modules (ice-9 gds-client))\
+ (gds-debug-vm)\
+ (display (program-arguments))\
+ (newline)\
+ (set-program-arguments (cddr (program-arguments)))\
+ (load (car (program-arguments))))")
+                       (and script-args (cons "--" script-args)))))
+    (display-buffer (apply (function make-comint)
+                           (or script "gds")
+                           (car args)
+                           nil
+                           (cdr args)))))
 
 ;;;; Autostarting the GDS server.
 
