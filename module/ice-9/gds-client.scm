@@ -105,11 +105,15 @@ arguments: ~s
 source: ~s
 call-representation: ~s
 environment: ~s"
-                                                  (frame-bindings frame)
+                                                  (or (false-if-exception
+                                                       (frame-bindings frame))
+                                                      'ERROR)
                                                   (frame-arguments frame)
                                                   (frame-source frame)
                                                   (frame-call-representation frame)
-                                                  (frame-environment frame))
+                                                  (or (false-if-exception
+                                                       (frame-environment frame))
+                                                      'ERROR))
                                           ;(with-output-to-string
                                           ;  (lambda ()
                                           ;    (write-frame-long frame)))
