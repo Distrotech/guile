@@ -97,7 +97,7 @@
                       (loop (gds-debug-read)))
                      ((info-frame)
                       ;; Return frame info.
-                      (let ((frame (stack-ref stack (cadr protocol))))
+                      (let ((frame (stack-ref stack (+ (cadr protocol) 2))))
                         (write-form (list 'info-result
                                           (format #f "\
 bindings: ~s
@@ -226,8 +226,8 @@ environment: ~s"
   ;; Return Emacs-readable representation of STACK.
   (map (lambda (index)
 	 (frame->emacs-readable (stack-ref stack index)))
-       (iota (min (stack-length stack)
-		  (cadr (memq 'depth (debug-options)))))))
+       (cddr (iota (min (stack-length stack)
+                        (cadr (memq 'depth (debug-options))))))))
 
 (define (frame->emacs-readable frame)
   ;; Return Emacs-readable representation of FRAME.
