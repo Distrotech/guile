@@ -1,0 +1,6 @@
+(display (+ 3 4 5))
+(newline)
+(display (cons 'adding (cdr (command-line))))
+(newline)
+(display (apply + (map string->number (cdr (command-line)))))
+(newline)
