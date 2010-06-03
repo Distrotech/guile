@@ -63,6 +63,10 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/keywords.test			\
 	    tests/list.test			\
 	    tests/load.test			\
+	    tests/lua-eval.test			\
+	    tests/lua-eval-2.test		\
+	    tests/lua-lexer.test		\
+	    tests/lua-standard-library.test	\
 	    tests/match.test			\
 	    tests/modules.test			\
 	    tests/multilingual.nottest		\

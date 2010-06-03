@@ -1,0 +1,75 @@
+;;;; lua-lexer.test --- lua lexer test suite  -*- mode: scheme -*-
+;;;;
+;;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;; 
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;; 
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-lua-lexer)
+  #:use-module (ice-9 format)
+  #:use-module (srfi srfi-8)
+  #:use-module (test-suite lib)
+
+  #:use-module (language lua lexer))
+
+(with-test-prefix "lua-lexer"
+  (define (from-string string)
+    (define-lua-lexer get-source-info lex)
+    (call-with-input-string
+     string
+     (lambda (port)
+
+       (initialize-lua-lexer! port get-source-info lex)
+       (lex))))
+
+  (let-syntax
+    ((test
+      (syntax-rules (eof)
+        ((_ string expect)
+         (pass-if (format "~S => ~S" string expect) (equal? (from-string string) expect)))
+        ((_ (eof string))
+         (pass-if (format "~a => #<eof>" string) (eof-object? (from-string string)))))))
+
+    (test (eof " "))
+    (test (eof "-- comment"))
+    (test (eof "--[[long
+comment]]"))
+
+    (test "[[long string]]" "long string")
+    (test "[=[[==[longer string]==]]=]" "[==[longer string]==]")
+
+    ;; numbers
+    (test "12345" 12345)
+    (test "12345.6789" 12345.6789)
+    (test "12.34e5" 1234000.0)
+    (test ".34e5" 34000.0)
+
+    ;; string escapes
+    (test "'\\a\\b\\f\\n\\r\\t\\v'"
+          "\a\b\f\n\r\t\v")
+    (test "'\\''"
+          "'")
+
+    ;; operators, keywords, identifiers
+    (test "name" 'name)
+    (test "return" #:return)
+    (test ".." #:concat)
+    (test "..." #:dots)
+    (test ";" #\;)
+    (test "-" #\-)
+    (test "+" #\+)
+    (test "/" #\/)
+    (test "*" #\*)
+
+))

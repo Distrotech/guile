@@ -1,0 +1,77 @@
+;;;; lua standard library test    -*- mode: scheme -*-
+;;;;
+;;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;; 
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;; 
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-lua)
+  #:use-module (ice-9 format)
+  #:use-module (language tree-il)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-8)
+  #:use-module (system base compile)
+  #:use-module (test-suite lib)
+
+  #:use-module (language lua parser)
+
+  )
+
+(define (from-string string)
+  (compile ((make-parser (open-input-string string)))
+           #:from 'lua
+           #:to 'value))
+
+(define-syntax
+  test
+  (syntax-rules ()
+    ((_ string expect)
+     (pass-if (format "~S => ~S" string expect) (equal? (from-string string) expect)))
+    ((_ string)
+     (test string #t))))
+
+(with-test-prefix "lua-builtin"
+  (test "assert(true)")
+  (test "rawequal(true,true)")
+  (test "return tonumber('2')" 2)
+)
+
+(with-test-prefix "lua-math"
+  (test "require 'math'; return true")
+  (test "return math.abs(-1)" 1)
+  (test "return math.asin(1)" (asin 1))
+  (test "return math.acos(5)" (acos 5))
+  (test "return math.atan(2/1)" (atan (/ 2 1)))
+  (test "return math.atan2(2,1)" (atan (/ 2 1)))
+  (test "return math.ceil(0.5)" (ceiling 0.5))
+  (test "return math.cos(1)" (cos 1))
+  (test "return math.cosh(1)" (cosh 1))
+  (test "return math.floor(0.5)" (floor 0.5))
+  (test "return math.log(10)" (log 10))
+  (test "return math.log10(5)" (log10 5))
+  (test "return math.sqrt(4)" (sqrt 4))
+  (test "return math.sin(5)" (sin 5))
+  (test "return math.sinh(5)" (sinh 5))
+  (test "return math.tan(5)" (tan 5))
+  (test "return math.tanh(5)" (tanh 5))
+  (test "return math.ldexp(4,3)" 32)
+  (test "return math.modf(6,4)" 2)
+  )
+
+(with-test-prefix "lua-table"
+  (test "require 'table'; return true")
+  (test "t = {}; t[1] = true; t[555] = true; t[1234] = true; return table.maxn(t)" 1234)
+  (test "return table.concat({\"1\", \"2\", \"3\"}, \" \")" "1 2 3")
+  (test "t = {}; t[1] = true; t[2] = false; table.insert(t, 2, true); return t[2]")
+)

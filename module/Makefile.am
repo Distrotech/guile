@@ -59,6 +59,7 @@ SOURCES =					\
   $(SCRIPTS_SOURCES)				\
   $(ECMASCRIPT_LANG_SOURCES)			\
   $(ELISP_LANG_SOURCES)				\
+  $(LUA_LANG_SOURCES)				\
   $(BRAINFUCK_LANG_SOURCES)			\
   $(LIB_SOURCES)				\
   $(WEB_SOURCES)
@@ -139,6 +140,18 @@ ELISP_LANG_SOURCES =				\
   language/elisp/runtime/macros.scm		\
   language/elisp/runtime/subrs.scm		\
   language/elisp/spec.scm
+
+LUA_LANG_SOURCES =				\
+  language/lua/common.scm			\
+  language/lua/runtime.scm			\
+  language/lua/lexer.scm			\
+  language/lua/parser.scm			\
+  language/lua/compile-tree-il.scm		\
+  language/lua/standard/io.scm			\
+  language/lua/standard/math.scm		\
+  language/lua/standard/os.scm			\
+  language/lua/standard/table.scm		\
+  language/lua/spec.scm
 
 BRAINFUCK_LANG_SOURCES =			\
   language/brainfuck/parse.scm			\

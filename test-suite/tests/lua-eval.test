@@ -1,0 +1,115 @@
+;;;; lua-eval.test --- basic tests for builtin lua constructs  -*- mode: scheme -*-
+;;;;
+;;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;; 
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;; 
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-lua)
+  #:use-module (ice-9 format)
+  #:use-module (language tree-il)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-8)
+  #:use-module (system base compile)
+  #:use-module (test-suite lib)
+
+  #:use-module (language lua parser)
+
+  )
+
+(with-test-prefix "lua-eval"
+  (define (from-string string)
+    (compile ((make-parser (open-input-string string)))
+             #:from 'lua
+             #:to 'value))
+  (letrec-syntax
+    ((test
+      (syntax-rules ()
+        ((_ string expect)
+         (pass-if (format "~S => ~S" string expect) (equal? (from-string string) expect)))
+        ((_ string)
+         (test string #t)))))
+
+    (test "return true")
+    (test "return false" #f)
+    (test "return nil" #nil)
+    (test "return 12345" 12345)
+    (test "return 12345.6789" 12345.6789)
+    (test "return \"string\"" "string")
+    (test "return (true)")
+    (test "return (false == false)")
+    (test "return;" *unspecified*)
+    (test "return [[string]]" "string")
+    (test "return [=[string]=]" "string")
+
+    ;; exercise the operator precedence parser
+    (test "return 2" 2)
+    (test "return 2 + 2" 4)
+    (test "return 1 + 2 * 3" 7)
+    (test "return 1 * 2 + 3" 5)
+    (test "return 1 + 2 ^ 3 * 4 - 5" 28)
+    (test "return 1 ^ 2 - 3 * 4 + 5" -6)
+    (test "return 1 + -6" -5)
+
+    ;; logical operators
+    (test "return false or true")
+    (test "return true or false")
+    (test "return false or false or true")
+    (test "return false or nil and true" #nil)
+    (test "return true and true")
+    (test "return true and nil" #nil)
+    (test "return true and false and nil" #f)
+
+    ;; conditionals
+    (test "if true then return true end")
+    (test "if false then return false else return true end")
+    (test "if true then return true else return false end")
+    (test "if false then return false elseif true then return true elseif false then return false else return false end")
+    (test "if false then return false elseif false then return false elseif true then return true else return false end")
+    (test "if false then return false elseif false then return false elseif false then return false else return true end")
+
+    ;; function expressions
+    (test "(function(x) return x end)(true)")
+
+    ;; undefined variables are implicitly nil
+    (test "return undefined == nil")
+    (test "return undefined ~= nil" #f)
+
+    ;; assignments
+    (test "variable = true; return variable")
+    (test "a,b = 1,2; return a" 1)
+    (test "a,b=1,2;return b" 2)
+    (test "a,b,c=false,true,false; return b")
+    (test "a,b=1;return b" #nil)
+
+    ;; function statements
+    (test "function noargs() return true end noargs()")
+    (test "function identity(x) return x end return identity(21)" 21)
+    (test "function fib(n) if n < 2 then return n else return fib(n-1) + fib(n-2) end end return fib(20)" 6765)
+    (test "function fib(n) if n < 2 then return n else return fib(n-1) + fib(n-2) end end return fib(20)" 6765)
+
+    ;; do
+    (test "do return true end")
+    (test "do if false then return false elseif false then return false elseif false then return false else return true end end")
+
+    ;; parenthetical expressions
+    (test "return (true);")
+    (test "return (2 + (2))" 4)
+
+    ;; while
+    (test "while true do return true end")
+    (test "i=0; while i<5 do i=i+1 end return i" 5)
+    (test "while true do do break end return false end return true")
+
+  ))

@@ -1,0 +1,112 @@
+;;;; lua-eval-2.test --- basic tests for builtin lua constructs, act II  -*- mode: scheme -*-
+;;;;
+;;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;; 
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;; 
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-lua)
+  #:use-module (ice-9 format)
+  #:use-module (language tree-il)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-8)
+  #:use-module (system base compile)
+  #:use-module (test-suite lib)
+
+  #:use-module (language lua parser)
+
+  )
+
+(with-test-prefix "lua-eval"
+  (define (from-string string)
+    (compile ((make-parser (open-input-string string)))
+             #:from 'lua
+             #:to 'value))
+  (letrec-syntax
+    ((test
+      (syntax-rules ()
+        ((_ string expect)
+         (pass-if (format "~S => ~S" string expect) (equal? (from-string string) expect)))
+        ((_ string)
+         (test string #t)))))
+
+    ;; tables
+    (test "a={}; return a[0]" #nil)
+    (test "a={true}; return a[1]" #t)
+    (test "a = { false , true } ; return a[2];" #t)
+    (test "a = { false ; true ; } ; return a[2];" #t)
+    (test "a = { b = true }; return a.b" #t)
+    (test "a = { a = false , false ; b = true , true ; }; return a.b" #t)
+    (test "a = { a = false , false ; b = true , true ; }; return a[2]" #t)
+
+    ;; locals
+    (test "local a; a = true; return a")
+    (test "local a = true; return a")
+    (test "local a,b=false,true; return b")
+    (test "local a,b,c=false,true,false; return b")
+    (test "local a,b,c=false,false,true; return c")
+
+    ;; local function statements
+    (test "local function identity(x) return x end; return identity(true)")
+
+    ;; metatable events
+    (test "table = {} setmetatable(table, { __add = function(a,b) return b end }) return table + 5" 5)
+    (test "table = {} setmetatable(table, { __add = function(a,b) return a end }) return 5 + table" 5)
+
+    ;; field functions
+    (test "table = {} function table.identity(x) return x end return table.identity(true)")
+
+    ;; repeat
+    (test "i=0; repeat i = i+1 until i == 5; return i" 5)
+    (test "i=5; repeat i = i-1 until i == 0; return i" 0)
+
+    ;; length operator
+    (test "return #\"asdf\"" 4)
+    (test "table = {1,2,3,4}; return #table" 4)
+
+    ;; _G
+    (test "a = true return _G.a")
+    (test "a = true return _G._G.a")
+    (test "a = true return _G._G._G.a")
+
+    ;; concat
+    (test "return \"hello\"..\" world\"" "hello world")
+
+    ;; built-in functions
+    (test "assert(true)" #t)
+    (test "print(T)" #nil)
+    (test "print(false or true)" #nil)
+    (test "table = {}; rawset(table, 0, true); return table[0]")
+    (test "table = {}; rawset(table, 0, true); return rawget(table, 0)")
+
+    ;; methods
+    (test "table = {} function table:identity() return self end return table.identity(true)")
+    (test "table = {} function table.identity(self,x) return x end return table:identity(true)")
+
+    ;; arguments default to nil
+    (test "function test(x) return x end return test()" #nil)
+
+    ;; application with freestanding string or table as argument
+    (test "print {x=5}; return true")
+    (test "print \"hello world\"; return true")
+
+    ;; variable arguments
+    #;(test "function test(...) print(...) end test(1,2)")
+
+    ;; numeric for loop
+    (test "for x = 1,2,1 do print(true) end return true")
+
+    ;; list for loop, and ipairs
+    (test "table = {1,2,3} for i,v in ipairs(table) do print(i,v) end return true")
+  ))
