@@ -22,11 +22,12 @@
   #:use-module (language lua common)
 
   #:use-module (rnrs control)
-  #:use-module ((srfi srfi-1) #:select (filter!))
+  #:use-module ((srfi srfi-1) #:select (filter! list-index))
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-69)
   #:use-module ((srfi srfi-98) #:select (get-environment-variable))
   #:use-module ((system base compile) #:select (compile read-and-compile))
+  #:use-module ((system vm program) #:select (make-program))
 
   #:export (runtime-error
 
@@ -70,12 +71,8 @@
             ;; global environment
             *global-env-table*
             save-fenv
-            check-global-function
-            )
+            check-global-function))
 
-  #:export-syntax (table-slots table? table-metatable table-metatable!)
-
-  )                                     ; define-module
 
 ;; Local Variables:
 ;; eval: (put 'define-global 'scheme-indent-function 1)
@@ -83,10 +80,13 @@
 
 (define (runtime-error string . arguments)
   "Throw an error tagged with 'lua-runtime"
-  (throw 'lua-runtime (apply format (cons (string-append "LUA: ERROR: " string "\n") arguments))))
+  (throw 'lua-runtime
+         (apply format #f (string-append "LUA: ERROR: " string "\n")
+                arguments)))
 
 (define (runtime-warning string . arguments)
-  (apply format (cons #t (cons (string-append "LUA: RUNTIME WARNING: " string "\n") arguments))))
+  (apply format #t (string-append "LUA: RUNTIME WARNING: " string "\n")
+         arguments))
 
 ;;;;; MISCELLANEOUS
 
@@ -102,12 +102,14 @@
 
 (define (assert-type argument caller expected value predicate)
   (if (not (predicate value))
-      (runtime-error (format #f "bad argument ~a to '~a' (~a expected, got ~a)" argument caller expected (value-type->string value)))))
+      (runtime-error "bad argument ~a to '~a' (~a expected, got ~a)"
+                     argument caller expected (value-type->string value))))
 
 (define-syntax define-assert
   (syntax-rules ()
     ((_ name string predicate)
-     (define (name argument caller value) (assert-type argument caller string value predicate)))))
+     (define (name argument caller value)
+       (assert-type argument caller string value predicate)))))
 
 (define-assert assert-table "table" table?)
 (define-assert assert-string "string" string?)
@@ -117,16 +119,20 @@
 
 (define-record-type table
   (%make-table metatable slots)
-  table?
-  (metatable table-metatable table-metatable!)
-  (slots table-slots))
+  %table?
+  (metatable %table-metatable %table-metatable!)
+  (slots %table-slots))
 
 (define (make-table)
   (%make-table #f (make-hash-table)))
-
-(define (table? x) (table? x))
-(define (table-metatable x) (table-metatable x))
-(define (table-metatable! x y) (table-metatable! x y))
+(define (table? t)
+  (%table? t))
+(define (table-metatable t)
+  (%table-metatable t))
+(define (table-metatable! t meta)
+  (%table-metatable! t meta))
+(define (table-slots t)
+  (%table-slots t))
 
 ;;;;; USERDATA
 
@@ -139,8 +145,8 @@
 (define (userdata-metatable x)
   (and (table? (userdata-property x)) (userdata-property x)))
 
-(define* (register-userdata! x #:optional metatable)
-  (set! (userdata? x) (or metatable #t)))
+(define* (register-userdata! x #:optional (metatable #t))
+  (set! (userdata? x) metatable))
 
 ;;;;; METATABLES
 
@@ -155,7 +161,7 @@
 ;;;;; TABLE INTERACTION
 
 (define (dispatch-metatable-event key default x . arguments)
-  (let* ((metatable (get-metatable x)))
+  (let ((metatable (get-metatable x)))
     (apply
      (if metatable
          (hash-table-ref/default (table-slots metatable) key default)
@@ -164,17 +170,18 @@
 
 ;; see manual section 2.5.5
 (define (table-length table)
-         (let* ((numeric-keys (sort! (filter! number? (hash-table-keys (table-slots table))) <)))
-           (if (eq? (car numeric-keys) 1)
-               (let lp ((cell (car numeric-keys))
-                        (rest (cdr numeric-keys))
-                        (length 0))
-                 ;; length does not count "holes"
-                 ;; so if a table has the keys 1,2,3 and 5, the length of the table is 3
-                 (if (or (> cell (+ length 1)) (null? rest))
-                     (+ length 1) ;; add one to length as though we had started from one
-                     (lp (car rest) (cdr rest) cell)))
-               0)))
+  (let ((numeric-keys
+         (sort! (filter! number? (hash-table-keys (table-slots table))) <)))
+    (if (eq? (car numeric-keys) 1)
+        (let lp ((cell (car numeric-keys))
+                 (rest (cdr numeric-keys))
+                 (length 0))
+          ;; length does not count "holes"
+          ;; so if a table has the keys 1,2,3 and 5, the length of the table is 3
+          (if (or (> cell (+ length 1)) (null? rest))
+              (+ length 1) ;; add one to length as though we had started from one
+              (lp (car rest) (cdr rest) cell)))
+        0)))
 
 (define (index table key)
   (dispatch-metatable-event
@@ -191,17 +198,19 @@
    table key value))
 
 (define* (get-field table key #:optional (default #nil))
-  (define result (index table key))
-  (if (eq? result #nil)
-      default
-      result))
+  (let ((result (index table key)))
+    (if (eqv? result #nil)
+        default
+        result)))
 
 ;;;;; OPERATORS
 (define (len a)
   "A function backing the unary # (length) operator"
-  (cond ((string? a) (string-length a))
-        ((table? a) (table-length a))
-        (else (runtime-error "attempt to get length of a ~A value" (value-type->string a)))))
+  (cond
+   ((string? a) (string-length a))
+   ((table? a) (table-length a))
+   (else (runtime-error "attempt to get length of a ~A value"
+                        (value-type->string a)))))
 
 (define (unm a)
   "A function backing the unary - (negation) operator"
@@ -270,14 +279,14 @@
 (hash-table-set!
  (table-slots module-metatable) "__index"
  (lambda (table key)
-   (define slots (table-slots table))
-   (if (hash-table-exists? slots key)
-       (hash-table-ref slots key)
-       (let ((key (string->symbol key))
-             (module (hash-table-ref slots 'module)))
-         (if (not (module-defined? module key))
-             #nil
-             (module-ref module key #f))))))
+   (let ((slots (table-slots table)))
+     (if (hash-table-exists? slots key)
+         (hash-table-ref slots key)
+         (let ((key (string->symbol key))
+               (module (hash-table-ref slots 'module)))
+           (if (not (module-defined? module key))
+               #nil
+               (module-ref module key #f)))))))
 
 (define (make-module-table name)
   (define table (make-table))
@@ -298,7 +307,7 @@
       (set! *global-env-table* save))))
 
 (define (check-global-function name value)
-  (when (eq? value #nil)
+  (when (eqv? value #nil)
     (runtime-error "attempt to call global '~a' (a nil value)" name)))
 
 ;;;;; BUILT-INS
@@ -318,10 +327,9 @@
        (new-index! *global-env-table* (symbol->string 'name) name)))))
 
 (define-global (assert v . opts)
-  (define message (if (null? opts) "assertion failed" (car opts)))
-  (if (not v)
-      (runtime-error message)
-      (apply values (cons v opts))))
+  (if v
+      (apply values v opts)
+      (runtime-error "~a" (if (null? opts) "assertion failed" (car opts)))))
 
 ;; NOTE: collectgarbage cannot be fully implemented because it expects
 ;; an incremental garbage collector that matches lua's interface; libgc
@@ -341,13 +349,15 @@
           ((string=? opt "setstepmul") (ignore))
           (else (runtime-error "bad argument #1 to 'collectgarbage' (invalid option ~a)" opt)))))
 
+(define (run-lua lua-text)
+  ((make-program (compile lua-text #:from 'lua #:to 'objcode))))
+
 (define-global (dofile filename)
   (assert-string 1 "dofile" filename)
-  (runtime-warning "dofile cannot return the values of the chunk and instead will return #nil")
-  (call-with-input-file filename
-    (lambda (file)
-      (compile ((@ (language lua parser) read-lua) file) #:from 'lua #:to 'value)))
-  #nil)
+  (run-lua
+   (call-with-input-file filename
+     (lambda (file)
+       ((@ (language lua parser) read-lua) file)))))
 
 (define-global (do-not-export error)
   (lambda* (message #:optional level)
@@ -372,13 +382,9 @@
       (let* ((value (index table indice)))
         (if (eq? value #nil)
             (values #nil #nil)
-            (values indice value)))
-      )
+            (values indice value))))
     table
     0))
-
-(define (load-warning)
-  (runtime-warning "load, loadfile, and loadstring cannot return the results of evaluating a file"))
 
 (define (load-chunkname-warning chunkname)
   (when chunkname
@@ -386,35 +392,34 @@
 
 (define-global load
   (lambda* (func #:optional chunkname)
-    (load-warning)
     (load-chunkname-warning chunkname)
     (lambda ()
-      (compile
+      (run-lua
        ((@ (language lua parser) read-lua)
         (open-input-string
          (let lp ((tree '())
                   (result (func)))
            (if (or (equal? func "") (eq? func #nil) (eq? func *unspecified*))
                (string-concatenate-reverse tree)
-               (lp (cons func tree) (func))))))
-       #:from 'lua #:to 'value))))
+               (lp (cons func tree) (func))))))))))
 
 (define-global loadfile
   (lambda* (#:optional filename)
-    (load-warning)
     (lambda ()
-      (if filename
-          (call-with-input-file filename
-            (lambda (file)
-              (compile ((@ (language lua parser) read-lua) file) #:from 'lua #:to 'value)))
-          (read-and-compile (current-input-port) #:from 'lua)))))
+      (run-lua
+       (if filename
+           (call-with-input-file filename
+             (lambda (file)
+               ((@ (language lua parser) read-lua) file)))
+           ((@ (language lua parser) read-lua) (current-input-port)))))))
 
 (define-global loadstring
   (lambda* (string #:optional chunkname)
-    (load-warning)
     (load-chunkname-warning chunkname)
     (lambda ()
-      (compile ((@ (language lua parser) read-lua) (open-input-string string)) #:from 'lua #:to 'value))))
+      (run-lua (call-with-input-string
+                string
+                (@ (language lua parser) read-lua))))))
 
 ;; TODO: module
 
@@ -427,9 +432,10 @@
           #nil
           (begin
             (if (eq? index #nil)
-                (let* ((next-index (list-ref keys 0)))
+                (let ((next-index (list-ref keys 0)))
                   (values next-index (rawget table next-index)))
-                (let* ((key-ref (+ ((@ (srfi srfi-1) list-index) (lambda (x) (equal? x index)) keys) 1)))
+                (let ((key-ref
+                       (1+ (list-index (lambda (x) (equal? x index)) keys))))
                   (if (>= key-ref (length keys))
                       (values #nil #nil)
                       (let* ((next-index (list-ref keys key-ref)))
@@ -441,8 +447,8 @@
 
 (define-global (pcall function . arguments)
   (catch #t
-         (lambda () (apply function arguments))
-         (lambda args (apply values (cons #f args)))))
+    (lambda () (apply function arguments))
+    (lambda args (apply values (cons #f args)))))
 
 (define-global (print . arguments)
   (for-each
@@ -466,17 +472,19 @@
 
 (define-global (select index . rest)
   (define rest-length (length rest))
-  (cond ((number? index)
-         (let lp ((vals '())
-                  (i index))
-           (if (> i rest-length)
-               (apply values (reverse! vals))
-               (lp (cons (list-ref rest (- i 1)) vals) (+ i 1)))))
-        (else rest-length)))
+  (cond
+   ((number? index)
+    (let lp ((vals '())
+             (i index))
+      (if (> i rest-length)
+          (apply values (reverse! vals))
+          (lp (cons (list-ref rest (- i 1)) vals) (+ i 1)))))
+   (else rest-length)))
 
 (define-global (setmetatable table metatable)
   (assert-table 1 "setmetatable" table)
-  (assert-type 2 "setmetatable" "nil or table" metatable (lambda (x) (or (table? x) (eq? x #nil))))
+  (assert-type 2 "setmetatable" "nil or table" metatable
+               (lambda (x) (or (table? x) (eq? x #nil))))
   (table-metatable! table (if (eq? metatable #nil) #f metatable))
   table)
 
@@ -484,26 +492,29 @@
 ;; not have the same semantics as lua's tonumber; it should be based on the lexer
 (define-global tonumber
   (lambda* (e #:optional (base 10))
-    (cond ((number? e) e)
-          ((string? e)
-           (unless (memv base '(2 8 10 16))
-             (runtime-warning "tonumber cannot respect bases other than 2, 8, 10, and 16"))
-           (string->number e base))
-          (else #nil))))
+    (cond
+     ((number? e) e)
+     ((string? e)
+      (unless (memv base '(2 8 10 16))
+        (runtime-warning
+         "tonumber cannot respect bases other than 2, 8, 10, and 16"))
+      (string->number e base))
+     (else #nil))))
 
 (define-global (tostring e)
-  (cond ((string? e) e)
-        ((eqv? e #t) "true")
-        ((eqv? e #f) "false")
-        ((eqv? e #nil) "nil")
-        ((number? e) (number->string e))
-        ((might-have-metatable? e)
-         (dispatch-metatable-event
-          "__tostring"
-          (lambda (table) (format #f "~A" e))
-          e
-          e))
-        (else (runtime-error "tostring cannot convert value ~A" e))))
+  (cond
+   ((string? e) e)
+   ((eqv? e #t) "true")
+   ((eqv? e #f) "false")
+   ((eqv? e #nil) "nil")
+   ((number? e) (number->string e))
+   ((might-have-metatable? e)
+    (dispatch-metatable-event
+     "__tostring"
+     (lambda (table) (format #f "~A" e))
+     e
+     e))
+   (else (runtime-error "tostring cannot convert value ~A" e))))
 
 (define-global (type v)
   (value-type->string v))
@@ -527,17 +538,23 @@
 
 (define-global (xpcall f err)
   (catch #t
-         (lambda () (values #t (f)))
-         (lambda args (values #f (err args)))))
+    (lambda () (values #t (f)))
+    (lambda args (values #f (err args)))))
 
 ;;; MODULE SYSTEM
 
 ;; package
 (define-global package (make-table))
 
+;; FIXME: this has no meaning if Guile does not support the Lua C
+;; API. Also, we would need some other way to specify the path.
+;;
 ;; package.cpath
-(new-index! package "cpath" (or (get-environment-variable "LUA_CPATH")
-                                "./?.so;/usr/lib/lua/5.1/?.so;/usr/lib/lua/5.1/loadall.so"))
+#;
+(new-index! package "cpath"
+            (or (get-environment-variable "LUA_CPATH")
+                "./?.so;/usr/lib/lua/5.1/?.so;/usr/lib/lua/5.1/loadall.so"))
+
 ;; package.loaded
 (define loaded (make-table))
 (new-index! package "loaded" loaded)
@@ -547,17 +564,25 @@
 (new-index! package "loaders" loaders)
 
 ;; package.loadlib
-(new-index! package "loadlib" (lambda (lib func . _) (runtime-error "loadlib not implemented")))
+(new-index! package "loadlib"
+            (lambda (lib func . _) (runtime-error "loadlib not implemented")))
 
+;; FIXME: Like cpath, this has no meaning if Guile does not support the
+;; Lua C API, and we would need some other way to specify the path.
+;;
 ;; package.path
-(new-index! package "path" (or (get-environment-variable "LUA_PATH") "./?.lua;/usr/share/lua/5.1/?.lua;/usr/share/lua/5.1/?/init.lua;/usr/lib/lua/5.1/?.lua;/usr/lib/lua/5.1/?/init.lua"))
+#;
+(new-index! package "path"
+            (or (get-environment-variable "LUA_PATH")
+                "./?.lua;/usr/share/lua/5.1/?.lua;/usr/share/lua/5.1/?/init.lua;/usr/lib/lua/5.1/?.lua;/usr/lib/lua/5.1/?/init.lua"))
 
 ;; package.preload
 (define preload (make-table))
 (new-index! package "preload" preload)
 
 ;; package.seeall
-(new-index! package "seeall" (lambda (module . _) (runtime-error "seeall unimplemented")))
+(new-index! package "seeall"
+            (lambda (module . _) (runtime-error "seeall unimplemented")))
 
 ;; arg
 ;; command line argument table
@@ -582,11 +607,13 @@
   (assert-type 1 "require" "string" module-name string?)
   ;; try to load module, if it's not already loaded
   (if (not (hash-table-exists? (table-slots loaded) module-name))
-      (let* ((std-module-name `(language lua standard ,(string->symbol module-name))))
+      (let* ((std-module-name
+              `(language lua standard ,(string->symbol module-name))))
         (if (module-exists? std-module-name)
-            (register-loaded-module module-name (make-module-table std-module-name)))))
+            (register-loaded-module
+             module-name
+             (make-module-table std-module-name)))))
 
   (if (not (hash-table-exists? (table-slots loaded) module-name))
       (runtime-error "require failed"))
   (rawget loaded module-name))
-
