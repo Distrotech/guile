@@ -500,7 +500,7 @@
   (lambda* (e #:optional (base 10))
     (cond ((number? e) e)
           ((string? e)
-           (unless (or-eqv? base 2 8 10 16)
+           (unless (memv base '(2 8 10 16))
              (runtime-warning "tonumber cannot respect bases other than 2, 8, 10, and 16"))
            (string->number e base))
           (else #nil))))

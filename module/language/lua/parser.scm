@@ -121,7 +121,7 @@
 
 (define (end-of-chunk? token)
   "Returns true if TOKEN denotes the end of a grammatical chunk."
-  (or (or-eqv? token #:else #:elseif #:end #:until) (eof-object? token)))
+  (or (memq token '(#:else #:elseif #:end #:until)) (eof-object? token)))
 
 (define (token/type t)
   (cond ((number? t) 'NUMBER)
@@ -138,11 +138,11 @@
 ;; infix operator parsing
 (define (binary-operator? t)
   "Return #t if the token may be a binary operator"
-  (or-eqv? t #\+ #\* #\/ #\- #\^ #\< #\> #:== #:~= #:and #:or #:concat))
+  (memv t '(#\+ #\* #\/ #\- #\^ #\< #\> #:== #:~= #:and #:or #:concat)))
 
 (define (unary-operator? t)
   "Return #t if the token may be a unary operator"
-  (or-eqv? t #\- #\# #:not))
+  (memv t '(#\- #\# #:not)))
 
 ;; Operator precedence
 (define *unary-priority* 80)
@@ -817,7 +817,7 @@
               (lookahead!)
               (if (eq? token2 #:=)
                   (numeric-for src name)
-                  (if (or-eqv? token2 #:in #\,)
+                  (if (memv token2 '(#:in #\,))
                       (list-for src name)
                       (syntax-error src "expected = or in after for variable"))))))
       result))

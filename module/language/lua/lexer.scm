@@ -58,7 +58,7 @@
 
 (define (possible-keyword token)
   "Convert a symbol to a keyword if it is a reserved word in Lua"
-  (if (or-eqv? token '(return function end if then elseif else true false nil or and do while repeat until local for break in not))
+  (if (memq token '(return function end if then elseif else true false nil or and do while repeat until local for break in not))
       (symbol->keyword token)
       token))
 

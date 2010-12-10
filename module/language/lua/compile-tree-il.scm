@@ -201,7 +201,7 @@
     ;; so you can't use break inside of a function inside a while loop
     ;; for instance
     ((ast-break src)
-     (unless (or-eqv? (context) 'while-loop 'list-for-loop 'numeric-for-loop)
+     (unless (memq (context) '(while-loop list-for-loop numeric-for-loop))
        (syntax-error src "no loop to break"))
      (make-application src (make-module-ref src '(guile) 'throw #t) (list (make-const src 'lua-break)))
      )

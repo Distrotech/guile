@@ -19,22 +19,11 @@
 ;;; Code:
 
 (define-module (language lua common)
-
   #:use-module (ice-9 format)
-
-  #:export (syntax-error or-eqv?))
+  #:export (syntax-error))
 
 (define (syntax-error src string . args)
   "Throw an error tagged with 'syntax-error, and print detailed source
 code information when available. STRING and ARGS are given to FORMAT."
   (throw 'syntax-error #f (apply format #f string args)
          src #f #f '()))
-
-;; I was using CASE, but this is more succinct
-;; (or-eqv? 1 #f 1) => (or (eqv? 1 #f) (eqv? 1 1))
-(define-syntax or-eqv?
-  (syntax-rules ()
-    ((_ test '(value ...))
-     (or (eqv? test 'value) ...))
-    ((_ test value ...)
-     (or (eqv? test value) ...))))
