@@ -28,11 +28,7 @@
   #:use-module ((srfi srfi-98) #:select (get-environment-variable))
   #:use-module ((system base compile) #:select (compile read-and-compile))
 
-  #:export (
-            runtime-error
-
-            ;; semantics
-            false? true?
+  #:export (runtime-error
 
             ;; misc
             value-type->string
@@ -91,16 +87,6 @@
 
 (define (runtime-warning string . arguments)
   (apply format (cons #t (cons (string-append "LUA: RUNTIME WARNING: " string "\n") arguments))))
-
-;;;;; SEMANTICS
-
-(define (false? x)
-  "Wrapper for Scheme's false semantics that considers #nil to be false"
-  (or (eq? x #f) (eq? x #nil)))
-
-(define (true? x)
-  "Inversion of false?"
-  (not (false? x)))
 
 ;;;;; MISCELLANEOUS
 
@@ -333,7 +319,7 @@
 
 (define-global (assert v . opts)
   (define message (if (null? opts) "assertion failed" (car opts)))
-  (if (false? v)
+  (if (not v)
       (runtime-error message)
       (apply values (cons v opts))))
 

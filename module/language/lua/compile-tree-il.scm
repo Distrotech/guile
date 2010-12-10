@@ -44,10 +44,6 @@
   "Apply a function in the (language lua runtime) module"
   (make-application src (ref-runtime src name) arguments))
 
-(define (make-lua-conditional src condition then else)
-  "Generate a conditional with (@ (language lua runtime) true?)"
-  (make-conditional src (make-runtime-application src 'true? (list condition)) then else))
-
 (define (make-table-ref src table index)
   (make-runtime-application src 'index
     (list table (if (symbol? index) (make-const src (symbol->string index)) index))))
@@ -78,7 +74,7 @@
   (apply-named-lua-function
    src "while"
    (lambda (loop)
-     (make-lua-conditional
+     (make-conditional
       src
       condition
       (make-sequence src
@@ -300,9 +296,9 @@
            (begin
              ;; if not (var and limit and step) then error() end
              (if (apply (primitive not)
-                        (if (apply (@ (language lua runtime) true?) (lexical variable ,gs-variable))
-                            (if (apply (@ (language lua runtime) true?) (lexical limit ,gs-limit))
-                                (if (apply (@ (language lua runtime) true?) (lexical step ,gs-step))
+                        (if (lexical variable ,gs-variable)
+                            (if (lexical limit ,gs-limit)
+                                (if (lexical step ,gs-step)
                                     (const #t)
                                     (const #f))
                                 (const #f))
@@ -377,13 +373,13 @@
                        (list left right)))))
             result))
          ((#:or)
-          (make-lua-conditional
+          (make-conditional
            src
            left
            left
            right))
          ((#:and)
-          (make-lua-conditional
+          (make-conditional
            src
            left
            right
