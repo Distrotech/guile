@@ -20,15 +20,12 @@
 
 (define-module (language lua compile-tree-il)
   #:use-module (language tree-il)
-  #:use-module ((srfi srfi-1) #:select (map!))
   #:use-module (srfi srfi-39)
   #:use-module ((system base syntax) #:select (record-case))
   #:use-module (rnrs control)
-
   #:use-module (language lua common)
   #:use-module (language lua parser)
   #:use-module (language lua runtime)
-
   #:export (compile-tree-il))
 
 ;; utilities
@@ -52,6 +49,7 @@
   (make-runtime-application src 'new-index!
     (list table (if (symbol? index) (make-const src (symbol->string index)) index) exp)))
 
+;; FIXME: use prompt and abort rather than catch and throw
 (define (apply-named-lua-function src name get-body)
   (let* ((name (gensym (string-append " " name)))
          (parameters (list name)))
@@ -77,59 +75,55 @@
      (make-conditional
       src
       condition
-      (make-sequence src
-                     (list body (make-application src (make-lexical-ref src loop loop) '())))
+      (make-sequence
+       src
+       (list body
+             (make-application src (make-lexical-ref src loop loop) '())))
       (make-void src)))))
 
 ;; calling conventions
-(define (make-plain-lambda-case src args gensyms body . alternate)
-  (make-lambda-case src args #f #f #f '() (or gensyms args) body (and (not (null? alternate)) (car alternate))))
+(define* (make-plain-lambda-case src args gensyms body #:optional alternate)
+  (make-lambda-case src args #f #f #f '() (or gensyms args) body alternate))
 
-(define (make-plain-lambda src args gensyms body . alternate)
-  (make-lambda src '() (apply make-plain-lambda-case (append (list src args gensyms body) alternate))))
+(define* (make-plain-lambda src args gensyms body #:optional alternate)
+  (make-lambda src '()
+               (make-plain-lambda-case src args gensyms body alternate)))
 
 (define (make-arg-ignoring-lambda src body)
-  (make-lambda src '() (make-lambda-case src '() #f '_ #f '() (list (gensym "_")) body #f)))
+  (make-lambda src '()
+               (make-lambda-case src '() #f '_ #f '() (list (gensym "_"))
+                                 body #f)))
 
 (define (make-argless-lambda src body)
   (make-plain-lambda src '() #f body))
 
 (define (adjust-to-single-value src exp)
-  "adjust an expression so that it only returns one result; the rest are dropped silently"
-  (define value-gensym (gensym "%value"))
-  (define adjust-gensym (gensym "%adjust"))
-  (make-letrec src
-  #t
-  '(%adjust)
-  (list adjust-gensym)
-  (list
-    (make-plain-lambda
-     src
-     '(%value)
-     (list value-gensym)
-     (make-lexical-ref src '%value value-gensym)))
-   (make-application
-    src
-    (make-primitive-ref src 'call-with-values)
-    (list (make-argless-lambda src exp) (make-lexical-ref src '%adjust adjust-gensym)))))
+  "adjust an expression so that it only returns one result; the rest are
+dropped silently"
+  ;; Rely on the truncating behavior of returning multiple values to a
+  ;; singly-valued continuation.
+  (make-application src (make-primitive-ref src 'values) (list exp)))
+
 
 ;; main compiler
 
 (define context (make-parameter #f))
 
-(define* (compile exp #:optional last-in-list?)
-  (define* (map-compile exps #:optional care-about-last?)
+(define* (compile exp #:optional tail?)
+  (define* (map-compile exps #:optional (tail? #f))
     (let lp ((ls exps)
              (tree '()))
       (if (null? ls)
           (reverse! tree)
-          (lp (cdr ls) (cons (compile (car ls) (and care-about-last? (null? (cdr ls)))) tree)))))
+          (lp (cdr ls)
+              (cons (compile (car ls) (and tail? (null? (cdr ls))))
+                    tree)))))
 
   (record-case exp
     ((ast-sequence src exps)
      (if (null? exps)
          (make-void src)
-         (make-sequence src (map-compile exps))))
+         (make-sequence src (map-compile exps tail?))))
 
     ((ast-literal src exp)
      (if (eq? exp *unspecified*)
@@ -137,16 +131,27 @@
          (make-const src exp)))
 
     ((ast-return src exp)
-     (make-application src (make-primitive-ref src 'return)
-       (list (make-application src
-              (make-primitive-ref src 'values)
-              (if (list? exp) (map-compile exp #t) (list (compile exp)))))))
+     (if tail?
+         (if (list? exp)
+             (make-application src (make-primitive-ref src 'values)
+                               (map-compile exp))
+             (compile exp #t))
+         (make-application
+          src (make-primitive-ref src 'return/values)
+          (if (list? exp) (map-compile exp #t) (list (compile exp))))))
 
     ((ast-function src name arguments argument-gensyms variable-arguments? body)
      ;; ... is always attached because lua functions must ignore
      ;; variable arguments; the parser will catch it if ... is used in a
      ;; function that doesn't have ... in the parameter list
-     (make-lambda src (if name `((name . ,name)) '()) (make-lambda-case src '() arguments '... #f (map (lambda (x) (make-const src #nil)) arguments) (append! argument-gensyms (list '...)) (compile body) #f)))
+     (let ((meta (if name `((name . ,name)) '())))
+       (make-lambda
+        src meta
+        (make-lambda-case src '() arguments '... #f
+                          (map (lambda (x) (make-const src #nil)) arguments)
+                          (append! argument-gensyms (list '...))
+                          (compile body)
+                          #f))))
 
     ((ast-function-call src operator operands)
  #|    (let* ((proc (compile operator))
@@ -156,11 +161,15 @@
      (let* ((proc (compile operator))
             (app (make-application src proc (map-compile operands))))
        (if (ast-global-ref? operator)
-           (make-sequence src (list
-                               (make-application src (make-module-ref src '(language lua runtime) 'check-global-function #t)
-                                                 (list (make-const src (ast-global-ref-name operator))
-                                                       proc))
-                               app))
+           (make-sequence
+            src (list
+                 ;; FIXME: use module binders instead
+                 (make-application
+                  src (make-module-ref src '(language lua runtime)
+                                       'check-global-function #t)
+                  (list (make-const src (ast-global-ref-name operator))
+                        proc))
+                 app))
            app)))
 
     ((ast-local-block src names gensyms initial-values exp)
@@ -188,8 +197,7 @@
      (make-conditional src (compile test) (compile then) (compile else)))
 
     ((ast-while-loop src condition body)
-     (parameterize
-         ((context 'while-loop))
+     (parameterize ((context 'while-loop))
        (while-loop->tree-il src (compile condition) (compile body))))
 
     ;; TODO: in order for this to have the same semantics as lua, all
@@ -199,9 +207,11 @@
     ((ast-break src)
      (unless (memq (context) '(while-loop list-for-loop numeric-for-loop))
        (syntax-error src "no loop to break"))
-     (make-application src (make-module-ref src '(guile) 'throw #t) (list (make-const src 'lua-break)))
-     )
-
+     ;; FIXME: use abort instead of throw
+     (make-application src (make-module-ref src '(guile) 'throw #t)
+                       (list (make-const src 'lua-break))))
+    
+    ;; FIXME: use prompt and abort instead of throw and catch
     ((ast-list-for-loop src names gs-names exps body)
      (let* ((gs-iterator (gensym "iterator"))
             (gs-state (gensym "state"))
@@ -220,34 +230,62 @@
            ((void) (void) (void)
             (lambda ()
               (lambda-case
-               (,no-arguments
-                (begin
-                  ;; even more complicated, assigning the values to the loop variables
-                  (apply (primitive call-with-values)
-                         (lambda () (lambda-case (,no-arguments (apply (lexical iterator ,gs-iterator) (lexical state ,gs-state) (lexical variable ,gs-variable)))))
-                         (lambda () (lambda-case ((,names #f #f #f () ,gs-names)
-                            ;; almost to the actual loop body, hang in there
-                            (begin
-                              (set! (lexical variable ,gs-variable) (lexical ,(car names) ,(car gs-names)))
-                              (if (apply (primitive eq?) (lexical variable ,gs-variable) (const #nil))
-                                  (apply (@ (guile) throw) (const lua-break))
-                                  (void))
-                              ,(parameterize ((context 'list-for-loop)) (unparse-tree-il (compile body)))
-                              (apply (lexical loop ,gs-loop))))))))))))
+                  (,no-arguments
+                   (begin
+                     ;; even more complicated, assigning the values to
+                     ;; the loop variables
+                     (apply (primitive call-with-values)
+                            (lambda ()
+                              (lambda-case
+                               (,no-arguments
+                                (apply (lexical iterator ,gs-iterator)
+                                       (lexical state ,gs-state)
+                                       (lexical variable ,gs-variable)))))
+                            (lambda ()
+                              (lambda-case
+                               ((,names #f #f #f () ,gs-names)
+                                ;; almost to the actual loop body, hang
+                                ;; in there
+                                (begin
+                                  (set! (lexical variable ,gs-variable)
+                                        (lexical ,(car names) ,(car gs-names)))
+                                  (if (apply (primitive eq?)
+                                             (lexical variable ,gs-variable)
+                                             (const #nil))
+                                      (apply (@ (guile) throw) (const lua-break))
+                                      (void))
+                                  ,(parameterize ((context 'list-for-loop))
+                                     (unparse-tree-il (compile body)))
+                                  (apply (lexical loop ,gs-loop))))))))))))
            ;; initialize variables and start loop
            (begin
              (apply (primitive call-with-values)
-                    (lambda () (lambda-case (,no-arguments ,(unparse-tree-il (make-sequence src (map-compile exps))))))
-                    (lambda () (lambda-case (((iterator state variable) #f #f #f () (,gs-iterator2 ,gs-state2 ,gs-variable2))
-                                             (begin
-                                               (set! (lexical iterator ,gs-iterator) (lexical iterator ,gs-iterator2))
-                                               (set! (lexical state ,gs-state) (lexical state ,gs-state2))
-                                               (set! (lexical variable ,gs-variable) (lexical variable ,gs-variable2)))))))
+                    (lambda () 
+                      (lambda-case
+                       (,no-arguments
+                        ,(unparse-tree-il
+                          (make-sequence src (map-compile exps))))))
+                    (lambda ()
+                      (lambda-case
+                       (((iterator state variable) #f #f #f ()
+                         (,gs-iterator2 ,gs-state2 ,gs-variable2))
+                        (begin
+                          (set! (lexical iterator ,gs-iterator)
+                                (lexical iterator ,gs-iterator2))
+                          (set! (lexical state ,gs-state)
+                                (lexical state ,gs-state2))
+                          (set! (lexical variable ,gs-variable)
+                                (lexical variable ,gs-variable2)))))))
              (apply (@ (guile) catch)
                     (const lua-break)
-                    (lambda () (lambda-case (,no-arguments
-                                             (apply (lexical loop ,gs-loop)))))
-                    (lambda () (lambda-case (((key) #f #f #f () (,(gensym "key"))) (void))))))))))
+                    (lambda ()
+                      (lambda-case
+                       (,no-arguments
+                        (apply (lexical loop ,gs-loop)))))
+                    (lambda ()
+                      (lambda-case
+                       (((key) #f #f #f () (,(gensym "key")))
+                        (void))))))))))
 
     ;; TODO: in order for this to have the same semantics as lua, all
     ;; potential subforms of while should introduce their own context,
@@ -255,8 +293,11 @@
     ;; for instance
 
     ((ast-numeric-for-loop src named initial limit step body)
-     ;; as per 5.1 manual 2.4.5, the numeric for loop can be decomposed into simpler forms
-     ;; still doesn't have proper behavior, should be able to return and break inside a loop
+     ;; as per 5.1 manual 2.4.5, the numeric for loop can be decomposed
+     ;; into simpler forms
+     ;;
+     ;; still doesn't have proper behavior, should be able to return and
+     ;; break inside a loop
      (let* ((gs-named (gensym (symbol->string named)))
             (gs-variable (gensym "variable"))
             (gs-limit (gensym "limit"))
@@ -264,7 +305,9 @@
             (gs-loop (gensym "loop"))
             (while-condition
              `(if (apply (primitive >) (lexical step ,gs-step) (const 0))
-                 (if (apply (primitive <=) (lexical variable ,gs-variable) (lexical limit ,gs-limit))
+                 (if (apply (primitive <=) 
+                            (lexical variable ,gs-variable)
+                            (lexical limit ,gs-limit))
                      (apply (lexical loop ,gs-loop))
                      (void))
                  (void))))
@@ -278,7 +321,10 @@
            ,(cons
               '(const #f)
               (append
-               (map (lambda (x) `(apply (@ (language lua runtime) tonumber) ,(unparse-tree-il (compile x)))) (list initial limit step))
+               (map (lambda (x)
+                      `(apply (@ (language lua runtime) tonumber)
+                              ,(unparse-tree-il (compile x))))
+                    (list initial limit step))
                ;; loop body
                (list
                 `(lambda ()
@@ -287,11 +333,15 @@
                     ((() #f #f #f () ())
                      ;; body
                      (begin
-                       (set! (lexical ,named ,gs-named) (lexical variable ,gs-variable))
-                       ,(parameterize ((context 'numeric-for-loop)) (unparse-tree-il (compile body)))
-                       (set! (lexical variable ,gs-variable) (apply (primitive +) (lexical variable ,gs-variable) (lexical step ,gs-step)))
-                       ,while-condition
-                     )))))))
+                       (set! (lexical ,named ,gs-named)
+                             (lexical variable ,gs-variable))
+                       ,(parameterize ((context 'numeric-for-loop))
+                          (unparse-tree-il (compile body)))
+                       (set! (lexical variable ,gs-variable)
+                             (apply (primitive +)
+                                    (lexical variable ,gs-variable)
+                                    (lexical step ,gs-step)))
+                       ,while-condition)))))))
            ;; body
            (begin
              ;; if not (var and limit and step) then error() end
@@ -311,8 +361,9 @@
     ((ast-table-literal src fields)
      (let* ((table (make-runtime-application src 'make-table '())))
        (if (not (null? fields))
-           ;; if the table's fields are initialized inside of the literal, we need
-           ;; to store it in a variable and initialize its values
+           ;; if the table's fields are initialized inside of the
+           ;; literal, we need to store it in a variable and initialize
+           ;; its values
            (let* ((temp-name (gensym " table"))
                   (names (list temp-name))
                   (ref (make-lexical-ref src temp-name temp-name)))
@@ -327,7 +378,11 @@
                  (lambda (x)
                    (let* ((key (compile (car x)))
                           (value (compile (cdr x))))
-                     (make-runtime-application src 'new-index! (list (make-lexical-ref src temp-name temp-name) key value))))
+                     (make-runtime-application
+                      src 'new-index!
+                      (list (make-lexical-ref src temp-name temp-name)
+                            key
+                            value))))
                  fields)
                 (list ref)))))
            ;; otherwise we can just return the fresh table
@@ -335,7 +390,8 @@
 
     ((ast-unary-operation src operator right)
      ;; reduce simple negative numbers, like -5, to literals
-     (if (and (eq? operator #\-) (ast-literal? right) (number? (ast-literal-exp right)))
+     (if (and (eq? operator #\-) (ast-literal? right)
+              (number? (ast-literal-exp right)))
          (make-const src (- (ast-literal-exp right)))
          (make-application
           src
@@ -349,46 +405,25 @@
      (let ((left (compile left))
            (right (compile right)))
        (case operator
-         ((#\+ #\- #\* #\/ #\^ #\< #\> #:<= #:>= #:== #:~= #:concat)
-          (let* ((result
-                  (make-runtime-application
-                   src
-                   (case operator
-                     ((#\+) 'add)
-                     ((#\-) 'sub)
-                     ((#\*) 'mul)
-                     ((#\/) 'div)
-                     ((#\^) 'pow)
-                     ((#\<) 'lt)
-                     ((#\>) 'lt)
-                     ((#:<=) 'le)
-                     ((#:>=) 'le)
-                     ((#:==) 'eq)
-                     ((#:~=) 'neq)
-                     ((#:concat) 'concat)
-                     (else (error #:COMPILE "unhandled binary operator" operator)))
-                   ;; reverse order of arguments for >, >= so they can be implemented on top of <, <=
-                   (if (or (eq? operator #\>) (eq? operator #:>=))
-                       (list right left)
-                       (list left right)))))
-            result))
-         ((#:or)
-          (make-conditional
-           src
-           left
-           left
-           right))
-         ((#:and)
-          (make-conditional
-           src
-           left
-           right
-           left))
-         (else (error #:COMPILE "unknown binary operator" operator)))))
-    ))
+         ((#\+)      (make-runtime-application src 'add    (list left right)))
+         ((#\-)      (make-runtime-application src 'sub    (list left right)))
+         ((#\*)      (make-runtime-application src 'mul    (list left right)))
+         ((#\/)      (make-runtime-application src 'div    (list left right)))
+         ((#\^)      (make-runtime-application src 'pow    (list left right)))
+         ((#\<)      (make-runtime-application src 'lt     (list left right)))
+         ((#\>)      (make-runtime-application src 'lt     (list right left)))
+         ((#:<=)     (make-runtime-application src 'le     (list left right)))
+         ((#:>=)     (make-runtime-application src 'le     (list right left)))
+         ((#:==)     (make-runtime-application src 'eq     (list left right)))
+         ((#:~=)     (make-runtime-application src 'neq    (list left right)))
+         ((#:concat) (make-runtime-application src 'concat (list left right)))
+         ;; FIXME: double-evaluation
+         ((#:or)     (make-conditional src left left right))
+         ;; FIXME: double-evaluation
+         ((#:and)    (make-conditional src left right left))
+         (else (error #:COMPILE "unknown binary operator" operator)))))))
 
 ;; exported compiler function
 (define (compile-tree-il exp env opts)
-  (parameterize
-      ((context #f))
+  (parameterize ((context #f))
     (values (compile exp) env env)))
