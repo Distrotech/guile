@@ -25,14 +25,11 @@
 
 (with-test-prefix "lua-lexer"
   (define (from-string string)
-    (define-lua-lexer get-source-info lex)
-    (call-with-input-string
-     string
-     (lambda (port)
-
-       (initialize-lua-lexer! port get-source-info lex)
-       (lex))))
-
+    (call-with-values (lambda ()
+                        (call-with-input-string string make-lexer))
+      (lambda (get-source-info lex)
+        (lex))))
+  
   (let-syntax
     ((test
       (syntax-rules (eof)

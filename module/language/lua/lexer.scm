@@ -24,21 +24,16 @@
 ;; characters like #\+ when they're only a character long. Identifiers
 ;; are returned as symbols
 (define-module (language lua lexer)
-
   #:use-module (srfi srfi-8)
   #:use-module (srfi srfi-14)
   #:use-module (srfi srfi-39)
-
   #:use-module (language lua common)
-
-  #:export (make-lexer)
-  #:export-syntax (define-lua-lexer initialize-lua-lexer!))
+  #:export (make-lexer))
 
 (define stdout (current-output-port))
 
 (define (source-info port)
-  `((backtrace . #f)
-    (filename . ,(port-filename port))
+  `((filename . ,(port-filename port))
     (line . ,(port-line port))
     (column . ,(port-column port))))
 
@@ -47,18 +42,22 @@
 ;; Lua only accepts ASCII characters as of 5.2, so we define our own
 ;; charsets here
 (define (char-predicate string)
-  (define char-set (string->char-set string))
-  (lambda (c)
-    (and (not (eof-object? c)) (char-set-contains? char-set c))))
+  (let ((char-set (string->char-set string)))
+    (lambda (c)
+      (and (not (eof-object? c)) (char-set-contains? char-set c)))))
 
 (define is-digit? (char-predicate "0123456789"))
 (define is-name-first? (char-predicate "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))
 (define (is-name? c) (or (is-name-first? c) (is-digit? c)))
 (define (is-newline? c) (and (char? c) (or (char=? c #\newline) (char=? c #\cr))))
 
+(define *reserved-words*
+  '(return function end if then elseif else true false nil or and
+    do while repeat until local for break in not))
+
 (define (possible-keyword token)
   "Convert a symbol to a keyword if it is a reserved word in Lua"
-  (if (memq token '(return function end if then elseif else true false nil or and do while repeat until local for break in not))
+  (if (memq token *reserved-words*)
       (symbol->keyword token)
       token))
 
@@ -72,9 +71,9 @@
 
   (define (clear-buffer)
     "Clear the buffer and return a string of the contents"
-    (define string (get-output-string buffer))
-    (drop-buffer)
-    string)
+    (let ((string (get-output-string buffer)))
+      (drop-buffer)
+      string))
 
   ;; Source code information
   (define saved-source-info #f)
@@ -86,8 +85,7 @@ of an identifier"
 
   (define (get-source-info)
     "Get source code information"
-    (if saved-source-info
-        saved-source-info
+    (or saved-source-info
         (source-info port)))
 
   (define (save-and-next!)
@@ -98,7 +96,7 @@ of an identifier"
     "Consume a comment"
     (let consume ((c (read-char)))
       (cond ((eof-object? c) #f)
-            ((eq? c #\newline) #f)
+            ((eqv? c #\newline) #f)
             (else (consume (read-char))))))
 
   (define (get-long-string-nesting-level)
@@ -106,12 +104,12 @@ of an identifier"
     (define delimiter (read-char))
     (let* ((count
             (let loop ((count 0))
-              (if (eq? (peek-char) #\=)
+              (if (eqv? (peek-char) #\=)
                   (begin
                     (read-char)
                     (loop (+ count 1)))
                   count))))
-      (if (eq? (peek-char) delimiter) count -1)))
+      (if (eqv? (peek-char) delimiter) count -1)))
 
   (define (read-long-string string? nest)
     "Read a long string or comment"
@@ -125,7 +123,9 @@ of an identifier"
       (cond
         ;; Error out if end-of-file is encountered
         ((eof-object? c)
-         (syntax-error (get-source-info) (string-append "unfinished long " (if string? "string" "comment"))))
+         (syntax-error (get-source-info)
+                       (string-append "unfinished long "
+                                      (if string? "string" "comment"))))
         ;; Check to see if we've reached the end
         ((char=? c #\])
          (let* ((nest2 (get-long-string-nesting-level)))
@@ -156,7 +156,7 @@ of an identifier"
     (let loop ((c (peek-char)))
       (cond
         ;; string ends early
-        ((or (eof-object? c) (eq? c #\cr) (eq? c #\newline))
+        ((or (eof-object? c) (eqv? c #\cr) (eqv? c #\newline))
          (syntax-error (get-source-info) "unfinished string ~S" c))
         ;; string escape
         ((char=? c #\\)
@@ -171,12 +171,14 @@ of an identifier"
               ((#\r) #\return)
               ((#\t) #\tab)
               ((#\v) #\vtab)
-              ((#\x) (syntax-error (get-source-info) "hex escapes unsupported"))
-              ((#\d) (syntax-error (get-source-info) "decimal escapes unsupported"))
+              ((#\x) (syntax-error (get-source-info)
+                                   "hex escapes unsupported"))
+              ((#\d) (syntax-error (get-source-info)
+                                   "decimal escapes unsupported"))
               (else escape)))
            (loop (peek-char))))
         (else
-         (if (eq? c delimiter)
+         (if (eqv? c delimiter)
              (read-char) ;; terminate loop and discard delimiter
              (begin
                (save-and-next!)
@@ -185,28 +187,31 @@ of an identifier"
 
   (define (read-number string)
     (save-source-info)
-    (let* ((main (string-append (or string "") (begin
-                                                 (while (or (is-digit? (peek-char)) (eq? (peek-char) #\.))
-                                                        (save-and-next!))
-                                                 (clear-buffer))))
+    (let* ((main (string-append
+                  (or string "")
+                  (begin
+                    (while (or (is-digit? (peek-char)) (eqv? (peek-char) #\.))
+                      (save-and-next!))
+                    (clear-buffer))))
            (exponent
-            (if (or (eq? (peek-char) #\e) (eq? (peek-char) #\E))
+            (if (or (eqv? (peek-char) #\e) (eqv? (peek-char) #\E))
                 (begin
                   (read-char)
-                  (if (eq? (peek-char) #\+)
+                  (if (eqv? (peek-char) #\+)
                       (read-char)
-                      (if (eq? (peek-char) #\-)
+                      (if (eqv? (peek-char) #\-)
                           (save-and-next!)))
                   (if (not (is-digit? (peek-char)))
-                      (syntax-error (get-source-info) "expecting number after exponent sign"))
+                      (syntax-error (get-source-info)
+                                    "expecting number after exponent sign"))
                   (while (is-digit? (peek-char))
                          (save-and-next!))
                   (clear-buffer))
                 #f))
            (final (string->number main)))
-           (if exponent
-               (* final (expt 10 (string->number exponent)))
-               final)))
+      (if exponent
+          (* final (expt 10 (string->number exponent)))
+          final)))
 
   (define (lex)
     (parameterize ((current-input-port port)
@@ -218,15 +223,16 @@ of an identifier"
           ;; Skip spaces
           ((#\newline #\return #\space #\page #\tab #\vtab) (read-char) (loop))
 
-          ;; Either a minus (-), or a long comment, which is a - followed by a bracketed string
+          ;; Either a minus (-), or a long comment, which is a -
+          ;; followed by a bracketed string
           ((#\-)
            (read-char)
-           (if (eq? (peek-char) #\-)
+           (if (eqv? (peek-char) #\-)
                ;; It's a comment
                (begin
                  (read-char)
                  ;; Long comment
-                 (if (eq? (peek-char) #\[)
+                 (if (eqv? (peek-char) #\[)
                      (let* ((nest (get-long-string-nesting-level)))
                        (drop-buffer)
                        (if (not (negative? nest))
@@ -243,37 +249,39 @@ of an identifier"
           ;; ~=
           ((#\~)
            (read-char)
-           (if (eq? (peek-char) #\=)
+           (if (eqv? (peek-char) #\=)
                (begin (read-char) #:~=)
-               (syntax-error (get-source-info) "expected = after ~ but got ~c" c)))
+               (syntax-error (get-source-info)
+                             "expected = after ~ but got ~c" c)))
 
           ;; < or <=
           ((#\<)
            (read-char)
-           (if (eq? (peek-char) #\=) (begin (read-char) #:<=) #\<))
+           (if (eqv? (peek-char) #\=) (begin (read-char) #:<=) #\<))
 
           ;; > or >=
           ((#\>)
            (read-char)
-           (if (eq? (peek-char) #\=) (begin (read-char) #:>=) #\>))
+           (if (eqv? (peek-char) #\=) (begin (read-char) #:>=) #\>))
 
           ;; = or ==
           ((#\=)
            (read-char)
-           (if (eq? (peek-char) #\=)
+           (if (eqv? (peek-char) #\=)
                (begin (read-char) #:==)
                #:=))
 
-          ;; . can mean one of: floating point number (.12345), table field access (plain .),
-          ;; concatenation operator (..) or the variable argument indicator (...)
+          ;; . can mean one of: floating point number (.12345), table
+          ;; field access (plain .), concatenation operator (..) or the
+          ;; variable argument indicator (...)
           ((#\.)
            (read-char)
            (if (is-digit? (peek-char))
                (read-number ".")
-               (if (eq? (peek-char) #\.)
+               (if (eqv? (peek-char) #\.)
                    (begin
                      (read-char)
-                     (if (eq? (peek-char) #\.)
+                     (if (eqv? (peek-char) #\.)
                          (begin (read-char) #:dots)
                          #:concat))
                    #\.)))
@@ -288,11 +296,12 @@ of an identifier"
           ((#\[)
            (save-source-info)
            (let* ((nest (get-long-string-nesting-level)))
-             (if (eq? nest -1)
+             (if (eqv? nest -1)
                  #\[
                  (read-long-string #t nest))))
 
-          ;; Characters that are allowed to fall through directly to the parser
+          ;; Characters that are allowed to fall through directly to the
+          ;; parser
           ((#\; #\( #\) #\,
             #\+ #\/ #\*
             #\^ #\{ #\} #\] #\: #\#) (read-char))
@@ -312,24 +321,8 @@ of an identifier"
                   (while (is-name? (peek-char))
                     (save-and-next!))
                   (possible-keyword (string->symbol (clear-buffer))))
-                 (else (syntax-error (get-source-info) "disallowed character ~c" c))))
-          ) ; case
-        ) ; loop
-      ) ; parameterize
-    ) ; lex
-  (values get-source-info lex)) ; make-lexer
+                 (else
+                  (syntax-error (get-source-info)
+                                "disallowed character ~c" c))))))))
 
-(define-syntax define-lua-lexer
-  (syntax-rules ()
-    ((_ a b)
-     (begin
-       (define a #f)
-       (define b #f)))))
-
-(define-syntax initialize-lua-lexer!
-  (syntax-rules ()
-    ((_ port a b)
-     (receive (get-source-info lex)
-              (make-lexer port)
-              (set! a get-source-info)
-              (set! b lex)))))
+  (values get-source-info lex))

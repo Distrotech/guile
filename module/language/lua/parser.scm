@@ -197,8 +197,11 @@
 ;;;;; PARSER
 
 (define (make-parser port)
-  ;; Variables that will be set to the results of MAKE-LEXER.
-  (define-lua-lexer get-source-info lexer)
+  (define lexer-pair
+    (call-with-values (lambda () (make-lexer port)) cons))
+
+  (define get-source-info (car lexer-pair))
+  (define lexer (cdr lexer-pair))
 
   ;; We need two tokens of lookahead
   (define token2 #f)
@@ -842,8 +845,6 @@
                (make-ast-sequence src (reverse! tree))))
             (receive (is-last node) (statement)
               (loop (or (end-of-chunk? token) is-last) (cons node tree)))))))
-
-  (initialize-lua-lexer! port get-source-info lexer)
 
   ;; toplevel local environment
   (enter-environment!)
