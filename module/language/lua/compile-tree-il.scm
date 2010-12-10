@@ -132,10 +132,10 @@ dropped silently"
 
     ((ast-return src exp)
      (if tail?
-         (if (list? exp)
+         (if (and (list? exp) (not (= (length exp) 1)))
              (make-application src (make-primitive-ref src 'values)
                                (map-compile exp))
-             (compile exp #t))
+             (compile (if (list? exp) (car exp) exp) #t))
          (make-application
           src (make-primitive-ref src 'return/values)
           (if (list? exp) (map-compile exp #t) (list (compile exp))))))
