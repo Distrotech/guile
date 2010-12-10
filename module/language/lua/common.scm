@@ -24,21 +24,11 @@
 
   #:export (syntax-error or-eqv?))
 
-(define (syntax-error src string . arguments)
-  "Throw an error tagged with 'lua-syntax, and print detailed source
-code information when available. STRING and ARGUMENTS are given to FORMAT."
-  (throw 'lua-syntax
-         (string-append
-          (if src
-              (format #f "~a@~a.~a"
-                      (cdr (assq 'filename src))
-                      (cdr (assq 'line src))
-                      (if (assq 'column src)
-                          (cdr (assq 'column src))
-                          "[no column available]"))
-              "[no source code information given]")
-          ": "
-          (apply format (cons string arguments)))))
+(define (syntax-error src string . args)
+  "Throw an error tagged with 'syntax-error, and print detailed source
+code information when available. STRING and ARGS are given to FORMAT."
+  (throw 'syntax-error #f (apply format #f string args)
+         src #f #f '()))
 
 ;; I was using CASE, but this is more succinct
 ;; (or-eqv? 1 #f 1) => (or (eqv? 1 #f) (eqv? 1 1))
