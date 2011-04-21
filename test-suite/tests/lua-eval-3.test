@@ -1,0 +1,49 @@
+;;;; lua-eval-2.test --- basic tests for builtin lua constructs, act III  -*- mode: scheme -*-
+;;;;
+;;;; Copyright (C) 2010 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-lua)
+  #:use-module (ice-9 format)
+  #:use-module (language tree-il)
+  #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-8)
+  #:use-module (system base compile)
+  #:use-module (test-suite lib)
+
+  #:use-module (language lua parser)
+
+  )
+
+(with-test-prefix "lua-eval"
+  (define (from-string string)
+    (compile ((make-parser (open-input-string string)))
+             #:from 'lua
+             #:to 'value))
+  (letrec-syntax
+    ((test
+      (syntax-rules ()
+        ((_ string expect)
+         (pass-if (format #f "~S => ~S" string expect) (equal? (from-string string) expect)))
+        ((_ string)
+         (test string #t)))))
+
+    ;; make sure logical expressions don't evaluate expressions twice
+    ;;; y will equal 2 in case of extra eval
+    (test "y = 0 function tmp() y = y + 1 return true end assert(tmp() or tmp()) return y == 1")
+    ;;; y will equal 4 in case of extra eval
+    (test "y = 0 function tmp() y = y + 2 return false end; function tmp2() y = y + 1 return true end; print(tmp() and tmp2()) print(y) return y == 2")
+  ))

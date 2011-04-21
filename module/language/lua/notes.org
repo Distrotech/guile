@@ -1,0 +1,31 @@
+This is an org-mode todo list of stuff that needs to be done for Guile Lua.
+
+* Before inclusion
+** DONE And/or evaluate too much
+   CLOSED: [2011-04-19 Tue 19:36]
+** DONE Standard library functions: math.modf, math.fmod
+   CLOSED: [2011-04-21 Thu 15:43]
+** TODO Variable arguments and multiple returns
+** TODO Use prompt and abort instead of throw and catch
+** TODO Standard library function: module
+** TODO Standard library function: table.sort
+** TODO Get the official test suite running
+
+* Eh
+** TODO Better testing of standard library modules io, os
+** TODO Function environments (getfenv and setfenv)
+** TODO Parser should probably be rewritten
+
+
+* Differences
+  Here are some difference in Guile Lua's behavior that should not cause
+  problems in porting Lua code.
+
+** Guile Lua will accept the "break" statement anywhere
+   For instance:
+   for k,v in table do
+     function breaky() break end
+   end
+   Would be rejected by Lua but not by Guile Lua.
+
+** math.sqrt accepts negative arguments since Guile's numeric tower is capable of representing complex numbers

@@ -104,7 +104,6 @@ dropped silently"
   ;; singly-valued continuation.
   (make-application src (make-primitive-ref src 'values) (list exp)))
 
-
 ;; main compiler
 
 (define context (make-parameter #f))
@@ -149,7 +148,7 @@ dropped silently"
         src meta
         (make-lambda-case src '() arguments '... #f
                           (map (lambda (x) (make-const src #nil)) arguments)
-                          (append! argument-gensyms (list '...))
+                          (append argument-gensyms (list (gensym "...")))
                           (compile body)
                           #f))))
 
@@ -210,7 +209,7 @@ dropped silently"
      ;; FIXME: use abort instead of throw
      (make-application src (make-module-ref src '(guile) 'throw #t)
                        (list (make-const src 'lua-break))))
-    
+
     ;; FIXME: use prompt and abort instead of throw and catch
     ((ast-list-for-loop src names gs-names exps body)
      (let* ((gs-iterator (gensym "iterator"))
@@ -260,7 +259,7 @@ dropped silently"
            ;; initialize variables and start loop
            (begin
              (apply (primitive call-with-values)
-                    (lambda () 
+                    (lambda ()
                       (lambda-case
                        (,no-arguments
                         ,(unparse-tree-il
@@ -305,7 +304,7 @@ dropped silently"
             (gs-loop (gensym "loop"))
             (while-condition
              `(if (apply (primitive >) (lexical step ,gs-step) (const 0))
-                 (if (apply (primitive <=) 
+                 (if (apply (primitive <=)
                             (lexical variable ,gs-variable)
                             (lexical limit ,gs-limit))
                      (apply (lexical loop ,gs-loop))
@@ -401,6 +400,7 @@ dropped silently"
             ((not) (make-primitive-ref src 'not)))
           (list (compile right)))))
 
+
     ((ast-binary-operation src operator left right)
      (let ((left (compile left))
            (right (compile right)))
@@ -417,10 +417,20 @@ dropped silently"
          ((#:==)     (make-runtime-application src 'eq     (list left right)))
          ((#:~=)     (make-runtime-application src 'neq    (list left right)))
          ((#:concat) (make-runtime-application src 'concat (list left right)))
-         ;; FIXME: double-evaluation
-         ((#:or)     (make-conditional src left left right))
-         ;; FIXME: double-evaluation
-         ((#:and)    (make-conditional src left right left))
+         ((#:or)
+          (let ((tmp (gensym "or-tmp")))
+            (make-let src '(or-tmp) (list tmp) (list left)
+              (make-conditional src
+                (make-lexical-ref src 'or-tmp tmp)
+                (make-lexical-ref src 'or-tmp tmp)
+                right))))
+        ((#:and)
+          (let ((tmp (gensym "and-tmp")))
+            (make-let src '(and-tmp) (list tmp) (list left)
+              (make-conditional src
+                (make-lexical-ref src 'and-tmp tmp)
+                right
+                (make-lexical-ref src 'and-tmp tmp)))))
          (else (error #:COMPILE "unknown binary operator" operator)))))))
 
 ;; exported compiler function

@@ -125,7 +125,8 @@
 (define *special-tokens*
   '(#\. #\( #\) #\, #\- #\< #\; #\+ #\{ #\} #\[ #\] #\: #\#
     #:function #:end #:if #:return #:elseif #:then #:else #:true #:false
-    #:nil #:== #:~= #:= #\> #:>= #:<= #:local #:dots #:break #:do #:in))
+    #:nil #:== #:~= #:= #\> #:>= #:<= #:local #:dots #:break #:do #:in
+    #:and #:or))
 
 (define (token/type t)
   (cond
@@ -252,11 +253,11 @@
     "Given a variable's NAME, look up its binding."
     (and e (or (assq-ref (environment-bindings e) name)
                (environment-lookup-aux name (environment-parent e)))))
-  
+
   (define (environment-lookup-gensym name)
     "Given a variable's NAME, look up its gensym"
     (and=> (environment-lookup-aux name) binding-gensym))
-  
+
   (define (environment-lookup-type name)
     "Given a variable's NAME, look up its global"
     (and=> (environment-lookup-aux name) binding-type))
@@ -675,7 +676,7 @@
                               *void-literal*)))))))
           (enforce-next! #:end)
           x))))
-  
+
   ;; repeat-statement -> REPEAT chunk UNTIL expression
   (define (repeat-statement)
     (let ((src (get-source-info)))

@@ -21,14 +21,14 @@
 (define-module (language lua standard math)
   #:use-module (language lua runtime))
 
-;; TODO: math.modf
-;; TODO: math.deg,rad,frexp,random not tested
+;; TODO: math.frexp
 
 ;; NOTE: as opposed to lua, math.sqrt accepts negative arguments, as
 ;; guile's numeric tower is capable of representing complex numbers
 
 (define huge +inf.0)
 (define *nan* (nan))
+;; We define some constants here to more closely match Lua's behavior
 (define pi 3.14159265358979323846)
 (define radians_per_degree (/ pi 180.0))
 
@@ -91,6 +91,24 @@
 (define (atan2 x y)
   (atan (/ x y)))
 
+(define (deg x)
+  (/ x radians_per_degree))
+
+(define (ldexp x exp)
+  (cond ((= exp 0) x)
+        ((= exp *nan*) *nan*)
+        ((= exp +inf.0) +inf.0)
+        ((= exp -inf.0) -inf.0)
+        (else (* x (expt 2 exp)))))
+
+(define log2
+  (let ((log2 (log 2)))
+    (lambda (x)
+      (/ (log x) log2))))
+
+(define (rad x)
+  (* x radians_per_degree))
+
 ;; copy the global random state for this module so we don't mutate it
 (define randomstate (copy-random-state *random-state*))
 
@@ -105,32 +123,3 @@
         ((and m) (+ 1 ((@ (guile) random) m)))
         ((and m n) (+ m ((@ (guile) random) n)))
         (else (error #:RANDOM "should not happen"))))
-
-(define (deg x)
-  (/ x radians_per_degree))
-
-(define (rad x)
-  (* x radians_per_degree))
-
-(define (ldexp x exp)
-  (cond ((= exp 0) x)
-        ((= exp *nan*) *nan*)
-        ((= exp +inf.0) +inf.0)
-        ((= exp -inf.0) -inf.0)
-        (else (* x (expt 2 exp)))))
-
-(define log2
-  (let ((log2 (log 2)))
-    (lambda (x)
-      (/ (log x) log2))))
-
-(define (frexp x)
-  (if (zero? x)
-      0.0
-      (let* ((l2 (log2 x))
-             (e (floor (log2 x)))
-             (e (if (= l2 e)
-                    (inexact->exact e)
-                    (+ (inexact->exact e) 1)))
-             (f (/ x (expt 2 e))))
-        f)))
