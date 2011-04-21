@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -57,6 +57,9 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 
 #include "libguile/bdw-gc.h"
 
+/* For GC_set_start_callback.  */
+#include <gc/gc_mark.h>
+
 #ifdef GUILE_DEBUG_MALLOC
 #include "libguile/debug-malloc.h"
 #endif
@@ -68,10 +71,6 @@ extern unsigned long * __libc_ia64_register_backing_store_base;
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
-
-/* Lock this mutex before doing lazy sweeping.
- */
-scm_i_pthread_mutex_t scm_i_sweep_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
 
 /* Set this to != 0 if every cell that is accessed shall be checked:
  */
@@ -199,6 +198,13 @@ scm_t_c_hook scm_after_sweep_c_hook;
 scm_t_c_hook scm_after_gc_c_hook;
 
 
+static void
+run_before_gc_c_hook (void)
+{
+  scm_c_hook_run (&scm_before_gc_c_hook, NULL);
+}
+
+
 /* GC Statistics Keeping
  */
 unsigned long scm_gc_ports_collected = 0;
@@ -206,23 +212,13 @@ unsigned long scm_gc_ports_collected = 0;
 static unsigned long protected_obj_count = 0;
 
 
-SCM_SYMBOL (sym_cells_allocated, "cells-allocated");
+SCM_SYMBOL (sym_gc_time_taken, "gc-time-taken");
 SCM_SYMBOL (sym_heap_size, "heap-size");
 SCM_SYMBOL (sym_heap_free_size, "heap-free-size");
 SCM_SYMBOL (sym_heap_total_allocated, "heap-total-allocated");
-SCM_SYMBOL (sym_mallocated, "bytes-malloced");
-SCM_SYMBOL (sym_mtrigger, "gc-malloc-threshold");
-SCM_SYMBOL (sym_heap_segments, "cell-heap-segments");
-SCM_SYMBOL (sym_gc_time_taken, "gc-time-taken");
-SCM_SYMBOL (sym_gc_mark_time_taken, "gc-mark-time-taken");
-SCM_SYMBOL (sym_times, "gc-times");
-SCM_SYMBOL (sym_cells_marked, "cells-marked");
-SCM_SYMBOL (sym_cells_marked_conservatively, "cells-marked-conservatively");
-SCM_SYMBOL (sym_cells_swept, "cells-swept");
-SCM_SYMBOL (sym_malloc_yield, "malloc-yield");
-SCM_SYMBOL (sym_cell_yield, "cell-yield");
+SCM_SYMBOL (sym_heap_allocated_since_gc, "heap-allocated-since-gc");
 SCM_SYMBOL (sym_protected_objects, "protected-objects");
-SCM_SYMBOL (sym_total_cells_allocated, "total-cells-allocated");
+SCM_SYMBOL (sym_times, "gc-times");
 
 
 /* Number of calls to SCM_NEWCELL since startup.  */
@@ -287,33 +283,14 @@ SCM_DEFINE (scm_gc_stats, "gc-stats", 0, 0, 0,
   total_bytes    = GC_get_total_bytes ();
   gc_times       = GC_gc_no;
 
-  /* njrev: can any of these scm_cons's or scm_list_n signal a memory
-     error?  If so we need a frame here. */
   answer =
     scm_list_n (scm_cons (sym_gc_time_taken, SCM_INUM0),
-#if 0
-		scm_cons (sym_cells_allocated,
-			  scm_from_ulong (local_scm_cells_allocated)),
-		scm_cons (sym_mallocated,
-			  scm_from_ulong (local_scm_mallocated)),
-		scm_cons (sym_mtrigger,
-			  scm_from_ulong (local_scm_mtrigger)),
-		scm_cons (sym_gc_mark_time_taken,
-			  scm_from_ulong (local_scm_gc_mark_time_taken)),
-		scm_cons (sym_cells_marked,
-			  scm_from_double (local_scm_gc_cells_marked)),
-		scm_cons (sym_cells_swept,
-			  scm_from_double (local_scm_gc_cells_swept)),
-		scm_cons (sym_malloc_yield,
-			  scm_from_long (local_scm_gc_malloc_yield_percentage)),
-		scm_cons (sym_cell_yield,
-			  scm_from_long (local_scm_gc_cell_yield_percentage)),
-		scm_cons (sym_heap_segments, heap_segs),
-#endif
 		scm_cons (sym_heap_size, scm_from_size_t (heap_size)),
 		scm_cons (sym_heap_free_size, scm_from_size_t (free_bytes)),
 		scm_cons (sym_heap_total_allocated,
 			  scm_from_size_t (total_bytes)),
+                scm_cons (sym_heap_allocated_since_gc,
+			  scm_from_size_t (bytes_since_gc)),
 		scm_cons (sym_protected_objects,
 			  scm_from_ulong (protected_obj_count)),
 		scm_cons (sym_times, scm_from_size_t (gc_times)),
@@ -377,17 +354,7 @@ SCM_DEFINE (scm_gc, "gc", 0, 0, 0,
 	    "no longer accessible.")
 #define FUNC_NAME s_scm_gc
 {
-  scm_i_scm_pthread_mutex_lock (&scm_i_sweep_mutex);
   scm_i_gc ("call");
-  /* njrev: It looks as though other places, e.g. scm_realloc,
-     can call scm_i_gc without acquiring the sweep mutex.  Does this
-     matter?  Also scm_i_gc (or its descendants) touch the
-     scm_sys_protects, which are protected in some cases
-     (e.g. scm_permobjs above in scm_gc_stats) by a critical section,
-     not by the sweep mutex.  Shouldn't all the GC-relevant objects be
-     protected in the same way? */
-  scm_i_pthread_mutex_unlock (&scm_i_sweep_mutex);
-  scm_c_hook_run (&scm_after_gc_c_hook, 0);
   return SCM_UNSPECIFIED;
 }
 #undef FUNC_NAME
@@ -395,6 +362,9 @@ SCM_DEFINE (scm_gc, "gc", 0, 0, 0,
 void
 scm_i_gc (const char *what)
 {
+#ifndef HAVE_GC_SET_START_CALLBACK
+  run_before_gc_c_hook ();
+#endif
   GC_gcollect ();
 }
 
@@ -670,29 +640,31 @@ scm_init_gc_protect_object ()
 
 SCM scm_after_gc_hook;
 
-static SCM gc_async;
+static SCM after_gc_async_cell;
 
-/* The function gc_async_thunk causes the execution of the after-gc-hook.  It
- * is run after the gc, as soon as the asynchronous events are handled by the
- * evaluator.
+/* The function after_gc_async_thunk causes the execution of the
+ * after-gc-hook.  It is run after the gc, as soon as the asynchronous
+ * events are handled by the evaluator.
  */
 static SCM
-gc_async_thunk (void)
+after_gc_async_thunk (void)
 {
+  /* Fun, no? Hook-run *and* run-hook?  */
+  scm_c_hook_run (&scm_after_gc_c_hook, NULL);
   scm_c_run_hook (scm_after_gc_hook, SCM_EOL);
   return SCM_UNSPECIFIED;
 }
 
 
-/* The function mark_gc_async is run by the scm_after_gc_c_hook at the end of
- * the garbage collection.  The only purpose of this function is to mark the
- * gc_async (which will eventually lead to the execution of the
- * gc_async_thunk).
+/* The function queue_after_gc_hook is run by the scm_before_gc_c_hook
+ * at the end of the garbage collection.  The only purpose of this
+ * function is to mark the after_gc_async (which will eventually lead to
+ * the execution of the after_gc_async_thunk).
  */
 static void *
-mark_gc_async (void * hook_data SCM_UNUSED,
-	       void *fn_data SCM_UNUSED,
-	       void *data SCM_UNUSED)
+queue_after_gc_hook (void * hook_data SCM_UNUSED,
+                      void *fn_data SCM_UNUSED,
+                      void *data SCM_UNUSED)
 {
   /* If cell access debugging is enabled, the user may choose to perform
    * additional garbage collections after an arbitrary number of cell
@@ -721,10 +693,17 @@ mark_gc_async (void * hook_data SCM_UNUSED,
 
 #if (SCM_DEBUG_CELL_ACCESSES == 1)
   if (scm_debug_cells_gc_interval == 0)
-    scm_system_async_mark (gc_async);
-#else
-  scm_system_async_mark (gc_async);
 #endif
+    {
+      scm_i_thread *t = SCM_I_CURRENT_THREAD;
+
+      if (scm_is_false (SCM_CDR (after_gc_async_cell)))
+        {
+          SCM_SETCDR (after_gc_async_cell, t->active_asyncs);
+          t->active_asyncs = after_gc_async_cell;
+          t->pending_asyncs = 1;
+        }
+    }
 
   return NULL;
 }
@@ -817,9 +796,17 @@ scm_init_gc ()
   scm_after_gc_hook = scm_make_hook (SCM_INUM0);
   scm_c_define ("after-gc-hook", scm_after_gc_hook);
 
-  gc_async = scm_c_make_gsubr ("%gc-thunk", 0, 0, 0, gc_async_thunk);
+  /* When the async is to run, the cdr of the gc_async pair gets set to
+     the asyncs queue of the current thread.  */
+  after_gc_async_cell = scm_cons (scm_c_make_gsubr ("%after-gc-thunk", 0, 0, 0,
+                                                    after_gc_async_thunk),
+                                  SCM_BOOL_F);
 
-  scm_c_hook_add (&scm_after_gc_c_hook, mark_gc_async, NULL, 0);
+  scm_c_hook_add (&scm_before_gc_c_hook, queue_after_gc_hook, NULL, 0);
+
+#ifdef HAVE_GC_SET_START_CALLBACK
+  GC_set_start_callback (run_before_gc_c_hook);
+#endif
 
 #include "libguile/gc.x"
 }

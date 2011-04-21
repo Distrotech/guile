@@ -1,7 +1,7 @@
 /* srfi-1.c --- SRFI-1 procedures for Guile
  *
- * 	Copyright (C) 1995, 1996, 1997, 2000, 2001, 2002, 2003, 2005, 2006, 2008, 2009, 2010
- *   	Free Software Foundation, Inc.
+ * Copyright (C) 1995, 1996, 1997, 2000, 2001, 2002, 2003, 2005, 2006,
+ *   2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -188,7 +188,7 @@ SCM_DEFINE (scm_srfi1_concatenate_x, "concatenate!", 1, 0, 0,
 	    "have a limit on the number of arguments a function takes, which\n"
 	    "the @code{apply} might exceed.  In Guile there is no such\n"
 	    "limit.")
-#define FUNC_NAME s_scm_srfi1_concatenate
+#define FUNC_NAME s_scm_srfi1_concatenate_x
 {
   SCM_VALIDATE_LIST (SCM_ARG1, lstlst);
   return scm_append_x (lstlst);
@@ -1026,7 +1026,7 @@ SCM_DEFINE (scm_srfi1_assoc, "assoc", 2, 1, 0,
 SCM_DEFINE (scm_srfi1_partition, "partition", 2, 0, 0,
 	    (SCM pred, SCM list),
 	    "Partition the elements of @var{list} with predicate @var{pred}.\n"
-	    "Return two values: the list of elements satifying @var{pred} and\n"
+	    "Return two values: the list of elements satisfying @var{pred} and\n"
 	    "the list of elements @emph{not} satisfying @var{pred}.  The order\n"
 	    "of the output lists follows the order of @var{list}.  @var{list}\n"
 	    "is not mutated.  One of the output lists may share memory with @var{list}.\n")
@@ -1185,7 +1185,7 @@ SCM_DEFINE (scm_srfi1_remove_x, "remove!", 2, 0, 0,
 
 SCM_DEFINE (scm_srfi1_take_right, "take-right", 2, 0, 0,
             (SCM lst, SCM n),
-	    "Return the a list containing the @var{n} last elements of\n"
+	    "Return a list containing the @var{n} last elements of\n"
 	    "@var{lst}.")
 #define FUNC_NAME s_scm_srfi1_take_right
 {

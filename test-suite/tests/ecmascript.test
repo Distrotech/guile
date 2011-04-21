@@ -1,6 +1,6 @@
 ;;;; ecmascript.test --- ECMAScript.      -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -40,6 +40,7 @@
 
   (parse "true;" 'true)
   (parse "2 + 2;" '(+ (number 2) (number 2)))
+  (parse "2\xa0+2;" '(+ (number 2) (number 2))) ; U+00A0 is whitespace
   (parse "\"hello\";" '(string "hello"))
   (parse "function square(x) { return x * x; }"
          '(var (square (lambda (x) (return (* (ref x) (ref x)))))))
@@ -48,11 +49,25 @@
   (parse "var x = { foo: 12, bar: \"hello\" };"
          '(begin (var (x (object (foo (number 12))
                                  (bar (string "hello")))))
-                 (begin))))
+                 (begin)))
+  (parse "\"\\x12\";"   ; Latin-1 escape in string literal
+         '(string "\x12"))
+  (parse "\"\\u1234\";" ; Unicode escape in string literal
+         '(string "\u1234"))
+  (parse "function foo(x) { }" ; empty function body
+         '(var (foo (lambda (x) (begin)))))
+  (parse ".123;"  '(number 0.123))
+  (parse "0xff;"  '(number 255)))
 
 
 (define-syntax ecompile
   (syntax-rules ()
+    ((_ expression)
+     (pass-if expression
+       (not (not
+             (compile (call-with-input-string expression read-ecmascript)
+                      #:from 'ecmascript
+                      #:to 'value)))))
     ((_ expression expected)
      (pass-if expression
        (equal? expected
@@ -65,6 +80,7 @@
   (ecompile "true;" #t)
   (ecompile "2 + 2;" 4)
   (ecompile "\"hello\";" "hello")
+  (ecompile "var test = { bar: 1 };")
 
   ;; FIXME: Broken!
   ;; (ecompile "[1,2,3,4].map(function(x) { return x * x; });"

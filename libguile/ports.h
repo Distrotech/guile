@@ -3,7 +3,8 @@
 #ifndef SCM_PORTS_H
 #define SCM_PORTS_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2003, 2004, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004,
+ *   2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,6 +26,7 @@
 
 #include "libguile/__scm.h"
 
+#include <unistd.h>
 #include "libguile/print.h"
 #include "libguile/struct.h"
 #include "libguile/threads.h"
@@ -109,6 +111,10 @@ typedef struct
   /* a buffer for un-read chars and strings.  */
   unsigned char *putback_buf;
   size_t putback_buf_size;        /* allocated size of putback_buf.  */
+
+  /* input/output iconv conversion descriptors */
+  void *input_cd;
+  void *output_cd;
 } scm_t_port;
 
 
@@ -199,6 +205,9 @@ typedef struct scm_t_ptob_descriptor
 
 
 
+/* Hey you!  Yes you, reading the header file!  We're going to deprecate
+   scm_ptobs in 2.2, so please don't write any new code that uses it.
+   Thanks.  */
 SCM_API scm_t_ptob_descriptor *scm_ptobs;
 SCM_API long scm_numptob;
 
@@ -246,7 +255,6 @@ SCM_API void scm_dynwind_current_input_port (SCM port);
 SCM_API void scm_dynwind_current_output_port (SCM port);
 SCM_API void scm_dynwind_current_error_port (SCM port);
 SCM_API SCM scm_new_port_table_entry (scm_t_bits tag);
-SCM_INTERNAL void scm_i_remove_port (SCM port);
 SCM_API void scm_grow_port_cbuf (SCM port, size_t requested);
 SCM_API SCM scm_pt_size (void);
 SCM_API SCM scm_pt_member (SCM member);
@@ -273,7 +281,6 @@ SCM_API scm_t_wchar scm_getc (SCM port);
 SCM_API size_t scm_c_read (SCM port, void *buffer, size_t size);
 SCM_API void scm_c_write (SCM port, const void *buffer, size_t size);
 SCM_API void scm_lfwrite (const char *ptr, size_t size, SCM port);
-SCM_INTERNAL void scm_lfwrite_str (SCM str, SCM port);
 SCM_INTERNAL void scm_lfwrite_substr (SCM str, size_t start, size_t end,
 				      SCM port);
 SCM_API void scm_flush (SCM port);
@@ -293,7 +300,8 @@ SCM_API SCM scm_port_column (SCM port);
 SCM_API SCM scm_set_port_column_x (SCM port, SCM line);
 SCM_API SCM scm_port_filename (SCM port);
 SCM_API SCM scm_set_port_filename_x (SCM port, SCM filename);
-SCM_INTERNAL const char *scm_i_get_port_encoding (SCM port);
+SCM_INTERNAL const char *scm_i_default_port_encoding (void);
+SCM_INTERNAL void scm_i_set_default_port_encoding (const char *);
 SCM_INTERNAL void scm_i_set_port_encoding_x (SCM port, const char *str);
 SCM_API SCM scm_port_encoding (SCM port);
 SCM_API SCM scm_set_port_encoding_x (SCM port, SCM encoding);

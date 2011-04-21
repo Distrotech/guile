@@ -79,7 +79,7 @@ System asyncs can also be queued for threads other than the current one.
 This way, you can cause threads to asynchronously execute arbitrary
 code.
 
-User asyncs offer a convenient means of queueing procedures for future
+User asyncs offer a convenient means of queuing procedures for future
 execution and triggering this execution.  They will not be executed
 automatically.
 
@@ -691,6 +691,12 @@ inherits the values from its parent.  Because each thread normally executes
 with its own dynamic state, you can use fluids for thread local storage.
 @end deffn
 
+@deffn {Scheme Procedure} make-unbound-fluid
+@deffnx {C Function} scm_make_unbound_fluid ()
+Return a new fluid that is initially unbound (instead of being
+implicitly bound to @code{#f}.
+@end deffn
+
 @deffn {Scheme Procedure} fluid? obj
 @deffnx {C Function} scm_fluid_p (obj)
 Return @code{#t} iff @var{obj} is a fluid; otherwise, return
@@ -701,12 +707,24 @@ Return @code{#t} iff @var{obj} is a fluid; otherwise, return
 @deffnx {C Function} scm_fluid_ref (fluid)
 Return the value associated with @var{fluid} in the current
 dynamic root.  If @var{fluid} has not been set, then return
-@code{#f}.
+@code{#f}. Calling @code{fluid-ref} on an unbound fluid produces a
+runtime error.
 @end deffn
 
 @deffn {Scheme Procedure} fluid-set! fluid value
 @deffnx {C Function} scm_fluid_set_x (fluid, value)
 Set the value associated with @var{fluid} in the current dynamic root.
+@end deffn
+
+@deffn {Scheme Procedure} fluid-unset! fluid
+@deffnx {C Function} scm_fluid_unset_x (fluid)
+Disassociate the given fluid from any value, making it unbound.
+@end deffn
+
+@deffn {Scheme Procedure} fluid-bound? fluid
+@deffnx {C Function} scm_fluid_bound_p (fluid)
+Returns @code{#t} iff the given fluid is bound to a value, otherwise
+@code{#f}.
 @end deffn
 
 @code{with-fluids*} temporarily changes the values of one or more fluids,
@@ -725,7 +743,7 @@ Set @var{fluids} to @var{values} temporary, and call @var{thunk}.
 @var{fluids} must be a list of fluids and @var{values} must be the
 same number of their values to be applied.  Each substitution is done
 in the order given.  @var{thunk} must be a procedure with no argument.
-it is called inside a @code{dynamic-wind} and the fluids are
+It is called inside a @code{dynamic-wind} and the fluids are
 set/restored when control enter or leaves the established dynamic
 extent.
 @end deffn
@@ -904,6 +922,11 @@ The functions described in this section are available from
 (use-modules (ice-9 threads))
 @end example
 
+They provide high-level parallel constructs.  The following functions
+are implemented in terms of futures (@pxref{Futures}).  Thus they are
+relatively cheap as they re-use existing threads, and portable, since
+they automatically use one thread per available CPU core.
+
 @deffn syntax parallel expr1 @dots{} exprN
 Evaluate each @var{expr} expression in parallel, each in its own thread.
 Return the results as a set of @var{N} multiple values
@@ -929,11 +952,22 @@ calls to complete.
 The @var{proc} calls are @code{(@var{proc} @var{elem1} @dots{}
 @var{elemN})}, where each @var{elem} is from the corresponding
 @var{lst}.  Each @var{lst} must be the same length.  The calls are
-made in parallel, each in its own thread.
+potentially made in parallel, depending on the number of CPU cores
+available.
 
 These functions are like @code{map} and @code{for-each} (@pxref{List
 Mapping}), but make their @var{proc} calls in parallel.
 @end deffn
+
+Unlike those above, the functions described below take a number of
+threads as an argument.  This makes them inherently non-portable since
+the specified number of threads may differ from the number of available
+CPU cores as returned by @code{current-processor-count}
+(@pxref{Processes}).  In addition, these functions create the specified
+number of threads when they are called and terminate them upon
+completion, which makes them quite expensive.
+
+Therefore, they should be avoided.
 
 @deffn {Scheme Procedure} n-par-map n proc lst1 @dots{} lstN
 @deffnx {Scheme Procedure} n-par-for-each n proc lst1 @dots{} lstN

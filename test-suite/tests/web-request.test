@@ -1,6 +1,6 @@
 ;;;; web-request.test --- HTTP requests       -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -51,22 +51,19 @@ Accept-Language: en-gb, en;q=0.9\r
     
     (pass-if (equal? (request-uri r) (build-uri 'http #:path "/qux")))
     
-    (pass-if (equal? (read-request-body/latin-1 r) #f))
-    ;; Since it's #f, should be an idempotent read, so we can try
-    ;; bytevectors too
-    (pass-if (equal? (read-request-body/bytevector r) #f))
-    
+    (pass-if (equal? (read-request-body r) #f))
+
     (pass-if "checking all headers"
       (equal?
        (request-headers r)
        '((host . ("localhost" . 8080))
          (user-agent . "Mozilla/5.0 (X11; U; Linux x86_64; en-us) AppleWebKit/531.2+ (KHTML, like Gecko) Safari/531.2+ Epiphany/2.30.2")
-         (accept . (("application/xml")
-                    ("application/xhtml+xml")
-                    ("text/html" (q . 900))
-                    ("text/plain" (q . 800))
-                    ("image/png")
-                    ("*/*" (q . 500))))
+         (accept . ((application/xml)
+                    (application/xhtml+xml)
+                    (text/html (q . 900))
+                    (text/plain (q . 800))
+                    (image/png)
+                    (*/* (q . 500))))
          (accept-encoding . ((1000 . "gzip")))
          (accept-language . ((1000 . "en-gb") (900 . "en"))))))
     

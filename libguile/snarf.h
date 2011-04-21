@@ -3,7 +3,8 @@
 #ifndef SCM_SNARF_H
 #define SCM_SNARF_H
 
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2006, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003,
+ *   2004, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -25,16 +26,9 @@
 
 /* Macros for snarfing initialization actions from C source. */
 
-#if defined(__cplusplus) || defined(GUILE_CPLUSPLUS_SNARF)
+/* Casting to a function that can take any number of arguments.  */
+#define SCM_FUNC_CAST_ARBITRARY_ARGS  scm_t_subr
 
-/* This used to be "SCM (*)(...)" but GCC on RedHat 7.1 doesn't seem
-   to like it.
- */
-#define SCM_FUNC_CAST_ARBITRARY_ARGS SCM (*)()
-
-#else
-#define SCM_FUNC_CAST_ARBITRARY_ARGS SCM (*)()
-#endif
 
 #if (defined SCM_ALIGNED) && (SCM_DEBUG_TYPING_STRICTNESS <= 1)
 /* We support static allocation of some `SCM' objects.  */
@@ -59,11 +53,17 @@
  * The SCM_SNARF_INIT text goes into the corresponding .x file
  * up through the first occurrence of SCM_SNARF_DOC_START on that
  * line, if any.
+ *
+ * Some debugging options can cause the preprocessor to echo #define
+ * directives to its output. Keeping the snarfing markers on separate
+ * lines prevents guile-snarf from inadvertently snarfing the definition
+ * of SCM_SNARF_INIT if those options are in effect.
  */
 
 #ifdef SCM_MAGIC_SNARF_INITS
 # define SCM_SNARF_HERE(X)
-# define SCM_SNARF_INIT(X) ^^ X ^:^
+# define SCM_SNARF_INIT_PREFIX ^^
+# define SCM_SNARF_INIT(X) SCM_SNARF_INIT_PREFIX X ^:^
 # define SCM_SNARF_DOCS(TYPE, CNAME, FNAME, ARGLIST, REQ, OPT, VAR, DOCSTRING)
 #else
 # ifdef SCM_MAGIC_SNARF_DOCS

@@ -5,7 +5,7 @@
 #ifndef SCM_DEPRECATED_H
 #define SCM_DEPRECATED_H
 
-/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2003,2004, 2005, 2006, 2007, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -133,12 +133,12 @@ SCM_DEPRECATED SCM scm_internal_with_fluids (SCM fluids, SCM vals,
 
 SCM_DEPRECATED SCM scm_make_gsubr (const char *name,
 				   int req, int opt, int rst,
-				   SCM (*fcn)());
+				   scm_t_subr fcn);
 SCM_DEPRECATED SCM scm_make_gsubr_with_generic (const char *name,
 						int req,
 						int opt,
 						int rst,
-						SCM (*fcn)(),
+						scm_t_subr fcn,
 						SCM *gf);
 
 SCM_DEPRECATED SCM scm_create_hook (const char* name, int n_args);
@@ -173,7 +173,8 @@ SCM_DEPRECATED SCM scm_read_and_eval_x (SCM port);
 
 #define SCM_SUBR_DOC(x) SCM_BOOL_F
 
-SCM_DEPRECATED SCM scm_call_catching_errors (SCM (*thunk)(), SCM (*err_filter)(),
+SCM_DEPRECATED SCM scm_call_catching_errors (scm_t_subr thunk,
+					     scm_t_subr err_filter,
 					     void * closure);
 
 SCM_DEPRECATED long scm_make_smob_type_mfpe (char *name, size_t size,
@@ -738,7 +739,16 @@ SCM_DEPRECATED int scm_internal_select (int fds,
 
 /* Deprecated because the cuserid call is deprecated.
  */
-SCM_API SCM scm_cuserid (void);
+SCM_DEPRECATED SCM scm_cuserid (void);
+
+
+
+/* Deprecated because it's yet another property interface.
+ */
+SCM_DEPRECATED SCM scm_primitive_make_property (SCM not_found_proc);
+SCM_DEPRECATED SCM scm_primitive_property_ref (SCM prop, SCM obj);
+SCM_DEPRECATED SCM scm_primitive_property_set_x (SCM prop, SCM obj, SCM val);
+SCM_DEPRECATED SCM scm_primitive_property_del_x (SCM prop, SCM obj);
 
 
 

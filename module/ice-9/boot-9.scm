@@ -1,6 +1,6 @@
 ;;; -*- mode: scheme; coding: utf-8; -*-
 
-;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010
+;;;; Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011
 ;;;; Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
@@ -334,12 +334,13 @@ If there is no handler at all, Guile prints an error and then exits."
 ;; have booted.
 (define (module-name x)
   '(guile))
+(define (module-add! module sym var)
+  (hashq-set! (%get-pre-modules-obarray) sym var))
 (define (module-define! module sym val)
   (let ((v (hashq-ref (%get-pre-modules-obarray) sym)))
     (if v
         (variable-set! v val)
-        (hashq-set! (%get-pre-modules-obarray) sym
-                    (make-variable val)))))
+        (module-add! (current-module) sym (make-variable val)))))
 (define (module-ref module sym)
   (let ((v (module-variable module sym)))
     (if v (variable-ref v) (error "badness!" (pk module) (pk sym)))))
@@ -472,6 +473,116 @@ If there is no handler at all, Guile prints an error and then exits."
        (with-syntax ((s (datum->syntax x (syntax-source x))))
          #''s)))))
 
+(define-syntax define-once
+  (syntax-rules ()
+    ((_ sym val)
+     (define sym
+       (if (module-locally-bound? (current-module) 'sym) sym val)))))
+
+
+
+;;;
+;;; Extensible exception printing.
+;;;
+
+(define set-exception-printer! #f)
+;; There is already a definition of print-exception from backtrace.c
+;; that we will override.
+
+(let ((exception-printers '()))
+  (define (print-location frame port)
+    (let ((source (and=> frame frame-source)))
+      ;; source := (addr . (filename . (line . column)))
+      (if source
+          (let ((filename (or (cadr source) "<unnamed port>"))
+                (line (caddr source))
+                (col (cdddr source)))
+            (format port "~a:~a:~a: " filename line col))
+          (format port "ERROR: "))))
+
+  (set! set-exception-printer!
+        (lambda (key proc)
+          (set! exception-printers (acons key proc exception-printers))))
+
+  (set! print-exception
+        (lambda (port frame key args)
+          (define (default-printer)
+            (format port "Throw to key `~a' with args `~s'." key args))
+
+          (if frame
+              (let ((proc (frame-procedure frame)))
+                (print-location frame port)
+                (format port "In procedure ~a:\n"
+                        (or (procedure-name proc) proc))))
+
+          (print-location frame port)
+          (catch #t
+            (lambda ()
+              (let ((printer (assq-ref exception-printers key)))
+                (if printer
+                    (printer port key args default-printer)
+                    (default-printer))))
+            (lambda (k . args)
+              (format port "Error while printing exception.")))
+          (newline port)
+          (force-output port))))
+
+;;;
+;;; Printers for those keys thrown by Guile.
+;;;
+(let ()
+  (define (scm-error-printer port key args default-printer)
+    ;; Abuse case-lambda as a pattern matcher, given that we don't have
+    ;; ice-9 match at this point.
+    (apply (case-lambda
+             ((subr msg args . rest)
+              (if subr
+                  (format port "In procedure ~a: " subr))
+              (apply format port msg (or args '())))
+             (_ (default-printer)))
+           args))
+
+  (define (syntax-error-printer port key args default-printer)
+    (apply (case-lambda
+             ((who what where form subform . extra)
+              (format port "Syntax error:\n")
+              (if where
+                  (let ((file (or (assq-ref where 'filename) "unknown file"))
+                        (line (and=> (assq-ref where 'line) 1+))
+                        (col (assq-ref where 'column)))
+                    (format port "~a:~a:~a: " file line col))
+                  (format port "unknown location: "))
+              (if who
+                  (format port "~a: " who))
+              (format port "~a" what)
+              (if subform
+                  (format port " in subform ~s of ~s" subform form)
+                  (if form
+                      (format port " in form ~s" form))))
+             (_ (default-printer)))
+           args))
+
+  (set-exception-printer! 'goops-error scm-error-printer)
+  (set-exception-printer! 'host-not-found scm-error-printer)
+  (set-exception-printer! 'keyword-argument-error scm-error-printer)
+  (set-exception-printer! 'misc-error scm-error-printer)
+  (set-exception-printer! 'no-data scm-error-printer)
+  (set-exception-printer! 'no-recovery scm-error-printer)
+  (set-exception-printer! 'null-pointer-error scm-error-printer)
+  (set-exception-printer! 'out-of-range scm-error-printer)
+  (set-exception-printer! 'program-error scm-error-printer)
+  (set-exception-printer! 'read-error scm-error-printer)
+  (set-exception-printer! 'regular-expression-syntax scm-error-printer)
+  (set-exception-printer! 'signal scm-error-printer)
+  (set-exception-printer! 'stack-overflow scm-error-printer)
+  (set-exception-printer! 'system-error scm-error-printer)
+  (set-exception-printer! 'try-again scm-error-printer)
+  (set-exception-printer! 'unbound-variable scm-error-printer)
+  (set-exception-printer! 'wrong-number-of-args scm-error-printer)
+  (set-exception-printer! 'wrong-type-arg scm-error-printer)
+
+  (set-exception-printer! 'syntax-error syntax-error-printer))
+
 
 
 
@@ -531,6 +642,29 @@ If there is no handler at all, Guile prints an error and then exits."
 ;;;
 
 (define (identity x) x)
+
+(define (compose proc . rest)
+  "Compose PROC with the procedures in REST, such that the last one in
+REST is applied first and PROC last, and return the resulting procedure.
+The given procedures must have compatible arity."
+  (if (null? rest)
+      proc
+      (let ((g (apply compose rest)))
+        (lambda args
+          (call-with-values (lambda () (apply g args)) proc)))))
+
+(define (negate proc)
+  "Return a procedure with the same arity as PROC that returns the `not'
+of PROC's result."
+  (lambda args
+    (not (apply proc args))))
+
+(define (const value)
+  "Return a procedure that accepts any number of arguments and returns
+VALUE."
+  (lambda _
+    value))
+
 (define (and=> value procedure) (and value (procedure value)))
 (define call/cc call-with-current-continuation)
 
@@ -558,10 +692,18 @@ If there is no handler at all, Guile prints an error and then exits."
 ;; properties within the object itself.
 
 (define (make-object-property)
-  (let ((prop (primitive-make-property #f)))
+  (define-syntax with-mutex
+    (syntax-rules ()
+      ((_ lock exp)
+       (dynamic-wind (lambda () (lock-mutex lock))
+                     (lambda () exp)
+                     (lambda () (unlock-mutex lock))))))
+  (let ((prop (make-weak-key-hash-table))
+        (lock (make-mutex)))
     (make-procedure-with-setter
-     (lambda (obj) (primitive-property-ref prop obj))
-     (lambda (obj val) (primitive-property-set! prop obj val)))))
+     (lambda (obj) (with-mutex lock (hashq-ref prop obj)))
+     (lambda (obj val) (with-mutex lock (hashq-set! prop obj val))))))
+
 
 
 
@@ -815,8 +957,9 @@ If there is no handler at all, Guile prints an error and then exits."
 
 
 
-(if (provided? 'posix)
-    (primitive-load-path "ice-9/posix"))
+;; Load `posix.scm' even when not (provided? 'posix) so that we get the
+;; `stat' accessors.
+(primitive-load-path "ice-9/posix")
 
 (if (provided? 'socket)
     (primitive-load-path "ice-9/networking"))
@@ -1083,71 +1226,6 @@ If there is no handler at all, Guile prints an error and then exits."
           (force-output)))))
 
 (set! %load-hook %load-announce)
-
-(define* (load name #:optional reader)
-  ;; Returns the .go file corresponding to `name'. Does not search load
-  ;; paths, only the fallback path. If the .go file is missing or out of
-  ;; date, and autocompilation is enabled, will try autocompilation, just
-  ;; as primitive-load-path does internally. primitive-load is
-  ;; unaffected. Returns #f if autocompilation failed or was disabled.
-  ;;
-  ;; NB: Unless we need to compile the file, this function should not cause
-  ;; (system base compile) to be loaded up. For that reason compiled-file-name
-  ;; partially duplicates functionality from (system base compile).
-  (define (compiled-file-name canon-path)
-    (and %compile-fallback-path
-         (string-append
-          %compile-fallback-path
-          ;; no need for '/' separator here, canon-path is absolute
-          canon-path
-          (cond ((or (null? %load-compiled-extensions)
-                     (string-null? (car %load-compiled-extensions)))
-                 (warn "invalid %load-compiled-extensions"
-                       %load-compiled-extensions)
-                 ".go")
-                (else (car %load-compiled-extensions))))))
-  (define (fresh-compiled-file-name go-path)
-    (catch #t
-      (lambda ()
-        (let* ((scmstat (stat name))
-               (gostat  (stat go-path #f)))
-          (if (and gostat
-                   (or (> (stat:mtime gostat) (stat:mtime scmstat))
-                       (and (= (stat:mtime gostat) (stat:mtime scmstat))
-                            (>= (stat:mtimensec gostat)
-                                (stat:mtimensec scmstat)))))
-              go-path
-              (begin
-                (if gostat
-                    (format (current-error-port)
-                            ";;; note: source file ~a\n;;;       newer than compiled ~a\n"
-                            name go-path))
-                (cond
-                 (%load-should-autocompile
-                  (%warn-autocompilation-enabled)
-                  (format (current-error-port) ";;; compiling ~a\n" name)
-                  ;; This use of @ is (ironically?) boot-safe, as modules have
-                  ;; not been booted yet, so the resolve-module call in psyntax
-                  ;; doesn't try to load a module, and compile-file will be
-                  ;; treated as a function, not a macro.
-                  (let ((cfn ((@ (system base compile) compile-file) name
-                              #:env (current-module))))
-                    (format (current-error-port) ";;; compiled ~a\n" cfn)
-                    cfn))
-                 (else #f))))))
-      (lambda (k . args)
-        (format (current-error-port)
-                ";;; WARNING: compilation of ~a failed:\n;;; key ~a, throw_args ~s\n"
-                name k args)
-        #f)))
-  (with-fluids ((current-reader reader))
-    (let ((cfn (and=> (and=> (false-if-exception (canonicalize-path name))
-                             compiled-file-name)
-                      fresh-compiled-file-name)))
-      (if cfn
-          (load-compiled cfn)
-          (start-stack 'load-stack
-                       (primitive-load name))))))
 
 
 
@@ -1847,22 +1925,6 @@ If there is no handler at all, Guile prints an error and then exits."
                     (set-current-module outer-module)
                     (set! outer-module #f)))))
 
-(define basic-load load)
-
-(define* (load-module filename #:optional reader)
-  (save-module-excursion
-   (lambda ()
-     (let ((oldname (and (current-load-port)
-                         (port-filename (current-load-port)))))
-       (basic-load (if (and oldname
-                            (> (string-length filename) 0)
-                            (not (char=? (string-ref filename 0) #\/))
-                            (not (string=? (dirname oldname) ".")))
-                       (string-append (dirname oldname) "/" filename)
-                       filename)
-                   reader)))))
-
-
 
 
 ;;; {MODULE-REF -- exported}
@@ -1926,25 +1988,29 @@ If there is no handler at all, Guile prints an error and then exits."
         ;; Newly used modules must be appended rather than consed, so that
         ;; `module-variable' traverses the use list starting from the first
         ;; used module.
-        (set-module-uses! module
-                          (append (filter (lambda (m)
-                                            (not
-                                             (equal? (module-name m)
-                                                     (module-name interface))))
-                                          (module-uses module))
-                                  (list interface)))
+        (set-module-uses! module (append (module-uses module)
+                                         (list interface)))
         (hash-clear! (module-import-obarray module))
         (module-modified module))))
 
 ;; MODULE-USE-INTERFACES! module interfaces
 ;;
-;; Same as MODULE-USE! but add multiple interfaces and check for duplicates
+;; Same as MODULE-USE!, but only notifies module observers after all
+;; interfaces are added to the inports list.
 ;;
 (define (module-use-interfaces! module interfaces)
-  (set-module-uses! module
-                    (append (module-uses module) interfaces))
-  (hash-clear! (module-import-obarray module))
-  (module-modified module))
+  (let* ((cur (module-uses module))
+         (new (let lp ((in interfaces) (out '()))
+                (if (null? in)
+                    (reverse out)
+                    (lp (cdr in)
+                        (let ((iface (car in)))
+                          (if (or (memq iface cur) (memq iface out))
+                              out
+                              (cons iface out))))))))
+    (set-module-uses! module (append cur new))
+    (hash-clear! (module-import-obarray module))
+    (module-modified module)))
 
 
 
@@ -2120,6 +2186,10 @@ If there is no handler at all, Guile prints an error and then exits."
     (set-module-name! m '(guile))
     (set-module-kind! m 'interface)
     (set-system-module! m #t)
+
+    ;; In Guile 1.8 and earlier M was its own public interface.
+    (set-module-public-interface! m m)
+
     m))
 
 (set-module-public-interface! the-root-module the-scm-module)
@@ -2253,6 +2323,7 @@ If there is no handler at all, Guile prints an error and then exits."
   (try-module-autoload name version))
 
 (define (reload-module m)
+  "Revisit the source file corresponding to the module @var{m}."
   (let ((f (module-filename m)))
     (if f
         (save-module-excursion
@@ -2512,7 +2583,7 @@ module '(ice-9 q) '(make-q q-length))}."
                    ;; Here we could allow some other search strategy (other than
                    ;; primitive-load-path), for example using versions encoded
                    ;; into the file system -- but then we would have to figure
-                   ;; out how to locate the compiled file, do autocompilation,
+                   ;; out how to locate the compiled file, do auto-compilation,
                    ;; etc. Punt for now, and don't use versions when locating
                    ;; the file.
                    (primitive-load-path (in-vicinity dir-hint name) #f)
@@ -2733,8 +2804,8 @@ module '(ice-9 q) '(make-q q-length))}."
                          ((_ . args)
                           (syntax-violation 'continue "too many arguments" x))
                          (_
-                          #'(lambda args 
-                              (apply abort-to-prompt continue-tag args))))))
+                          #'(lambda ()
+                              (abort-to-prompt continue-tag))))))
                    (do () ((not cond)) body ...))
                  (lambda (k) (lp)))))
             (lambda (k)
@@ -2847,8 +2918,13 @@ module '(ice-9 q) '(make-q q-length))}."
        (and-map symbol? (syntax->datum #'(name name* ...)))
        (with-syntax (((quoted-arg ...)
                       (parse #'(arg ...) '() '() '() '() '()))
-                     (filename (assq-ref (or (syntax-source x) '())
-                                         'filename)))
+                     ;; Ideally the filename is either a string or #f;
+                     ;; this hack is to work around a case in which
+                     ;; port-filename returns a symbol (`socket') for
+                     ;; sockets.
+                     (filename (let ((f (assq-ref (or (syntax-source x) '())
+                                                  'filename)))
+                                 (and (string? f) f))))
          #'(eval-when (eval load compile expand)
              (let ((m (define-module* '(name name* ...)
                         #:filename filename quoted-arg ...)))
@@ -3040,8 +3116,6 @@ module '(ice-9 q) '(make-q q-length))}."
     ((_ name ...)
      (re-export name ...))))
 
-(define load load-module)
-
 
 
 ;;; {Parameters}
@@ -3165,6 +3239,132 @@ module '(ice-9 q) '(make-q q-length))}."
 
 
 
+;;; {`load'.}
+;;;
+;;; Load is tricky when combined with relative paths, compilation, and
+;;; the filesystem.  If a path is relative, what is it relative to?  The
+;;; path of the source file at the time it was compiled?  The path of
+;;; the compiled file?  What if both or either were installed?  And how
+;;; do you get that information?  Tricky, I say.
+;;;
+;;; To get around all of this, we're going to do something nasty, and
+;;; turn `load' into a macro.  That way it can know the path of the
+;;; source file with respect to which it was invoked, so it can resolve
+;;; relative paths with respect to the original source path.
+;;;
+;;; There is an exception, and that is that if the source file was in
+;;; the load path when it was compiled, instead of looking up against
+;;; the absolute source location, we load-from-path against the relative
+;;; source location.
+;;;
+
+(define %auto-compilation-options
+  ;; Default `compile-file' option when auto-compiling.
+  '(#:warnings (unbound-variable arity-mismatch)))
+
+(define* (load-in-vicinity dir path #:optional reader)
+  ;; Returns the .go file corresponding to `name'. Does not search load
+  ;; paths, only the fallback path. If the .go file is missing or out of
+  ;; date, and auto-compilation is enabled, will try auto-compilation, just
+  ;; as primitive-load-path does internally. primitive-load is
+  ;; unaffected. Returns #f if auto-compilation failed or was disabled.
+  ;;
+  ;; NB: Unless we need to compile the file, this function should not cause
+  ;; (system base compile) to be loaded up. For that reason compiled-file-name
+  ;; partially duplicates functionality from (system base compile).
+  ;;
+  (define (compiled-file-name canon-path)
+    (and %compile-fallback-path
+         (string-append
+          %compile-fallback-path
+          ;; no need for '/' separator here, canon-path is absolute
+          canon-path
+          (cond ((or (null? %load-compiled-extensions)
+                     (string-null? (car %load-compiled-extensions)))
+                 (warn "invalid %load-compiled-extensions"
+                       %load-compiled-extensions)
+                 ".go")
+                (else (car %load-compiled-extensions))))))
+
+  (define (fresh-compiled-file-name name go-path)
+    (catch #t
+      (lambda ()
+        (let* ((scmstat (stat name))
+               (gostat  (and (not %fresh-auto-compile)
+                             (stat go-path #f))))
+          (if (and gostat
+                   (or (> (stat:mtime gostat) (stat:mtime scmstat))
+                       (and (= (stat:mtime gostat) (stat:mtime scmstat))
+                            (>= (stat:mtimensec gostat)
+                                (stat:mtimensec scmstat)))))
+              go-path
+              (begin
+                (if gostat
+                    (format (current-error-port)
+                            ";;; note: source file ~a\n;;;       newer than compiled ~a\n"
+                            name go-path))
+                (cond
+                 (%load-should-auto-compile
+                  (%warn-auto-compilation-enabled)
+                  (format (current-error-port) ";;; compiling ~a\n" name)
+                  (let ((cfn
+                         ((module-ref
+                               (resolve-interface '(system base compile))
+                               'compile-file)
+                              name
+                              #:opts %auto-compilation-options
+                              #:env (current-module))))
+                    (format (current-error-port) ";;; compiled ~a\n" cfn)
+                    cfn))
+                 (else #f))))))
+      (lambda (k . args)
+        (format (current-error-port)
+                ";;; WARNING: compilation of ~a failed:\n;;; key ~a, throw_args ~s\n"
+                name k args)
+        #f)))
+
+  (define (absolute-path? path)
+    (string-prefix? "/" path))
+
+  (define (load-absolute abs-path)
+    (let ((cfn (let ((canon (false-if-exception (canonicalize-path abs-path))))
+                 (and canon
+                      (let ((go-path (compiled-file-name canon)))
+                        (and go-path
+                             (fresh-compiled-file-name abs-path go-path)))))))
+      (if cfn
+          (load-compiled cfn)
+          (start-stack 'load-stack
+                       (primitive-load abs-path)))))
+  
+  (save-module-excursion
+   (lambda ()
+     (with-fluids ((current-reader reader)
+                   (%file-port-name-canonicalization 'relative))
+       (cond
+        ((or (absolute-path? path))
+         (load-absolute path))
+        ((absolute-path? dir)
+         (load-absolute (in-vicinity dir path)))
+        (else
+         (load-from-path (in-vicinity dir path))))))))
+
+(define-syntax load
+  (make-variable-transformer
+   (lambda (x)
+     (let* ((src (syntax-source x))
+            (file (and src (assq-ref src 'filename)))
+            (dir (and (string? file) (dirname file))))
+       (syntax-case x ()
+         ((_ arg ...)
+          #`(load-in-vicinity #,(or dir #'(getcwd)) arg ...))
+         (id
+          (identifier? #'id)
+          #`(lambda args
+              (apply load-in-vicinity #,(or dir #'(getcwd)) args))))))))
+
+
+
 ;;; {`cond-expand' for SRFI-0 support.}
 ;;;
 ;;; This syntactic form expands into different commands or
@@ -3206,6 +3406,7 @@ module '(ice-9 q) '(make-q q-length))}."
     srfi-4   ;; homogenous numeric vectors
     srfi-6   ;; open-input-string etc, in the guile core
     srfi-13  ;; string library
+    srfi-23  ;; `error` procedure
     srfi-14  ;; character sets
     srfi-55  ;; require-extension
     srfi-61  ;; general cond clause
@@ -3298,6 +3499,42 @@ module '(ice-9 q) '(make-q q-length))}."
                          x)))))
 
 
+;;; Defining transparently inlinable procedures
+;;;
+
+(define-syntax define-inlinable
+  ;; Define a macro and a procedure such that direct calls are inlined, via
+  ;; the macro expansion, whereas references in non-call contexts refer to
+  ;; the procedure.  Inspired by the `define-integrable' macro by Dybvig et al.
+  (lambda (x)
+    ;; Use a space in the prefix to avoid potential -Wunused-toplevel
+    ;; warning
+    (define prefix (string->symbol "% "))
+    (define (make-procedure-name name)
+      (datum->syntax name
+                     (symbol-append prefix (syntax->datum name)
+                                    '-procedure)))
+
+    (syntax-case x ()
+      ((_ (name formals ...) body ...)
+       (identifier? #'name)
+       (with-syntax ((proc-name  (make-procedure-name #'name))
+                     ((args ...) (generate-temporaries #'(formals ...))))
+         #`(begin
+             (define (proc-name formals ...)
+               body ...)
+             (define-syntax name
+               (lambda (x)
+                 (syntax-case x ()
+                   ((_ args ...)
+                    #'((lambda (formals ...)
+                         body ...)
+                       args ...))
+                   (_
+                    (identifier? x)
+                    #'proc-name))))))))))
+
+
 
 (define using-readline?
   (let ((using-readline? (make-fluid)))
@@ -3321,8 +3558,10 @@ module '(ice-9 q) '(make-q q-length))}."
 ;; FIXME:
 (module-use! the-scm-module (resolve-interface '(srfi srfi-4)))
 
+;; Set filename to #f to prevent reload.
 (define-module (guile-user)
-  #:autoload (system base compile) (compile compile-file))
+  #:autoload (system base compile) (compile compile-file)
+  #:filename #f)
 
 ;; Remain in the `(guile)' module at compilation-time so that the
 ;; `-Wunused-toplevel' warning works as expected.

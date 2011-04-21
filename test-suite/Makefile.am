@@ -1,6 +1,7 @@
 ## Process this file with automake to produce Makefile.in.
 ##
-## Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010 Software Foundation, Inc.
+## Copyright 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009,
+##   2010, 2011 Software Foundation, Inc.
 ##
 ## This file is part of GUILE.
 ##
@@ -33,6 +34,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/bytevectors.test		\
 	    tests/c-api.test			\
 	    tests/chars.test			\
+	    tests/coding.test			\
 	    tests/common-list.test		\
 	    tests/control.test			\
 	    tests/continuations.test		\
@@ -43,6 +45,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/elisp-compiler.test		\
 	    tests/elisp-reader.test		\
 	    tests/eval.test			\
+	    tests/eval-string.test		\
 	    tests/exceptions.test		\
 	    tests/filesys.test			\
 	    tests/fluids.test			\
@@ -76,6 +79,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/options.test			\
 	    tests/print.test			\
 	    tests/procprop.test			\
+	    tests/procs.test			\
 	    tests/poe.test			\
 	    tests/popen.test			\
 	    tests/popen-child.scm		\
@@ -103,6 +107,7 @@ SCM_TESTS = tests/00-initial-env.test		\
 	    tests/r6rs-unicode.test		\
 	    tests/rnrs-libraries.test		\
 	    tests/ramap.test			\
+	    tests/rdelim.test			\
 	    tests/reader.test			\
 	    tests/receive.test			\
 	    tests/regexp.test			\
@@ -206,6 +211,6 @@ LALR_EXTRA +=					\
   lalr/run-guile-test.sh
 
 TESTS = $(LALR_TESTS)
-TESTS_ENVIRONMENT = $(top_builddir)/meta/guile --no-autocompile
+TESTS_ENVIRONMENT = $(top_builddir)/meta/guile --no-auto-compile
 
 EXTRA_DIST += $(LALR_EXTRA) $(LALR_TESTS) tests/sxml-match-tests.ss

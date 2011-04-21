@@ -4,7 +4,8 @@ dnl
 
 define(GUILE_CONFIGURE_COPYRIGHT,[[
 
-Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
+  2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 This file is part of GUILE
 
@@ -28,9 +29,7 @@ Floor, Boston, MA 02110-1301, USA.
 AC_PREREQ(2.61)
 
 AC_INIT([GNU Guile],
-        m4_esyscmd([build-aux/git-version-gen					\
-          .tarball-version							\
-          's/^release_\([0-9][0-9]*\)-\([0-9][0-9]*\)-\([0-9][0-9]*\)/v\1.\2\.\3/g']),
+        m4_esyscmd([build-aux/git-version-gen .tarball-version]),
         [bug-guile@gnu.org])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
@@ -74,6 +73,12 @@ AM_PROG_CC_C_O
 
 AC_LIBTOOL_DLOPEN
 AC_PROG_LIBTOOL
+
+AM_CONDITIONAL([HAVE_SHARED_LIBRARIES], [test "x$enable_shared" = "xyes"])
+
+AC_DEFINE_UNQUOTED([SHARED_LIBRARY_PATH_VARIABLE], ["$shlibpath_var"],
+  [Name of the environment variable that tells the dynamic linker where
+to find shared libraries.])
 
 dnl Check for libltdl.
 AC_LIB_HAVE_LINKFLAGS([ltdl], [], [#include <ltdl.h>],
@@ -122,7 +127,7 @@ AC_ARG_ENABLE(guile-debug,
   fi)
 
 AC_ARG_ENABLE(posix,
-  [  --disable-posix         omit posix interfaces],,
+  [  --disable-posix         omit non-essential POSIX interfaces],,
   enable_posix=yes)
 
 AC_ARG_ENABLE(networking,
@@ -225,10 +230,9 @@ if test "$use_modules" != no; then
 fi
 
 if test "$enable_posix" = yes; then
-   AC_LIBOBJ([filesys])
    AC_LIBOBJ([posix])
    AC_DEFINE([HAVE_POSIX], 1,
-     [Define this if you want support for POSIX system calls in Guile.])
+     [Define this if you want support for non-essential POSIX system calls in Guile.])
 fi
 
 if test "$enable_networking" = yes; then
@@ -639,12 +643,13 @@ AC_SUBST([SCM_I_GSC_HAVE_STRUCT_DIRENT64])
 #     this file instead of <fenv.h>
 #   process.h - mingw specific
 #   langinfo.h, nl_types.h - SuS v2
+#   sched.h - missing on MinGW
 #
 AC_CHECK_HEADERS([complex.h fenv.h io.h libc.h limits.h malloc.h memory.h process.h string.h \
 regex.h rxposix.h rx/rxposix.h sys/dir.h sys/ioctl.h sys/select.h \
 sys/time.h sys/timeb.h sys/times.h sys/stdtypes.h sys/types.h \
 sys/utime.h time.h unistd.h utime.h pwd.h grp.h sys/utsname.h \
-direct.h langinfo.h nl_types.h machine/fpu.h poll.h])
+direct.h langinfo.h nl_types.h machine/fpu.h poll.h sched.h])
 
 # Reasons for testing:
 #   nl_item - lacking on Cygwin
@@ -768,7 +773,7 @@ AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid fesetround ftime
 #   cuserid - on Tru64 5.1b the declaration is documented to be available
 #       only with `_XOPEN_SOURCE' or some such.
 #
-AC_CHECK_HEADERS([crypt.h netdb.h pthread.h sys/param.h sys/resource.h sys/file.h])
+AC_CHECK_HEADERS([crypt.h netdb.h pthread.h sys/param.h sys/resource.h sys/file.h sys/mman.h])
 AC_CHECK_FUNCS(chroot flock getlogin cuserid getpriority setpriority getpass sethostname gethostname)
 AC_CHECK_DECLS([sethostname, hstrerror, cuserid])
 
@@ -852,6 +857,7 @@ main (void)
   esac
 fi
 
+AC_CACHE_SAVE
 
 dnl GMP tests
 AC_LIB_HAVE_LINKFLAGS([gmp],
@@ -867,6 +873,27 @@ dnl GNU libunistring is checked for by Gnulib's `libunistring' module.
 if test "x$LTLIBUNISTRING" = "x"; then
   AC_MSG_ERROR([GNU libunistring is required, please install it.])
 fi
+
+AC_MSG_CHECKING([that libunistring was built with iconv support])
+save_LIBS=$LIBS
+LIBS="$LIBS $LIBUNISTRING"
+AC_RUN_IFELSE([AC_LANG_SOURCE([[
+#include <uniconv.h>
+#include <unistring/iconveh.h>
+int
+main (int argc, char *argv[])
+{
+  size_t result_size;
+  return (NULL == u32_conv_from_encoding ("ASCII", iconveh_question_mark,
+					  "a", 1,
+					  NULL, NULL, &result_size));
+}
+]])],
+    [AC_MSG_RESULT([yes])],
+    [AC_MSG_RESULT([no])
+     AC_MSG_ERROR([No iconv support.  Please recompile libunistring with iconv enabled.])]
+    [AC_MSG_RESULT([yes, hopefully (cross-compiling)])])
+LIBS=$save_LIBS
 
 dnl Libffi is needed to compile Guile's foreign function interface, but its
 dnl interface isn't exposed in Guile's API.
@@ -949,10 +976,7 @@ AC_CHECK_FUNCS(sethostent   gethostent   endhostent   dnl
                getnetbyaddr getnetbyname dnl
 	       inet_lnaof inet_makeaddr inet_netof hstrerror)
 
-# struct sockaddr field sin_len is only present on BSD systems.
-# On 4.4BSD apparently a #define SIN_LEN exists, but on other BSD systems
-# (eg. FreeBSD 4.9) it doesn't and we must use this configure check
-AC_CHECK_MEMBERS([struct sockaddr.sin_len],,,
+AC_CHECK_MEMBERS([struct sockaddr_in.sin_len],,,
 [#ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>
 #endif
@@ -1235,8 +1259,11 @@ save_LIBS="$LIBS"
 LIBS="$BDW_GC_LIBS $LIBS"
 CFLAGS="$BDW_GC_CFLAGS $CFLAGS"
 
-# `GC_do_blocking ()' is available in GC 7.1 but not declared.
-AC_CHECK_FUNCS([GC_do_blocking])
+AC_CHECK_FUNCS([GC_do_blocking GC_call_with_gc_active GC_pthread_exit GC_pthread_cancel GC_allow_register_threads GC_pthread_sigmask GC_set_start_callback])
+
+# Though the `GC_do_blocking ()' symbol is present in GC 7.1, it is not
+# declared, and has a different type (returning void instead of
+# void*).
 AC_CHECK_DECL([GC_do_blocking],
   [AC_DEFINE([HAVE_DECL_GC_DO_BLOCKING], [1],
     [Define this if the `GC_do_blocking ()' function is declared])],
@@ -1247,6 +1274,13 @@ AC_CHECK_DECL([GC_do_blocking],
 AC_CHECK_TYPE([GC_fn_type],
   [AC_DEFINE([HAVE_GC_FN_TYPE], [1],
     [Define this if the `GC_fn_type' type is available.])],
+  [],
+  [#include <gc/gc.h>])
+
+# `GC_stack_base' is not available in GC 7.1 and earlier.
+AC_CHECK_TYPE([struct GC_stack_base],
+  [AC_DEFINE([HAVE_GC_STACK_BASE], [1],
+    [Define this if the `GC_stack_base' type is available.])],
   [],
   [#include <gc/gc.h>])
 
@@ -1481,7 +1515,7 @@ if test "$cross_compiling" = "yes"; then
   AC_MSG_CHECKING(guile for build)
   GUILE_FOR_BUILD="${GUILE_FOR_BUILD-guile}"
 else
-  GUILE_FOR_BUILD='$(preinstguile)'
+  GUILE_FOR_BUILD='this-value-will-never-be-used'
 fi   
 
 ## AC_MSG_CHECKING("if we are cross compiling")
@@ -1490,7 +1524,7 @@ if test "$cross_compiling" = "yes"; then
    AC_MSG_RESULT($GUILE_FOR_BUILD)
 fi
 AC_ARG_VAR(GUILE_FOR_BUILD,[guile for build system])
-AC_SUBST(GUILE_FOR_BUILD)
+AM_SUBST_NOTMAKE(GUILE_FOR_BUILD)
   			
 ## If we're using GCC, ask for aggressive warnings.
 GCC_CFLAGS=""
@@ -1560,9 +1594,27 @@ AC_SUBST(LIBGUILE_I18N_INTERFACE)
 
 #######################################################################
 
-dnl Tell guile-config what flags guile users should compile and link with.
+dnl Tell guile-config what flags guile users should compile and link
+dnl with, keeping only `-I' flags from $CPPFLAGS.
+GUILE_CFLAGS=""
+next_is_includedir=false
+for flag in $CPPFLAGS
+do
+  if $next_is_includedir; then
+    GUILE_CFLAGS="$GUILE_CFLAGS -I $flag"
+    next_is_includedir=false
+  else
+    case "$flag" in
+      -I)  next_is_includedir=true;;
+      -I*) GUILE_CFLAGS="$GUILE_CFLAGS $flag";;
+      *)   ;;
+    esac
+  fi
+done
+
+GUILE_CFLAGS="$GUILE_CFLAGS $PTHREAD_CFLAGS"
 GUILE_LIBS="$LDFLAGS $LIBS"
-GUILE_CFLAGS="$CPPFLAGS $PTHREAD_CFLAGS"
+
 AC_SUBST(GUILE_LIBS)
 AC_SUBST(GUILE_CFLAGS)
 
@@ -1594,6 +1646,7 @@ AC_CONFIG_FILES([
   am/Makefile
   lib/Makefile
   benchmark-suite/Makefile
+  gc-benchmarks/Makefile
   doc/Makefile
   doc/r5rs/Makefile
   doc/ref/Makefile

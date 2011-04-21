@@ -1,6 +1,6 @@
 ## Process this file with Automake to create Makefile.in
 ##
-##  	Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+##  	Copyright (C) 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -55,11 +55,13 @@ gen_scmconfig_SOURCES = gen-scmconfig.c
 ## Override default rule; this should be compiled for BUILD host.
 ## For some reason, OBJEXT does not include the dot
 gen-scmconfig.$(OBJEXT): gen-scmconfig.c
-	$(AM_V_GEN) \
-	if [ "$(cross_compiling)" = "yes" ]; then \
-		$(CC_FOR_BUILD) $(DEFS) $(DEFAULT_INCLUDES) $(AM_CPPFLAGS) -c -o $@ $<; \
-	else \
-		$(COMPILE) -c -o $@ $<; \
+	$(AM_V_GEN)							\
+	if [ "$(cross_compiling)" = "yes" ]; then			\
+		$(CC_FOR_BUILD) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES)	\
+		  $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)	\
+	          -c -o $@ $<;						\
+	else								\
+		$(COMPILE) -c -o $@ $<;					\
 	fi
 
 ## Override default rule; this should run on BUILD host.
@@ -88,7 +90,7 @@ guile_filter_doc_snarfage_SOURCES = c-tokenize.c
 c-tokenize.$(OBJEXT): c-tokenize.c
 	$(AM_V_GEN) \
 	if [ "$(cross_compiling)" = "yes" ]; then \
-		$(CC_FOR_BUILD) $(DEFS) $(AM_CPPFLAGS) -c -o $@ $<; \
+		$(CC_FOR_BUILD) -c -o $@ $<; \
 	else \
 		$(COMPILE) -c -o $@ $<; \
 	fi
@@ -136,6 +138,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	expand.c				\
 	extensions.c				\
 	feature.c				\
+	filesys.c				\
 	fluids.c				\
 	foreign.c				\
 	fports.c				\
@@ -177,7 +180,6 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	procs.c					\
 	programs.c				\
 	promises.c				\
-	properties.c				\
 	r6rs-ports.c				\
 	random.c				\
 	rdelim.c				\
@@ -241,6 +243,7 @@ DOT_X_FILES =					\
 	expand.x				\
 	extensions.x				\
 	feature.x				\
+	filesys.x				\
 	fluids.x				\
 	foreign.x				\
 	fports.x				\
@@ -274,7 +277,6 @@ DOT_X_FILES =					\
 	procprop.x				\
 	procs.x					\
 	promises.x				\
-	properties.x				\
 	r6rs-ports.x				\
 	random.x				\
 	rdelim.x				\
@@ -342,6 +344,7 @@ DOT_DOC_FILES = 				\
 	expand.doc				\
 	extensions.doc				\
 	feature.doc				\
+	filesys.doc 				\
 	fluids.doc				\
 	foreign.doc				\
 	fports.doc				\
@@ -375,7 +378,6 @@ DOT_DOC_FILES = 				\
 	procprop.doc				\
 	procs.doc				\
 	promises.doc				\
-	properties.doc				\
 	r6rs-ports.doc				\
 	random.doc				\
 	rdelim.doc				\
@@ -426,7 +428,7 @@ BUILT_SOURCES = cpp-E.c cpp-SIG.c libpath.h \
 EXTRA_libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES = _scm.h		\
     memmove.c strerror.c			\
     dynl.c regex-posix.c			\
-    filesys.c posix.c net_db.c socket.c		\
+    posix.c net_db.c socket.c			\
     debug-malloc.c mkstemp.c			\
     win32-uname.c win32-dirent.c win32-socket.c	\
     locale-categories.h
@@ -454,14 +456,33 @@ noinst_HEADERS += vm-engine.c vm-i-system.c vm-i-scheme.c vm-i-loader.c
 libguile_@GUILE_EFFECTIVE_VERSION@_la_DEPENDENCIES = @LIBLOBJS@
 
 libguile_@GUILE_EFFECTIVE_VERSION@_la_LIBADD =		\
-  @LIBLOBJS@ $(gnulib_library) $(LTLIBGMP) $(LTLIBLTDL)	\
-  $(LTLIBUNISTRING) $(LTLIBICONV) $(LTLIBINTL)
+  @LIBLOBJS@ $(gnulib_library) $(LTLIBGMP) $(LTLIBLTDL)
 
-libguile_@GUILE_EFFECTIVE_VERSION@_la_LDFLAGS =								\
-  $(BDW_GC_LIBS) $(LIBFFI_LIBS) $(INET_NTOP_LIB) $(INET_PTON_LIB)					\
-  $(GETADDRINFO_LIB) $(HOSTENT_LIB) $(SERVENT_LIB)							\
-  -version-info @LIBGUILE_INTERFACE_CURRENT@:@LIBGUILE_INTERFACE_REVISION@:@LIBGUILE_INTERFACE_AGE@	\
-  -export-dynamic -no-undefined										\
+# Libtool version info.
+version_info = @LIBGUILE_INTERFACE_CURRENT@:@LIBGUILE_INTERFACE_REVISION@:@LIBGUILE_INTERFACE_AGE@
+
+libguile_@GUILE_EFFECTIVE_VERSION@_la_LDFLAGS =	\
+  $(BDW_GC_LIBS) $(LIBFFI_LIBS)			\
+  $(CEIL_LIBM)					\
+  $(FLOOR_LIBM)					\
+  $(FREXP_LIBM)					\
+  $(GETADDRINFO_LIB)				\
+  $(HOSTENT_LIB)				\
+  $(INET_NTOP_LIB)				\
+  $(INET_PTON_LIB)				\
+  $(ISNAND_LIBM)				\
+  $(ISNANF_LIBM)				\
+  $(ISNANL_LIBM)				\
+  $(LDEXP_LIBM)					\
+  $(LIBSOCKET)					\
+  $(LOG1P_LIBM)					\
+  $(LTLIBICONV)					\
+  $(LTLIBINTL)					\
+  $(LTLIBUNISTRING)				\
+  $(SERVENT_LIB)				\
+  $(TRUNC_LIBM)					\
+  -version-info $(version_info)			\
+  -export-dynamic -no-undefined			\
   $(GNU_LD_FLAGS)
 
 if HAVE_LD_VERSION_SCRIPT
@@ -550,7 +571,6 @@ modinclude_HEADERS =				\
 	procs.h					\
 	programs.h				\
 	promises.h				\
-	properties.h				\
 	pthread-threads.h			\
 	r6rs-ports.h				\
 	random.h				\

@@ -3,7 +3,7 @@
 #ifndef SCM_NUMBERS_H
 #define SCM_NUMBERS_H
 
-/* Copyright (C) 1995,1996,1998,2000,2001,2002,2003,2004,2005, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1998,2000,2001,2002,2003,2004,2005, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -68,8 +68,9 @@ typedef scm_t_int32 scm_t_wchar;
 #define SCM_FIXABLE(n) (SCM_POSFIXABLE (n) && SCM_NEGFIXABLE (n))
 
 
-/* A name for 0. */
-#define SCM_INUM0 (SCM_I_MAKINUM (0))
+#define SCM_INUM0 (SCM_I_MAKINUM (0))  /* A name for 0 */
+#define SCM_INUM1 (SCM_I_MAKINUM (1))  /* A name for 1 */
+
 
 /* SCM_MAXEXP is the maximum double precision exponent
  * SCM_FLTMAX is less than or scm_equal the largest single precision float
@@ -137,9 +138,7 @@ typedef scm_t_int32 scm_t_wchar;
 
 #define SCM_NUMBERP(x) (SCM_I_INUMP(x) || SCM_NUMP(x))
 #define SCM_NUMP(x) (!SCM_IMP(x) \
-  && (((0xfcff & SCM_CELL_TYPE (x)) == scm_tc7_number) \
-      || ((0xfbff & SCM_CELL_TYPE (x)) == scm_tc7_number)))
-/* 0xfcff (#b1100) for 0 free, 1 big, 2 real, 3 complex, then 0xfbff (#b1011) for 4 fraction */
+		     && ((0x00ff & SCM_CELL_TYPE (x)) == scm_tc7_number))
 
 #define SCM_FRACTIONP(x) (!SCM_IMP (x) && SCM_TYP16 (x) == scm_tc16_fraction)
 #define SCM_FRACTION_NUMERATOR(x) (SCM_CELL_OBJECT_1 (x))
@@ -168,14 +167,33 @@ typedef struct scm_t_complex
 SCM_API SCM scm_exact_p (SCM x);
 SCM_API SCM scm_odd_p (SCM n);
 SCM_API SCM scm_even_p (SCM n);
-SCM_API SCM scm_inf_p (SCM n);
-SCM_API SCM scm_nan_p (SCM n);
+SCM_API SCM scm_finite_p (SCM x);
+SCM_API SCM scm_inf_p (SCM x);
+SCM_API SCM scm_nan_p (SCM x);
 SCM_API SCM scm_inf (void);
 SCM_API SCM scm_nan (void);
 SCM_API SCM scm_abs (SCM x);
 SCM_API SCM scm_quotient (SCM x, SCM y);
 SCM_API SCM scm_remainder (SCM x, SCM y);
 SCM_API SCM scm_modulo (SCM x, SCM y);
+SCM_API void scm_euclidean_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_euclidean_quotient (SCM x, SCM y);
+SCM_API SCM scm_euclidean_remainder (SCM x, SCM y);
+SCM_API void scm_floor_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_floor_quotient (SCM x, SCM y);
+SCM_API SCM scm_floor_remainder (SCM x, SCM y);
+SCM_API void scm_ceiling_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_ceiling_quotient (SCM x, SCM y);
+SCM_API SCM scm_ceiling_remainder (SCM x, SCM y);
+SCM_API void scm_truncate_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_truncate_quotient (SCM x, SCM y);
+SCM_API SCM scm_truncate_remainder (SCM x, SCM y);
+SCM_API void scm_centered_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_centered_quotient (SCM x, SCM y);
+SCM_API SCM scm_centered_remainder (SCM x, SCM y);
+SCM_API void scm_round_divide (SCM x, SCM y, SCM *q, SCM *r);
+SCM_API SCM scm_round_quotient (SCM x, SCM y);
+SCM_API SCM scm_round_remainder (SCM x, SCM y);
 SCM_API SCM scm_gcd (SCM x, SCM y);
 SCM_API SCM scm_lcm (SCM n1, SCM n2);
 SCM_API SCM scm_logand (SCM n1, SCM n2);
@@ -190,6 +208,13 @@ SCM_API SCM scm_ash (SCM n, SCM cnt);
 SCM_API SCM scm_bit_extract (SCM n, SCM start, SCM end);
 SCM_API SCM scm_logcount (SCM n);
 SCM_API SCM scm_integer_length (SCM n);
+
+SCM_INTERNAL SCM scm_i_euclidean_divide (SCM x, SCM y);
+SCM_INTERNAL SCM scm_i_floor_divide (SCM x, SCM y);
+SCM_INTERNAL SCM scm_i_ceiling_divide (SCM x, SCM y);
+SCM_INTERNAL SCM scm_i_truncate_divide (SCM x, SCM y);
+SCM_INTERNAL SCM scm_i_centered_divide (SCM x, SCM y);
+SCM_INTERNAL SCM scm_i_round_divide (SCM x, SCM y);
 
 SCM_INTERNAL SCM scm_i_gcd (SCM x, SCM y, SCM rest);
 SCM_INTERNAL SCM scm_i_lcm (SCM x, SCM y, SCM rest);
@@ -264,6 +289,7 @@ SCM_API SCM scm_log (SCM z);
 SCM_API SCM scm_log10 (SCM z);
 SCM_API SCM scm_exp (SCM z);
 SCM_API SCM scm_sqrt (SCM z);
+SCM_API void scm_exact_integer_sqrt (SCM k, SCM *s, SCM *r);
 
 SCM_INTERNAL SCM scm_i_min (SCM x, SCM y, SCM rest);
 SCM_INTERNAL SCM scm_i_max (SCM x, SCM y, SCM rest);
@@ -271,6 +297,7 @@ SCM_INTERNAL SCM scm_i_sum (SCM x, SCM y, SCM rest);
 SCM_INTERNAL SCM scm_i_difference (SCM x, SCM y, SCM rest);
 SCM_INTERNAL SCM scm_i_product (SCM x, SCM y, SCM rest);
 SCM_INTERNAL SCM scm_i_divide (SCM x, SCM y, SCM rest);
+SCM_INTERNAL SCM scm_i_exact_integer_sqrt (SCM k);
 
 /* bignum internal functions */
 SCM_INTERNAL SCM scm_i_mkbig (void);

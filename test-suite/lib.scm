@@ -1,5 +1,6 @@
 ;;;; test-suite/lib.scm --- generic support for testing
-;;;; Copyright (C) 1999, 2000, 2001, 2004, 2006, 2007, 2009, 2010 Free Software Foundation, Inc.
+;;;; Copyright (C) 1999, 2000, 2001, 2004, 2006, 2007, 2009, 2010,
+;;;;   2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This program is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -177,7 +178,7 @@
 ;;;;   ("basic arithmetic" "subtraction"), and
 ;;;;   ("multiplication").
 ;;;;
-;;;; WITH-TEST-PREFIX can be nested.  Each WITH-TEST-PREFIX postpends
+;;;; WITH-TEST-PREFIX can be nested.  Each WITH-TEST-PREFIX appends
 ;;;; a new element to the current prefix:
 ;;;;
 ;;;; (with-test-prefix "arithmetic"
@@ -279,7 +280,7 @@
 (define exception:system-error
   (cons 'system-error ".*"))
 (define exception:encoding-error
-  (cons 'encoding-error "(cannot convert to output locale|input locale conversion error)"))
+  (cons 'encoding-error "(cannot convert to output locale|input (locale conversion|decoding) error)"))
 (define exception:miscellaneous-error
   (cons 'misc-error "^.*"))
 (define exception:read-error

@@ -1,18 +1,18 @@
 ;;;; tree-il.test --- test suite for compiling tree-il   -*- scheme -*-
 ;;;; Andy Wingo <wingo@pobox.com> --- May 2009
 ;;;;
-;;;; 	Copyright (C) 2009, 2010 Free Software Foundation, Inc.
-;;;; 
+;;;; 	Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
+;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
 ;;;; License as published by the Free Software Foundation; either
 ;;;; version 3 of the License, or (at your option) any later version.
-;;;; 
+;;;;
 ;;;; This library is distributed in the hope that it will be useful,
 ;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;;;; Lesser General Public License for more details.
-;;;; 
+;;;;
 ;;;; You should have received a copy of the GNU Lesser General Public
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
@@ -363,7 +363,18 @@
             (lexical #t #t set 1)
             (lexical #t #t ref 0)
             (lexical #t #t ref 1)
-            (call add 2) (call return 1) (unbind))))
+            (call add 2) (call return 1) (unbind)))
+
+  ;; simple bindings in letrec* -> equivalent to letrec
+  (assert-tree-il->glil
+   (letrec* (x y) (xx yy) ((const 1) (const 2))
+            (lexical y yy))
+   (program () (std-prelude 0 1 #f) (label _)
+            (const 2)
+            (bind (y #f 0)) ;; X is removed, and Y is unboxed
+            (lexical #t #f set 0)
+            (lexical #t #f ref 0)
+            (call return 1) (unbind))))
 
 (with-test-prefix "lambda"
   (assert-tree-il->glil
@@ -591,8 +602,9 @@
 
 (define (call-with-warnings thunk)
   (let ((port (open-output-string)))
-    (with-fluid* *current-warning-port* port
-      thunk)
+    (with-fluids ((*current-warning-port*   port)
+                  (*current-warning-prefix* ""))
+      (thunk))
     (let ((warnings (get-output-string port)))
       (string-tokenize warnings
                        (char-set-complement (char-set #\newline))))))
@@ -1141,6 +1153,13 @@
               (number? (string-contains (car w)
                                         "non-literal format string")))))
 
+     (pass-if "non-literal format string using gettext"
+       (null? (call-with-warnings
+               (lambda ()
+                 (compile '(format #t (_ "~A ~A!") "hello" "world")
+                          #:opts %opts-w-format
+                          #:to 'assembly)))))
+
      (pass-if "wrong format string"
        (let ((w (call-with-warnings
                  (lambda ()
@@ -1172,6 +1191,16 @@
        (let ((w (call-with-warnings
                  (lambda ()
                    (compile '(format some-port "foo ~A~%")
+                            #:opts %opts-w-format
+                            #:to 'assembly)))))
+         (and (= (length w) 1)
+              (number? (string-contains (car w)
+                                        "expected 1, got 0")))))
+
+     (pass-if "one missing argument, gettext"
+       (let ((w (call-with-warnings
+                 (lambda ()
+                   (compile '(format some-port (_ "foo ~A~%"))
                             #:opts %opts-w-format
                             #:to 'assembly)))))
          (and (= (length w) 1)

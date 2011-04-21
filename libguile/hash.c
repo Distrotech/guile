@@ -1,4 +1,4 @@
-/*	Copyright (C) 1995,1996,1997, 2000, 2001, 2003, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/*	Copyright (C) 1995,1996,1997, 2000, 2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -21,6 +21,12 @@
 #ifdef HAVE_CONFIG_H
 # include <config.h>
 #endif
+
+#ifdef HAVE_WCHAR_H
+#include <wchar.h>
+#endif
+
+#include <unistr.h>
 
 #include "libguile/_scm.h"
 #include "libguile/chars.h"
@@ -61,6 +67,79 @@ scm_i_string_hash (SCM str)
     h = (unsigned long) scm_i_string_ref (str, i++) + h * 37;
 
   scm_remember_upto_here_1 (str);
+  return h;
+}
+
+unsigned long 
+scm_i_locale_string_hash (const char *str, size_t len)
+{
+#ifdef HAVE_WCHAR_H
+  mbstate_t state;
+  wchar_t c;
+  size_t byte_idx = 0, nbytes;
+  unsigned long h = 0;
+
+  if (len == (size_t) -1)
+    len = strlen (str);
+
+  while ((nbytes = mbrtowc (&c, str + byte_idx, len - byte_idx, &state)) > 0)
+    {
+      if (nbytes >= (size_t) -2)
+        /* Invalid input string; punt.  */
+        return scm_i_string_hash (scm_from_locale_stringn (str, len));
+
+      h = (unsigned long) c + h * 37;
+      byte_idx += nbytes;
+    }
+
+  return h;
+#else
+  return scm_i_string_hash (scm_from_locale_stringn (str, len));
+#endif
+}
+
+unsigned long 
+scm_i_latin1_string_hash (const char *str, size_t len)
+{
+  const scm_t_uint8 *ustr = (const scm_t_uint8 *) str;
+  size_t i = 0;
+  unsigned long h = 0;
+  
+  if (len == (size_t) -1)
+    len = strlen (str);
+
+  for (; i < len; i++)
+    h = (unsigned long) ustr[i] + h * 37;
+
+  return h;
+}
+
+unsigned long 
+scm_i_utf8_string_hash (const char *str, size_t len)
+{
+  const scm_t_uint8 *ustr = (const scm_t_uint8 *) str;
+  size_t byte_idx = 0;
+  unsigned long h = 0;
+  
+  if (len == (size_t) -1)
+    len = strlen (str);
+
+  while (byte_idx < len)
+    {
+      ucs4_t c;
+      int nbytes;
+
+      nbytes = u8_mbtouc (&c, ustr + byte_idx, len - byte_idx);
+      if (nbytes == 0)
+        break;
+      else if (nbytes < 0)
+        /* Bad UTF-8; punt.  */
+        return scm_i_string_hash (scm_from_utf8_stringn (str, len));
+
+      h = (unsigned long) c + h * 37;
+      byte_idx += nbytes;
+    }
+
   return h;
 }
 
@@ -130,11 +209,21 @@ scm_hasher(SCM obj, unsigned long n, size_t d)
       {
 	unsigned long hash =
 	  scm_i_string_hash (obj) % n;
-	scm_remember_upto_here_1 (obj);
 	return hash;
       }
     case scm_tc7_symbol:
       return scm_i_symbol_hash (obj) % n;
+    case scm_tc7_pointer:
+      {
+	/* Pointer objects are typically used to store addresses of heap
+	   objects.  On most platforms, these are at least 3-byte
+	   aligned (on x86_64-*-gnu, `malloc' returns 4-byte aligned
+	   addresses), so get rid of the least significant bits.  */
+	scm_t_uintptr significant_bits;
+
+	significant_bits = (scm_t_uintptr) SCM_POINTER_VALUE (obj) >> 4UL;
+	return (size_t) significant_bits  % n;
+      }
     case scm_tc7_wvect:
     case scm_tc7_vector:
       {

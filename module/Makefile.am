@@ -1,6 +1,6 @@
 ## Process this file with automake to produce Makefile.in.
 ##
-##  	Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+##  	Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -74,9 +74,8 @@ ETAGS_ARGS +=					\
   ice-9/compile-psyntax.scm			\
   ice-9/ChangeLog-2008
 
-include $(top_srcdir)/am/pre-inst-guile
 ice-9/psyntax-pp.scm.gen:
-	$(preinstguile) --no-autocompile -s $(srcdir)/ice-9/compile-psyntax.scm \
+	$(top_builddir_absolute)/meta/guile --no-auto-compile -s $(srcdir)/ice-9/compile-psyntax.scm \
 		$(srcdir)/ice-9/psyntax.scm $(srcdir)/ice-9/psyntax-pp.scm
 
 .PHONY: ice-9/psyntax-pp.scm.gen
@@ -193,12 +192,15 @@ ICE_9_SOURCES = \
   ice-9/r5rs.scm \
   ice-9/deprecated.scm \
   ice-9/and-let-star.scm \
+  ice-9/binary-ports.scm \
   ice-9/calling.scm \
+  ice-9/command-line.scm \
   ice-9/common-list.scm \
   ice-9/control.scm \
   ice-9/curried-definitions.scm \
   ice-9/debug.scm \
   ice-9/documentation.scm \
+  ice-9/eval-string.scm \
   ice-9/expect.scm \
   ice-9/format.scm \
   ice-9/futures.scm \
@@ -281,7 +283,6 @@ SRFI_SOURCES = \
   srfi/srfi-98.scm
 
 RNRS_SOURCES =					\
-  rnrs.scm					\
   rnrs/base.scm					\
   rnrs/conditions.scm				\
   rnrs/control.scm				\
@@ -306,7 +307,8 @@ RNRS_SOURCES =					\
   rnrs/io/ports.scm				\
   rnrs/records/inspection.scm			\
   rnrs/records/procedural.scm			\
-  rnrs/records/syntactic.scm
+  rnrs/records/syntactic.scm			\
+  rnrs.scm
 
 EXTRA_DIST += scripts/ChangeLog-2008
 EXTRA_DIST += scripts/README

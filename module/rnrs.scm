@@ -1,6 +1,6 @@
 ;;; rnrs.scm --- The R6RS composite library
 
-;;      Copyright (C) 2010 Free Software Foundation, Inc.
+;;      Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -162,11 +162,14 @@
 
 	  file-options buffer-mode buffer-mode?
 	  eol-style native-eol-style error-handling-mode
-	  make-transcoder transcoder-codec native-transcoder
+	  make-transcoder transcoder-codec transcoder-eol-style
+          transcoder-error-handling-mode native-transcoder
 	  latin-1-codec utf-8-codec utf-16-codec
 	  
-	  eof-object? port? input-port? output-port? eof-object port-transcoder
-	  binary-port? transcoded-port port-position set-port-position!
+	  eof-object? port? input-port? output-port? eof-object port-eof?
+	  port-transcoder
+	  binary-port? textual-port? transcoded-port
+	  port-position set-port-position!
 	  port-has-port-position? port-has-set-port-position!?
           close-port call-with-port
 	  open-bytevector-input-port make-custom-binary-input-port get-u8 
@@ -181,7 +184,8 @@
           make-custom-textual-output-port
           call-with-string-output-port
 	  flush-output-port put-string
-          get-char get-datum get-line get-string-all lookahead-char
+          get-char get-datum get-line get-string-all get-string-n get-string-n!
+          lookahead-char
           put-char put-datum put-string
           standard-input-port standard-output-port standard-error-port
           

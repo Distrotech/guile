@@ -95,6 +95,7 @@ SCM_API SCM scm_array_handle_ref (scm_t_array_handle *h, ssize_t pos);
 SCM_API void scm_array_handle_set (scm_t_array_handle *h, ssize_t pos, SCM val);
 
 SCM_API int scm_is_pair (SCM x);
+SCM_API int scm_is_string (SCM x);
 
 SCM_API int scm_get_byte_or_eof (SCM port);
 SCM_API void scm_putc (char c, SCM port);
@@ -332,6 +333,14 @@ scm_is_pair (SCM x)
   return SCM_I_CONSP (x);
 }
 
+#ifndef SCM_INLINE_C_INCLUDING_INLINE_H
+SCM_C_EXTERN_INLINE
+#endif
+int
+scm_is_string (SCM x)
+{
+  return SCM_NIMP (x) && (SCM_TYP7 (x) == scm_tc7_string);
+}
 
 /* Port I/O.  */
 

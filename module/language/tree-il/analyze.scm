@@ -1,6 +1,6 @@
 ;;; TREE-IL -> GLIL compiler
 
-;; Copyright (C) 2001,2008,2009,2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -926,7 +926,7 @@ accurate information is missing from a given `tree-il' element."
                 (make-toplevel-info (vhash-consq name src refs)
                                     defs))))
          ((<toplevel-define> name)
-          (make-toplevel-info (vhash-delete name refs eq?)
+          (make-toplevel-info (vhash-delq name refs)
                               (vhash-consq name #t defs)))
 
          ((<application> proc args)
@@ -935,8 +935,7 @@ accurate information is missing from a given `tree-il' element."
           (let ((name (goops-toplevel-definition proc args
                                                  env)))
             (if (symbol? name)
-                (make-toplevel-info (vhash-delete name refs
-                                                  eq?)
+                (make-toplevel-info (vhash-delq name refs)
                                     (vhash-consq name #t defs))
                 (make-toplevel-info refs defs))))
          (else
@@ -1344,6 +1343,25 @@ accurate information is missing from a given `tree-il' element."
                               min-count max-count))))
           (else (error "computer bought the farm" state))))))
 
+;; Return the literal format pattern for X, or #f.
+(define (const-fmt x)
+  (record-case x
+    ((<const> exp)
+     exp)
+    ((<application> proc args)
+     ;; Gettexted literals, like `(_ "foo")'.
+     (and (record-case proc
+            ((<toplevel-ref> name) (eq? name '_))
+            ((<module-ref> name) (eq? name '_))
+            (else #f))
+          (pmatch args
+            ((,fmt)
+             (record-case fmt
+               ((<const> exp) exp)
+               (else #f)))
+            (else #f))))
+    (else #f)))
+
 (define format-analysis
   ;; Report arity mismatches in the given tree.
   (make-tree-analysis
@@ -1356,11 +1374,11 @@ accurate information is missing from a given `tree-il' element."
      (define (check-format-args args loc)
        (pmatch args
          ((,port ,fmt . ,rest)
-          (guard (const? fmt))
+          (guard (const-fmt fmt))
           (if (and (const? port)
                    (not (boolean? (const-exp port))))
               (warning 'format loc 'wrong-port (const-exp port)))
-          (let ((fmt   (const-exp fmt))
+          (let ((fmt   (const-fmt fmt))
                 (count (length rest)))
             (if (string? fmt)
                 (catch &syntax-error
@@ -1376,6 +1394,9 @@ accurate information is missing from a given `tree-il' element."
                     (warning 'format loc 'syntax-error key fmt)))
                 (warning 'format loc 'wrong-format-string fmt))))
          ((,port ,fmt . ,rest)
+          (if (and (const? port)
+                   (not (boolean? (const-exp port))))
+              (warn 'format loc 'wrong-port (const-exp port)))
           ;; Warn on non-literal format strings, unless they refer to a
           ;; lexical variable named "fmt".
           (if (record-case fmt

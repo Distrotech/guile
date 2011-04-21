@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2008, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -59,7 +59,7 @@ The @code{effective-version} function returns the version name that
 should remain unchanged during a stable series.  Currently that means
 that it omits the micro version.  The effective version should be used
 for items like the versioned share directory name
-i.e. @file{/usr/share/guile/1.6/}
+i.e.@: @file{/usr/share/guile/1.6/}
 
 @lisp
 (version) @result{} "1.6.0"
@@ -82,10 +82,11 @@ general are stored.  On Unix-like systems, this is usually
 Return the name of the directory where the Guile Scheme files that
 belong to the core Guile installation (as opposed to files from a 3rd
 party package) are installed.  On Unix-like systems this is usually
-@file{/usr/local/share/guile/<GUILE_EFFECTIVE_VERSION>} or
-@file{/usr/share/guile/<GUILE_EFFECTIVE_VERSION>};
+@file{/usr/local/share/guile/@var{GUILE_EFFECTIVE_VERSION}} or
+@file{/usr/share/guile/@var{GUILE_EFFECTIVE_VERSION}};
 
-@noindent for example @file{/usr/local/share/guile/1.6}.
+@noindent
+for example @file{/usr/local/share/guile/1.6}.
 @end deffn
 
 @deffn {Scheme Procedure} %site-dir
@@ -95,12 +96,12 @@ your site should be installed.  On Unix-like systems, this is usually
 @file{/usr/local/share/guile/site} or @file{/usr/share/guile/site}.
 @end deffn
 
-@cindex GUILE_LOAD_PATH
+@cindex @env{GUILE_LOAD_PATH}
 @defvar %load-path
 List of directories which should be searched for Scheme modules and
 libraries.  @code{%load-path} is initialized when Guile starts up to
 @code{(list (%site-dir) (%library-dir) (%package-data-dir))},
-prepended with the contents of the GUILE_LOAD_PATH environment variable,
+prepended with the contents of the @env{GUILE_LOAD_PATH} environment variable,
 if it is set.
 @end defvar
 
@@ -170,13 +171,14 @@ guileversion, libguileinterface, buildstamp
 @end table
 
 Values are all strings.  The value for @code{LIBS} is typically found
-also as a part of "guile-config link" output.  The value for
+also as a part of @code{pkg-config --libs
+guile-@value{EFFECTIVE-VERSION}} output.  The value for
 @code{guileversion} has form X.Y.Z, and should be the same as returned
-by @code{(version)}.  The value for @code{libguileinterface} is
-libtool compatible and has form CURRENT:REVISION:AGE
-(@pxref{Versioning,, Library interface versions, libtool, GNU
-Libtool}).  The value for @code{buildstamp} is the output of the
-command @samp{date -u +'%Y-%m-%d %T'} (UTC).
+by @code{(version)}.  The value for @code{libguileinterface} is libtool
+compatible and has form CURRENT:REVISION:AGE (@pxref{Versioning,,
+Library interface versions, libtool, GNU Libtool}).  The value for
+@code{buildstamp} is the output of the command @samp{date -u +'%Y-%m-%d
+%T'} (UTC).
 
 In the source, @code{%guile-build-info} is initialized from
 libguile/libpath.h, which is completely generated, so deleting this file
@@ -248,7 +250,7 @@ this Guile process.
 
 In general, a particular feature may be available for one of two
 reasons.  Either because the Guile library was configured and compiled
-with that feature enabled --- i.e. the feature is built into the library
+with that feature enabled --- i.e.@: the feature is built into the library
 on your system.  Or because some C or Scheme code that was dynamically
 loaded by Guile has added that feature to the list.
 
@@ -420,6 +422,8 @@ case-insensitive  no    Convert symbols to lower case.
 keywords          #f    Style of keyword recognition: #f, 'prefix or 'postfix.
 r6rs-hex-escapes  no    Use R6RS variable-length character and string hex escapes.
 square-brackets   yes   Treat `[' and `]' as parentheses, for R6RS compatibility.
+hungry-eol-escapes no   In strings, consume leading whitespace after an
+                        escaped end-of-line.
 scheme@@(guile-user) [1]> (read-enable 'case-insensitive)
 $2 = (square-brackets keywords #f case-insensitive positions)
 scheme@@(guile-user) [1]> ,q

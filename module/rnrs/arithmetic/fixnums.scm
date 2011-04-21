@@ -1,6 +1,6 @@
 ;;; fixnums.scm --- The R6RS fixnums arithmetic library
 
-;;      Copyright (C) 2010 Free Software Foundation, Inc.
+;;      Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -76,6 +76,7 @@
 	  fxreverse-bit-field)
   (import (only (guile) ash
 		        cons*
+			define-inlinable
 			inexact->exact
 			logand
 			logbit?
@@ -84,9 +85,11 @@
 			lognot
 			logxor
 			most-positive-fixnum 
-			most-negative-fixnum)
+			most-negative-fixnum
+			object-address)
 	  (ice-9 optargs)
 	  (rnrs base (6))
+	  (rnrs control (6))
 	  (rnrs arithmetic bitwise (6))
 	  (rnrs conditions (6))
 	  (rnrs exceptions (6))
@@ -98,67 +101,64 @@
 
   (define (greatest-fixnum) most-positive-fixnum)
   (define (least-fixnum) most-negative-fixnum)
-  
-  (define (fixnum? obj) 
-    (and (integer? obj) 
-	 (exact? obj) 
-	 (>= obj most-negative-fixnum) 
-	 (<= obj most-positive-fixnum)))
 
-  (define (assert-fixnum . args)
-    (or (for-all fixnum? args) (raise (make-assertion-violation))))
+  (define (fixnum? obj)
+    (not (= 0 (logand 2 (object-address obj)))))
 
-  (define (fx=? fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum args) 
-      (apply = args)))
+  (define-inlinable (inline-fixnum? obj)
+    (not (= 0 (logand 2 (object-address obj)))))
 
-  (define (fx>? fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst))) 
-      (apply assert-fixnum args) 
-      (apply > args)))
+  (define-syntax assert-fixnum
+    (syntax-rules ()
+      ((_ arg ...)
+       (or (and (inline-fixnum? arg) ...)
+	   (raise (make-assertion-violation))))))
 
-  (define (fx<? fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum rst)
-      (apply < args)))
+  (define (assert-fixnums args)
+    (or (for-all inline-fixnum? args) (raise (make-assertion-violation))))
 
-  (define (fx>=? fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum rst)
-      (apply >= args)))
+  (define-syntax define-fxop*
+    (syntax-rules ()
+      ((_ name op)
+       (define name
+	(case-lambda
+	  ((x y)
+	   (assert-fixnum x y)
+	   (op x y))
+	  (args
+	   (assert-fixnums args)
+           (apply op args)))))))
 
-  (define (fx<=? fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum rst)
-      (apply <= args)))
-  
-  (define (fxzero? fx) (assert-fixnum fx) (zero? fx))
-  (define (fxpositive? fx) (assert-fixnum fx) (positive? fx))
-  (define (fxnegative? fx) (assert-fixnum fx) (negative? fx))
-  (define (fxodd? fx) (assert-fixnum fx) (odd? fx))
-  (define (fxeven? fx) (assert-fixnum fx) (even? fx))
+  ;; All these predicates don't check their arguments for fixnum-ness,
+  ;; as this doesn't seem to be strictly required by R6RS.
 
-  (define (fxmax fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum args)
-      (apply max args)))
+  (define fx=? =)
+  (define fx>? >)
+  (define fx<? <)
+  (define fx>=? >=)
+  (define fx<=? <=)
 
-  (define (fxmin fx1 fx2 . rst)
-    (let ((args (cons* fx1 fx2 rst)))
-      (apply assert-fixnum args)
-      (apply min args)))
- 
+  (define fxzero? zero?)
+  (define fxpositive? positive?)
+  (define fxnegative? negative?)
+  (define fxodd? odd?)
+  (define fxeven? even?)
+
+  (define-fxop* fxmax max)
+  (define-fxop* fxmin min)
+
   (define (fx+ fx1 fx2)
     (assert-fixnum fx1 fx2) 
     (let ((r (+ fx1 fx2))) 
-      (or (fixnum? r) (raise (make-implementation-restriction-violation)))
+      (or (inline-fixnum? r)
+          (raise (make-implementation-restriction-violation)))
       r))
 
   (define (fx* fx1 fx2)
     (assert-fixnum fx1 fx2) 
     (let ((r (* fx1 fx2))) 
-      (or (fixnum? r) (raise (make-implementation-restriction-violation)))
+      (or (inline-fixnum? r)
+          (raise (make-implementation-restriction-violation)))
       r))
 
   (define* (fx- fx1 #:optional fx2)
@@ -167,48 +167,41 @@
 	(begin 
 	  (assert-fixnum fx2) 
 	  (let ((r (- fx1 fx2))) 
-	    (or (fixnum? r) (raise (make-assertion-violation)))
+	    (or (inline-fixnum? r) (raise (make-assertion-violation)))
 	    r))
 	(let ((r (- fx1))) 
-	  (or (fixnum? r) (raise (make-assertion-violation)))
+	  (or (inline-fixnum? r) (raise (make-assertion-violation)))
 	  r)))
 
   (define (fxdiv fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
-    (let ((r (div fx1 fx2))) r))
+    (div fx1 fx2))
 
   (define (fxmod fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
-    (let ((r (mod fx1 fx2))) r))
+    (mod fx1 fx2))
 
   (define (fxdiv-and-mod fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
     (div-and-mod fx1 fx2))
 
   (define (fxdiv0 fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
-    (let ((r (div0 fx1 fx2))) r))
+    (div0 fx1 fx2))
   
   (define (fxmod0 fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
-    (let ((r (mod0 fx1 fx2))) r))    
+    (mod0 fx1 fx2))
 
   (define (fxdiv0-and-mod0 fx1 fx2)
     (assert-fixnum fx1 fx2)
-    (if (zero? fx2) (raise (make-assertion-violation)))
-    (call-with-values (lambda () (div0-and-mod0 fx1 fx2))
-      (lambda (q r) (values q r))))
+    (div0-and-mod0 fx1 fx2))
 
   (define (fx+/carry fx1 fx2 fx3)
     (assert-fixnum fx1 fx2 fx3)
     (let* ((s (+ fx1 fx2 fx3))
-	   (s0 (mod0 s (inexact->exact (expt 2 (fixnum-width)))))
-	   (s1 (div0 s (inexact->exact (expt 2 (fixnum-width))))))
+	   (s0 (mod0 s (expt 2 (fixnum-width))))
+	   (s1 (div0 s (expt 2 (fixnum-width)))))
       (values s0 s1)))
 
   (define (fx-/carry fx1 fx2 fx3)
@@ -226,9 +219,9 @@
       (values s0 s1)))
 
   (define (fxnot fx) (assert-fixnum fx) (lognot fx))
-  (define (fxand . args) (apply assert-fixnum args) (apply logand args))
-  (define (fxior . args) (apply assert-fixnum args) (apply logior args))
-  (define (fxxor . args) (apply assert-fixnum args) (apply logxor args))
+  (define-fxop* fxand logand)
+  (define-fxop* fxior logior)
+  (define-fxop* fxxor logxor)
 
   (define (fxif fx1 fx2 fx3) 
     (assert-fixnum fx1 fx2 fx3) 

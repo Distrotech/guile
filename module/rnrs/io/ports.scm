@@ -1,6 +1,6 @@
 ;;;; ports.scm --- R6RS port API                    -*- coding: utf-8 -*-
 
-;;;;	Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;;;;	Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -32,12 +32,14 @@
           ;; auxiliary types
           file-options buffer-mode buffer-mode?
           eol-style native-eol-style error-handling-mode
-          make-transcoder transcoder-codec native-transcoder
+          make-transcoder transcoder-codec transcoder-eol-style
+          transcoder-error-handling-mode native-transcoder
           latin-1-codec utf-8-codec utf-16-codec
            
           ;; input & output ports
           port? input-port? output-port?
-          port-transcoder binary-port? transcoded-port
+          port-eof?
+          port-transcoder binary-port? textual-port? transcoded-port
           port-position set-port-position!
           port-has-port-position? port-has-set-port-position!?
           call-with-port close-port
@@ -67,13 +69,15 @@
           put-u8 put-bytevector
 
           ;; textual input
-          get-char get-datum get-line get-string-all lookahead-char
-           
+          get-char get-datum get-line get-string-all get-string-n get-string-n!
+          lookahead-char
+
           ;; textual output
           put-char put-datum put-string
 
           ;; standard ports
           standard-input-port standard-output-port standard-error-port
+          current-input-port current-output-port current-error-port
 
           ;; condition types
           &i/o i/o-error? make-i/o-error
@@ -92,8 +96,13 @@
           &i/o-file-does-not-exist i/o-file-does-not-exist-error?
           make-i/o-file-does-not-exist-error
           &i/o-port i/o-port-error? make-i/o-port-error
-          i/o-error-port)
-  (import (only (rnrs base) assertion-violation)
+          i/o-error-port
+          &i/o-decoding-error i/o-decoding-error?
+          make-i/o-decoding-error
+          &i/o-encoding-error i/o-encoding-error?
+          make-i/o-encoding-error i/o-encoding-error-char)
+  (import (ice-9 binary-ports)
+          (only (rnrs base) assertion-violation)
           (rnrs enums)
           (rnrs records syntactic)
           (rnrs exceptions)
@@ -102,9 +111,6 @@
           (srfi srfi-8)
           (ice-9 rdelim)
           (except (guile) raise))
-
-(load-extension (string-append "libguile-" (effective-version))
-                "scm_init_r6rs_ports")
 
 
 
@@ -124,11 +130,11 @@
   (enum-set-member? symbol (enum-set-universe (buffer-modes))))
 
 (define-enumeration eol-style
-  (lf cr crlf nel crnel ls)
+  (lf cr crlf nel crnel ls none)
   eol-styles)
 
 (define (native-eol-style)
-  (eol-style lf))
+  (eol-style none))
 
 (define-enumeration error-handling-mode
   (ignore raise replace)
@@ -185,17 +191,43 @@
 ;;;
 
 (define (port-transcoder port)
-  (error "port transcoders are not supported" port))
+  "Return the transcoder object associated with @var{port}, or @code{#f}
+if the port has no transcoder."
+  (cond ((port-encoding port)
+         => (lambda (encoding)
+              (make-transcoder
+               encoding
+               (native-eol-style)
+               (case (port-conversion-strategy port)
+                 ((error) 'raise)
+                 ((substitute) 'replace)
+                 (else
+                  (assertion-violation 'port-transcoder
+                                       "unsupported error handling mode"))))))
+        (else
+         #f)))
 
 (define (binary-port? port)
-  ;; So far, we don't support transcoders other than the binary transcoder.
+  "Returns @code{#t} if @var{port} does not have an associated encoding,
+@code{#f} otherwise."
+  (not (port-encoding port)))
+
+(define (textual-port? port)
+  "Always returns @var{#t}, as all ports can be used for textual I/O in
+Guile."
   #t)
+
+(define (port-eof? port)
+  (eof-object? (if (binary-port? port)
+                   (lookahead-u8 port)
+                   (lookahead-char port))))
 
 (define (transcoded-port port transcoder)
   "Return a new textual port based on @var{port}, using
 @var{transcoder} to encode and decode data written to or
 read from its underlying binary port @var{port}."
-  (let ((result (%make-transcoded-port port)))
+  ;; Hackily get at %make-transcoded-port.
+  (let ((result ((@@ (ice-9 binary-ports) %make-transcoded-port) port)))
     (set-port-encoding! result (transcoder-codec transcoder))
     (case (transcoder-error-handling-mode transcoder)
       ((raise)
@@ -308,47 +340,105 @@ return the characters accumulated in that port."
 (define (flush-output-port port)
   (force-output port))
 
+
+;;;
+;;; Textual output.
+;;;
+
+(define-condition-type &i/o-encoding &i/o-port
+  make-i/o-encoding-error i/o-encoding-error?
+  (char i/o-encoding-error-char))
+
+(define-syntax with-i/o-encoding-error
+  (syntax-rules ()
+    "Convert Guile throws to `encoding-error' to `&i/o-encoding-error'."
+    ((_ body ...)
+     ;; XXX: This is heavyweight for small functions like `put-char'.
+     (with-throw-handler 'encoding-error
+       (lambda ()
+         (begin body ...))
+       (lambda (key subr message errno port chr)
+         (raise (make-i/o-encoding-error port chr)))))))
+
 (define (put-char port char)
-  (write-char char port))
+  (with-i/o-encoding-error (write-char char port)))
 
 (define (put-datum port datum)
-  (write datum port))
+  (with-i/o-encoding-error (write datum port)))
 
 (define* (put-string port s #:optional start count)
-  (cond ((not (string? s))
-         (assertion-violation 'put-string "expected string" s))
-        ((and start count)
-         (display (substring/shared s start (+ start count)) port))
-        (start
-         (display (substring/shared s start (string-length s)) port))
-        (else
-         (display s port))))
-
-(define (get-char port)
-  (read-char port))
-
-(define (get-datum port)
-  (read port))
-
-(define (get-line port)
-  (read-line port 'trim))
-
-(define (get-string-all port)
-  (read-delimited "" port 'concat))
-
-(define (lookahead-char port)
-  (peek-char port))
-
+  (with-i/o-encoding-error
+   (cond ((not (string? s))
+          (assertion-violation 'put-string "expected string" s))
+         ((and start count)
+          (display (substring/shared s start (+ start count)) port))
+         (start
+          (display (substring/shared s start (string-length s)) port))
+         (else
+          (display s port)))))
 
 
+;;;
+;;; Textual input.
+;;;
+
+(define-condition-type &i/o-decoding &i/o-port
+  make-i/o-decoding-error i/o-decoding-error?)
+
+(define-syntax with-i/o-decoding-error
+  (syntax-rules ()
+    "Convert Guile throws to `decoding-error' to `&i/o-decoding-error'."
+    ((_ body ...)
+     ;; XXX: This is heavyweight for small functions like `get-char' and
+     ;; `lookahead-char'.
+     (with-throw-handler 'decoding-error
+       (lambda ()
+         (begin body ...))
+       (lambda (key subr message errno port)
+         (raise (make-i/o-decoding-error port)))))))
+
+(define (get-char port)
+  (with-i/o-decoding-error (read-char port)))
+
+(define (get-datum port)
+  (with-i/o-decoding-error (read port)))
+
+(define (get-line port)
+  (with-i/o-decoding-error (read-line port 'trim)))
+
+(define (get-string-all port)
+  (with-i/o-decoding-error (read-delimited "" port 'concat)))
+
+(define (get-string-n port count)
+  "Read up to @var{count} characters from @var{port}.
+If no characters could be read before encountering the end of file,
+return the end-of-file object, otherwise return a string containing
+the characters read."
+  (let* ((s (make-string count))
+         (rv (get-string-n! port s 0 count)))
+    (cond ((eof-object? rv) rv)
+          ((= rv count)     s)
+          (else             (substring/shared s 0 rv)))))
+
+(define (lookahead-char port)
+  (with-i/o-decoding-error (peek-char port)))
+
+
+;;;
+;;; Standard ports.
+;;;
+
 (define (standard-input-port)
-  (dup->inport 0))
+  (with-fluids ((%default-port-encoding #f))
+    (dup->inport 0)))
 
 (define (standard-output-port)
-  (dup->outport 1))
+  (with-fluids ((%default-port-encoding #f))
+    (dup->outport 1)))
 
 (define (standard-error-port)
-  (dup->outport 2))
+  (with-fluids ((%default-port-encoding #f))
+    (dup->outport 2)))
 
 )
 

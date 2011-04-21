@@ -1,169 +1,218 @@
 Guile NEWS --- history of user-visible changes.
-Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+Copyright (C) 1996-2011 Free Software Foundation, Inc.
 See the end for copying conditions.
 
 Please send Guile bug reports to bug-guile@gnu.org.
 
 
-Note: During the 1.9 series, we will keep an incremental NEWS for the
-latest prerelease, and a full NEWS corresponding to 1.8 -> 2.0.
+Changes in 2.0.1 (since 2.0.0):
 
-Changes in 1.9.14 (since the 1.9.13 prerelease):
+* Notable changes
 
-** Command line additions
-
-The guile binary now supports a new switch "-x", which can be used to
-extend the list of filename extensions tried when loading files
-(%load-extensions).
-
-Changes in 1.9.13 (since the 1.9.12 prerelease):
-
-** SRFI support
-
-The following SRFIs have been added:
-
-- SRFI-27 "Sources of Random Bits"
-- SRFI-42 "Eager Comprehensions"
-- SRFI-45 "Primitives for Expressing Iterative Lazy Algorithms"
-- SRFI-67 "Compare Procedures"
-
-Thanks to Andreas Rottmann.
-
-** (system foreign) API changes
-
-The `make-foreign-function' procedure was renamed to
-`pointer->procedure'.
+** guile.m4 supports linking with rpath
     
-** (system xref) source database
+The GUILE_FLAGS macro now sets GUILE_LIBS and GUILE_LTLIBS, which
+include appropriate directives to the linker to include libguile-2.0.so
+in the runtime library lookup path.
 
-The `(system xref)' module can now map from source locations to
-procedures. See the `source-procedures' and `source-closures' functions.
+** `begin' expands macros in its body before other expressions
 
-** New procedures: `scm_to_latin1_stringn', `scm_from_latin1_stringn'
+This enables support for programs like the following:
 
-Use these procedures when you know you have latin1-encoded or
-ASCII-encoded strings.
+    (begin
+      (define even?
+        (lambda (x)
+          (or (= x 0) (odd? (- x 1)))))
+      (define-syntax odd?
+        (syntax-rules ()
+          ((odd? x) (not (even? x)))))
+      (even? 10))
 
-** New procedures: `scm_to_stringn', `scm_from_stringn'
+** REPL reader usability enhancements
 
-Use these procedures if you want to encode or decode from a particular
-locale.
+The REPL now flushes input after a read error, which should prevent one
+error from causing other errors.  The REPL also now interprets comments
+as whitespace.
 
-** Removed support shlibs for SRFIs 1, 4, 13, 14, and 60
+** REPL output has configurable width
 
-Though these SRFI support libraries did expose API, they encoded a
-strange version string into their library names.  That version was never
-programmatically exported, so there was no way people could use the
-libs.
+The REPL now defaults to output with the current terminal's width, in
+columns.  See "Debug Commands" in the manual for more information on
+the ,width command.
 
-This was a fortunate oversight, as it allows us to remove the need for
-extra, needless shared libraries --- the C support code for SRFIs 4, 13,
-and 14 was already in core --- and allow us to incrementally return the
-SRFI implementation to Scheme.
+** Better C access to the module system
 
-** Simplifications to the set of low-level hooks exported by the VM
+Guile now has convenient C accessors to look up variables or values in
+modules and their public interfaces.  See `scm_c_public_ref' and friends
+in "Accessing Modules from C" in the manual.
 
-See "VM Hooks" in the manual, for more information.
-
-** New traps system
-
-See "Traps" in the manual, for more information.
-
-** Breakpoints, tracepoints and source stepping now available at the REPL
+** Added `scm_call_5', `scm_call_6'
     
-See "Interactive Debugging" in the manual, for more information.
+See "Fly Evaluation" in the manual.
 
-The new REPL commands are: break, break-at-source, tracepoint, traps,
-delete, disable, enable, step, step-instruction, next, next-instruction,
-finish, and registers.
-
-** Remove obsolete debug-options
-
-Removed `breakpoints', `trace', `procnames', `indent', `frames',
-`maxdepth', and `debug' debug-options.
-
-** Remove obsolete print-options
+** Added `scm_from_latin1_keyword', `scm_from_utf8_keyword'
     
-The `source' and `closure-hook' print options are obsolete, and have
-been removed.
+See "Keyword Procedures" in the manual, for more.  Note that
+`scm_from_locale_keyword' should not be used when the name is a C string
+constant.
 
-** Remove obsolete read-options
+** R6RS unicode and string I/O work
 
-The "elisp-strings" and "elisp-vectors" read options were unused and
-obsolete, so they have been removed.
+Added efficient implementations of `get-string-n' and `get-string-n!'
+for binary ports.  Exported `current-input-port', `current-output-port'
+and `current-error-port' from `(rnrs io ports)', and enhanced support
+for transcoders.
 
-** Remove eval-options and trap-options
-
-Eval-options and trap-options are obsolete with the new VM and
-evaluator.
-
-** Remove (ice-9 debugger) and (ice-9 debugging)
-
-See "Traps" and "Interactive Debugging" in the manual, for information
-on their replacements.
-
-** Remove the GDS Emacs integration
-
-See "Using Guile in Emacs" in the manual, for info on how we think you
-should use Guile with Emacs.
-
-** Remove vm-version, vm options
+** Added `pointer->scm', `scm->pointer' to `(system foreign)'
     
-These procedures introduced during the 1.9 series had no effect.
-
-** Add `call-with-vm' and ability to set VM engine
-
-`call-with-vm' applies a procedure to arguments in a context in which a
-given VM is current.
-
-`set-vm-engine!' can be used to specify the engine for a VM, which will
-become current at the next `call-with-vm' invocation.
-
-** Default to "regular" VM engine for noninteractive use
+These procedure are useful if one needs to pass and receive SCM values
+to and from foreign functions.  See "Foreign Variables" in the manual,
+for more.
     
-The "debug" engine is used when the user specifies --debug, or when
-running interactively. A debug VM allows hooks to run; see "VM Hooks" in
-the manual.
+** Added `heap-allocated-since-gc' to `(gc-stats)'
 
-** `backtrace' debug option on by default
-
-Given that Guile 2.0 can always give you a backtrace, backtraces are now
-on by default.
-
-** `turn-on-debugging' deprecated
-
-** New compilation warning: `-Wformat'
+Also fixed the long-standing bug in the REPL `,stat' command.
     
-The `-Wformat' warning can indicate a number of common format string
-errors.  See "Compilation" in the manual, for more information.
-
-** Add `(system repl server)' module and `--listen' command-line argument
+** Add `on-error' REPL option
     
-The `(system repl server)' module exposes procedures to listen on
-sockets for connections, and serve REPLs to those clients.  The --listen
-command-line argument allows any Guile program to thus be remotely
-debuggable.
+This option controls what happens when an error occurs at the REPL, and
+defaults to `debug', indicating that Guile should enter the debugger.
+Other values include `report', which will simply print a backtrace
+without entering the debugger.  See "System Commands" in the manual.
 
-See "Invoking Guile" for more information on `--listen'.
+** Enforce immutability of string literals
 
-** Big manual updates
+Attempting to mutate a string literal now causes a runtime error.
+    
+** Fix pthread redirection
 
-The GOOPS documentation got a lot of attention this cycle, as well as
-the sections on interactive use and debugging.  We don't know of any
-sections of the manual that are out-of-date at this point.
+Guile 2.0.0 shipped with headers that, if configured with pthread
+support, would re-define `pthread_create', `pthread_join', and other API
+to redirect to the BDW-GC wrappers, `GC_pthread_create', etc.  This was
+unintended, and not necessary: because threads must enter Guile with
+scm_with_guile, Guile can handle thread registration itself, without
+needing to make the GC aware of all threads.  This oversight has been
+fixed.
 
-** And of course, the usual collection of bugfixes
- 
-Interested users should see the ChangeLog for more information.
+** `with-continuation-barrier' now unwinds on `quit'
+
+A throw to `quit' in a continuation barrier will cause Guile to exit.
+Before, it would do so before unwinding to the barrier, which would
+prevent cleanup handlers from running.  This has been fixed so that it
+exits only after unwinding.
+    
+** `string->pointer' and `pointer->string' have optional encoding arg
+    
+This allows users of the FFI to more easily deal in strings with
+particular (non-locale) encodings, like "utf-8".  See "Void Pointers and
+Byte Access" in the manual, for more.
+
+** R6RS fixnum arithmetic optimizations
+    
+R6RS fixnum operations are are still slower than generic arithmetic,
+however.
+
+** New procedure: `define-inlinable'
+    
+See "Inlinable Procedures" in the manual, for more.
+
+** New procedure: `exact-integer-sqrt'
+
+See "Integer Operations" in the manual, for more.
+    
+** "Extended read syntax" for symbols parses better
+
+In #{foo}# symbols, backslashes are now treated as escapes, as the
+symbol-printing code intended.  Additionally, "\x" within #{foo}# is now
+interpreted as starting an R6RS hex escape.  This is backward compatible
+because the symbol printer would never produce a "\x" before.  The
+printer also works better too.
+
+** Added --force-auto-compile option
+
+This allows a user to invalidate the auto-compilation cache.  It's
+usually not needed.  See "Compilation" in the manual, for a discussion.
+
+* Manual updates
+
+** GOOPS documentation updates
+
+** New man page
+
+Thanks to Mark Harig for improvements to guile.1.
+
+** SRFI-23 documented
+
+The humble `error' SRFI now has an entry in the manual.
+
+* New modules
+
+** `(ice-9 binary-ports)': XXX, in the manual
+** `(ice-9 eval-string)': "Fly Evaluation", in the manual
+    
+* Bugs fixed
+
+** Fixed iconv_t memory leak on close-port
+** Fixed some leaks with weak hash tables
+** Export `vhash-delq' and `vhash-delv' from `(ice-9 vlist)'
+** `after-gc-hook' works again
+** `define-record-type' now allowed in nested contexts
+** `exact-integer-sqrt' now handles large integers correctly
+** Fixed C extension examples in manual
+** `vhash-delete' honors HASH argument
+** Make `locale-digit-grouping' more robust
+** Default exception printer robustness fixes
+** Fix presence of non-I CPPFLAGS in `guile-2.0.pc'
+** `read' updates line/column numbers when reading SCSH block comments
+** Fix imports of multiple custom interfaces of same module
+** Fix encoding scanning for non-seekable ports
+** Fix `setter' when called with a non-setter generic
+** Fix f32 and f64 bytevectors to not accept rationals
+** Fix description of the R6RS `finite?' in manual
+** Quotient, remainder and modulo accept inexact integers again
+** Fix `continue' within `while' to take zero arguments
+** Fix alignment for structures in FFI
+** Fix port-filename of stdin, stdout, stderr to match the docs
+** Fix weak hash table-related bug in `define-wrapped-pointer-type'
+** Fix partial continuation application with pending procedure calls
+** scm_{to,from}_locale_string use current locale, not current ports
+** Fix thread cleanup, by using a pthread_key destructor
+** Fix `quit' at the REPL
+** Fix a failure to sync regs in vm bytevector ops
+** Fix (texinfo reflection) to handle nested structures like syntax patterns
+** Fix stexi->html double translation
+** Fix tree-il->scheme fix for <prompt>
+** Fix compilation of <prompt> in <fix> in single-value context
+** Fix race condition in ensure-writable-dir
+** Fix error message on ,disassemble "non-procedure"
+** Fix prompt and abort with the boot evaluator
+** Fix `procedure->pointer' for functions returning `void'
+** Fix error reporting in dynamic-pointer
+** Fix problems detecting coding: in block comments
+** Fix duplicate load-path and load-compiled-path in compilation environment
+** Add fallback read(2) suppport for .go files if mmap(2) unavailable
+** Fix c32vector-set!, c64vector-set!
+** Fix mistakenly deprecated read syntax for uniform complex vectors
+** Fix parsing of exact numbers with negative exponents
+** Ignore SIGPIPE in (system repl server)
+** Fix optional second arg to R6RS log function
+** Fix R6RS `assert' to return true value.
+** Fix fencepost error when seeking in bytevector input ports
 
 
 
-Changes in 1.9.x (since the 1.8.x series):
+Changes in 2.0.0 (changes since the 1.8.x series):
 
 * New modules (see the manual for details)
 
 ** `(srfi srfi-18)', more sophisticated multithreading support
+** `(srfi srfi-27)', sources of random bits
+** `(srfi srfi-38)', External Representation for Data With Shared Structure
+** `(srfi srfi-42)', eager comprehensions
+** `(srfi srfi-45)', primitives for expressing iterative lazy algorithms
+** `(srfi srfi-67)', compare procedures
 ** `(ice-9 i18n)', internationalization support
+** `(ice-9 futures)', fine-grain parallelism
 ** `(rnrs bytevectors)', the R6RS bytevector API
 ** `(rnrs io ports)', a subset of the R6RS I/O port API
 ** `(system xref)', a cross-referencing facility (FIXME undocumented)
@@ -172,6 +221,13 @@ Changes in 1.9.x (since the 1.8.x series):
 ** `(sxml match)', a pattern matcher for SXML
 ** `(srfi srfi-9 gnu)', extensions to the SRFI-9 record library
 ** `(system vm coverage)', a line-by-line code coverage library
+** `(web uri)', URI data type, parser, and unparser
+** `(web http)', HTTP header parsers and unparsers
+** `(web request)', HTTP request data type, reader, and writer
+** `(web response)', HTTP response data type, reader, and writer
+** `(web server)', Generic HTTP server
+** `(ice-9 poll)', a poll wrapper
+** `(web server http)', HTTP-over-TCP web server implementation
 
 ** Replaced `(ice-9 match)' with Alex Shinn's compatible, hygienic matcher.
     
@@ -228,7 +284,23 @@ help when running Guile inside Emacs. This option has been removed, and
 the helper functions `named-module-use!' and `load-emacs-interface' have
 been deprecated.
     
-** New reader options: `square-brackets' and `r6rs-hex-escapes'
+** Add `(system repl server)' module and `--listen' command-line argument
+    
+The `(system repl server)' module exposes procedures to listen on
+sockets for connections, and serve REPLs to those clients.  The --listen
+command-line argument allows any Guile program to thus be remotely
+debuggable.
+
+See "Invoking Guile" for more information on `--listen'.
+
+** Command line additions
+
+The guile binary now supports a new switch "-x", which can be used to
+extend the list of filename extensions tried when loading files
+(%load-extensions).
+
+** New reader options: `square-brackets', `r6rs-hex-escapes',
+   `hungry-eol-escapes'
 
 The reader supports a new option (changeable via `read-options'),
 `square-brackets', which instructs it to interpret square brackets as
@@ -238,6 +310,11 @@ When the new `r6rs-hex-escapes' reader option is enabled, the reader
 will recognize string escape sequences as defined in R6RS.  R6RS string
 escape sequences are incompatible with Guile's existing escapes, though,
 so this option is off by default.
+
+Additionally, Guile follows the R6RS newline escaping rules when the
+`hungry-eol-escapes' option is enabled.
+
+See "String Syntax" in the manual, for more information.
 
 ** Function profiling and tracing at the REPL
     
@@ -297,6 +374,11 @@ control this. See "Value History" in the manual, for more information.
 
 When readline is enabled, tab completion works for arguments too, not
 just for the operator position.
+
+** Expression-oriented readline history
+    
+Guile's readline history now tries to operate on expressions instead of
+input lines.  Let us know what you think!
 
 ** Interactive Guile follows GNU conventions
 
@@ -385,12 +467,12 @@ newer than that of the .scm file; if the .scm or .go files are moved
 after installation, care should be taken to preserve their original
 timestamps.
 
-Autocompiled files will be stored in the $XDG_CACHE_HOME/guile/ccache
+Auto-compiled files will be stored in the $XDG_CACHE_HOME/guile/ccache
 directory, where $XDG_CACHE_HOME defaults to ~/.cache. This directory
 will be created if needed.
 
-To inhibit autocompilation, set the GUILE_AUTO_COMPILE environment
-variable to 0, or pass --no-autocompile on the Guile command line.
+To inhibit automatic compilation, set the GUILE_AUTO_COMPILE environment
+variable to 0, or pass --no-auto-compile on the Guile command line.
 
 ** New POSIX procedures: `getrlimit' and `setrlimit'
 
@@ -404,6 +486,25 @@ Scheme binding for the `getsid' C library call.
 ** New POSIX procedure: `getaddrinfo'
 
 Scheme binding for the `getaddrinfo' C library function.
+
+** Multicast socket options
+
+Support was added for the IP_MULTICAST_TTL and IP_MULTICAST_IF socket
+options.  See "Network Sockets and Communication" in the manual, for
+more information.
+
+** `recv!', `recvfrom!', `send', `sendto' now deal in bytevectors
+
+These socket procedures now take bytevectors as arguments, instead of
+strings.  There is some deprecated string support, however.
+
+** New GNU procedures: `setaffinity' and `getaffinity'.
+    
+See "Processes" in the manual, for more information.
+
+** New procedures: `compose', `negate', and `const'
+
+See "Higher-Order Functions" in the manual, for more information.
 
 ** New procedure in `(oops goops)': `method-formals'
 
@@ -451,7 +552,7 @@ Brainfuck language itself.
 
 Guile now has an experimental Emacs Lisp compiler and runtime. You can
 now switch to Elisp at the repl: `,language elisp'. All kudos to Daniel
-Kraft, and all bugs to bug-guile@gnu.org.
+Kraft and Brian Templeton, and all bugs to bug-guile@gnu.org.
 
 ** Better documentation infrastructure for macros
 
@@ -523,6 +624,11 @@ for more information.
 This procedure exports all current and future bindings from a module.
 Use as `(module-export-all! (current-module))'.
     
+** New procedure `reload-module', and `,reload' REPL command
+    
+See "Module System Reflection" and "Module Commands" in the manual, for
+more information.
+
 ** `eval-case' has been deprecated, and replaced by `eval-when'.
 
 The semantics of `eval-when' are easier to understand. See "Eval When"
@@ -540,11 +646,9 @@ In this specific case, it would be better to do:
 
   (define foo (if test 'bar 'baz))
 
-It is certainly possible to circumvent this resriction with e.g.
-`(module-define! (current-module) 'foo 'baz)'. We would appreciate
-feedback about this change (a consequence of using psyntax as the
-default expander), and may choose to revisit this situation before 2.0
-in response to user feedback.
+It is possible to circumvent this restriction with e.g.
+`(module-define! (current-module) 'foo 'baz)'.  Contact the list if you
+have any questions.
 
 ** Support for `letrec*'
 
@@ -691,6 +795,11 @@ subsequent datum: #'foo => foo. In the unlikely event that anyone
 actually used this, this behavior may be reinstated via the
 `read-hash-extend' mechanism.
 
+** `unquote' and `unquote-splicing' accept multiple expressions
+    
+As per the R6RS, these syntax operators can now accept any number of
+expressions to unquote.
+
 ** Scheme expresssions may be commented out with #;
 
 #; comments out an entire expression.  See SRFI-62 or the R6RS for more
@@ -725,6 +834,13 @@ Similarly to the previous issue, backtraces in compiled code may be
 different from backtraces in interpreted code. There are no semantic
 differences, however. Please mail bug-guile@gnu.org if you see any
 deficiencies with Guile's backtraces.
+
+** `positions' reader option enabled by default
+    
+This change allows primitive-load without --auto-compile to also
+propagate source information through the expander, for better errors and
+to let macros know their source locations.  The compiler was already
+turning it on anyway.
 
 ** New macro: `current-source-location'
 
@@ -819,6 +935,16 @@ It takes a few procedure calls to define a module, and those procedure
 calls need to be in scope. Now we ensure that the current module when
 loading a module is one that has the needed bindings, instead of relying
 on chance.
+
+** `load' is a macro (!) that resolves paths relative to source file dir
+    
+The familiar Schem `load' procedure is now a macro that captures the
+name of the source file being expanded, and dispatches to the new
+`load-in-vicinity'.  Referencing `load' by bare name returns a closure
+that embeds the current source file name.
+
+This fix allows `load' of relative paths to be resolved with respect to
+the location of the file that calls `load'.
 
 ** Many syntax errors have different texts now
 
@@ -996,6 +1122,11 @@ compatibility purposes. No semantic change has been made (we hope).
 Optional and keyword arguments now dispatch via special VM operations,
 without the need to cons rest arguments, making them very fast.
 
+** New syntax: define-once
+
+`define-once' is like Lisp's `defvar': it creates a toplevel binding,
+but only if one does not exist already.
+
 ** New function, `truncated-print', with `format' support
 
 `(ice-9 pretty-print)' now exports `truncated-print', a printer that
@@ -1007,11 +1138,19 @@ There is a new `format' specifier, `~@y', for doing a truncated
 print (as opposed to `~y', which does a pretty-print). See the `format'
 documentation for more details.
 
+** Better pretty-printing
+
+Indentation recognizes more special forms, like `syntax-case', and read
+macros like `quote' are printed better.
+
 ** Passing a number as the destination of `format' is deprecated
 
 The `format' procedure in `(ice-9 format)' now emits a deprecation
 warning if a number is passed as its first argument.
 
+Also, it used to be that you could omit passing a port to `format', in
+some cases.  This still works, but has been formally deprecated.
+    
 ** SRFI-4 vectors reimplemented in terms of R6RS bytevectors
 
 Guile now implements SRFI-4 vectors using bytevectors. Often when you
@@ -1066,6 +1205,198 @@ implementation.
 `*unspecified*' is no longer a variable, so it is optimized properly by
 the compiler, and is not `set!'-able.
 
+** Changes and bugfixes in numerics code
+
+*** Added six new sets of fast quotient and remainder operators
+
+Added six new sets of fast quotient and remainder operator pairs with
+different semantics than the R5RS operators.  They support not only
+integers, but all reals, including exact rationals and inexact
+floating point numbers.
+
+These procedures accept two real numbers N and D, where the divisor D
+must be non-zero.  Each set of operators computes an integer quotient
+Q and a real remainder R such that N = Q*D + R and |R| < |D|.  They
+differ only in how N/D is rounded to produce Q.
+
+`euclidean-quotient' returns the integer Q and `euclidean-remainder'
+returns the real R such that N = Q*D + R and 0 <= R < |D|.  `euclidean/'
+returns both Q and R, and is more efficient than computing each
+separately.  Note that when D > 0, `euclidean-quotient' returns
+floor(N/D), and when D < 0 it returns ceiling(N/D).
+
+`centered-quotient', `centered-remainder', and `centered/' are similar
+except that the range of remainders is -abs(D/2) <= R < abs(D/2), and
+`centered-quotient' rounds N/D to the nearest integer.  Note that these
+operators are equivalent to the R6RS integer division operators `div',
+`mod', `div-and-mod', `div0', `mod0', and `div0-and-mod0'.
+
+`floor-quotient' and `floor-remainder' compute Q and R, respectively,
+where Q has been rounded toward negative infinity.  `floor/' returns
+both Q and R, and is more efficient than computing each separately.
+Note that when applied to integers, `floor-remainder' is equivalent to
+the R5RS integer-only `modulo' operator.  `ceiling-quotient',
+`ceiling-remainder', and `ceiling/' are similar except that Q is
+rounded toward positive infinity.
+
+For `truncate-quotient', `truncate-remainder', and `truncate/', Q is
+rounded toward zero.  Note that when applied to integers,
+`truncate-quotient' and `truncate-remainder' are equivalent to the
+R5RS integer-only operators `quotient' and `remainder'.
+
+For `round-quotient', `round-remainder', and `round/', Q is rounded to
+the nearest integer, with ties going to the nearest even integer.
+
+*** Complex number changes
+
+Guile is now able to represent non-real complex numbers whose
+imaginary part is an _inexact_ zero (0.0 or -0.0), per R6RS.
+Previously, such numbers were immediately changed into inexact reals.
+
+(real? 0.0+0.0i) now returns #f, per R6RS, although (zero? 0.0+0.0i)
+still returns #t, per R6RS.  (= 0 0.0+0.0i) and (= 0.0 0.0+0.0i) are
+#t, but the same comparisons using `eqv?' or `equal?' are #f.
+
+Like other non-real numbers, these complex numbers with inexact zero
+imaginary part will raise exceptions is passed to procedures requiring
+reals, such as `<', `>', `<=', `>=', `min', `max', `positive?',
+`negative?', `inf?', `nan?', `finite?', etc.
+
+**** `make-rectangular' changes
+
+scm_make_rectangular `make-rectangular' now returns a real number only
+if the imaginary part is an _exact_ 0.  Previously, it would return a
+real number if the imaginary part was an inexact zero.
+
+scm_c_make_rectangular now always returns a non-real complex number,
+even if the imaginary part is zero.  Previously, it would return a
+real number if the imaginary part was zero.
+
+**** `make-polar' changes
+
+scm_make_polar `make-polar' now returns a real number only if the
+angle or magnitude is an _exact_ 0.  If the magnitude is an exact 0,
+it now returns an exact 0.  Previously, it would return a real
+number if the imaginary part was an inexact zero.
+
+scm_c_make_polar now always returns a non-real complex number, even if
+the imaginary part is 0.0.  Previously, it would return a real number
+if the imaginary part was 0.0.
+
+**** `imag-part' changes
+
+scm_imag_part `imag-part' now returns an exact 0 if applied to an
+inexact real number.  Previously it returned an inexact zero in this
+case.
+
+*** `eqv?' and `equal?' now compare numbers equivalently
+
+scm_equal_p `equal?' now behaves equivalently to scm_eqv_p `eqv?' for
+numeric values, per R5RS.  Previously, equal? worked differently,
+e.g. `(equal? 0.0 -0.0)' returned #t but `(eqv? 0.0 -0.0)' returned #f,
+and `(equal? +nan.0 +nan.0)' returned #f but `(eqv? +nan.0 +nan.0)'
+returned #t.
+
+*** `(equal? +nan.0 +nan.0)' now returns #t
+
+Previously, `(equal? +nan.0 +nan.0)' returned #f, although
+`(let ((x +nan.0)) (equal? x x))' and `(eqv? +nan.0 +nan.0)'
+both returned #t.  R5RS requires that `equal?' behave like
+`eqv?' when comparing numbers.
+
+*** Change in handling products `*' involving exact 0
+
+scm_product `*' now handles exact 0 differently.  A product containing
+an exact 0 now returns an exact 0 if and only if the other arguments
+are all exact.  An inexact zero is returned if and only if the other
+arguments are all finite but not all exact.  If an infinite or NaN
+value is present, a NaN value is returned.  Previously, any product
+containing an exact 0 yielded an exact 0, regardless of the other
+arguments.
+
+*** `expt' and `integer-expt' changes when the base is 0
+
+While `(expt 0 0)' is still 1, and `(expt 0 N)' for N > 0 is still
+zero, `(expt 0 N)' for N < 0 is now a NaN value, and likewise for
+integer-expt.  This is more correct, and conforming to R6RS, but seems
+to be incompatible with R5RS, which would return 0 for all non-zero
+values of N.
+
+*** `expt' and `integer-expt' are more generic, less strict
+
+When raising to an exact non-negative integer exponent, `expt' and
+`integer-expt' are now able to exponentiate any object that can be
+multiplied using `*'.  They can also raise an object to an exact
+negative integer power if its reciprocal can be taken using `/'.
+In order to allow this, the type of the first argument is no longer
+checked when raising to an exact integer power.  If the exponent is 0
+or 1, the first parameter is not manipulated at all, and need not
+even support multiplication.
+
+*** Infinities are no longer integers, nor rationals
+
+scm_integer_p `integer?' and scm_rational_p `rational?' now return #f
+for infinities, per R6RS.  Previously they returned #t for real
+infinities.  The real infinities and NaNs are still considered real by
+scm_real `real?' however, per R6RS.
+
+*** NaNs are no longer rationals
+
+scm_rational_p `rational?' now returns #f for NaN values, per R6RS.
+Previously it returned #t for real NaN values.  They are still
+considered real by scm_real `real?' however, per R6RS.
+
+*** `inf?' and `nan?' now throw exceptions for non-reals
+
+The domain of `inf?' and `nan?' is the real numbers.  Guile now signals
+an error when a non-real number or non-number is passed to these
+procedures.  (Note that NaNs _are_ considered numbers by scheme, despite
+their name).
+
+*** `rationalize' bugfixes and changes
+
+Fixed bugs in scm_rationalize `rationalize'.  Previously, it returned
+exact integers unmodified, although that was incorrect if the epsilon
+was at least 1 or inexact, e.g. (rationalize 4 1) should return 3 per
+R5RS and R6RS, but previously it returned 4.  It also now handles
+cases involving infinities and NaNs properly, per R6RS.
+
+*** Trigonometric functions now return exact numbers in some cases
+
+scm_sin `sin', scm_cos `cos', scm_tan `tan', scm_asin `asin', scm_acos
+`acos', scm_atan `atan', scm_sinh `sinh', scm_cosh `cosh', scm_tanh
+`tanh', scm_sys_asinh `asinh', scm_sys_acosh `acosh', and
+scm_sys_atanh `atanh' now return exact results in some cases.
+
+*** New procedure: `finite?'
+
+Add scm_finite_p `finite?' from R6RS to guile core, which returns #t
+if and only if its argument is neither infinite nor a NaN.  Note that
+this is not the same as (not (inf? x)) or (not (infinite? x)), since
+NaNs are neither finite nor infinite.
+
+*** Improved exactness handling for complex number parsing
+
+When parsing non-real complex numbers, exactness specifiers are now
+applied to each component, as is done in PLT Scheme.  For complex
+numbers written in rectangular form, exactness specifiers are applied
+to the real and imaginary parts before calling scm_make_rectangular.
+For complex numbers written in polar form, exactness specifiers are
+applied to the magnitude and angle before calling scm_make_polar.
+
+Previously, exactness specifiers were applied to the number as a whole
+_after_ calling scm_make_rectangular or scm_make_polar.
+
+For example, (string->number "#i5.0+0i") now does the equivalent of:
+
+  (make-rectangular (exact->inexact 5.0) (exact->inexact 0))
+
+which yields 5.0+0.0i.  Previously it did the equivalent of:
+
+  (exact->inexact (make-rectangular 5.0 0))
+
+which yielded 5.0.
+
 ** Unicode characters
 
 Unicode characters may be entered in octal format via e.g. `#\454', or
@@ -1099,6 +1430,17 @@ of Source Files".
 The pre-1.9.3 reader handled 8-bit clean but otherwise unspecified source
 code.  This use is now discouraged.  Binary input and output is
 currently supported by opening ports in the ISO-8859-1 locale.
+
+** Source files default to UTF-8.
+
+If source files do not specify their encoding via a `coding:' block,
+the default encoding is UTF-8, instead of being taken from the current
+locale.
+
+** Interactive Guile installs the current locale.
+    
+Instead of leaving the user in the "C" locale, running the Guile REPL
+installs the current locale.  [FIXME xref?]
 
 ** Support for locale transcoding when reading from and writing to ports
 
@@ -1152,7 +1494,8 @@ procedure, with -Warity-mismatch, or `arity-mismatch' in the
 `#:warnings' as above.
 
 Other warnings include `-Wunused-variable' and `-Wunused-toplevel', to
-warn about unused local or global (top-level) variables.
+warn about unused local or global (top-level) variables, and `-Wformat',
+to check for various errors related to the `format' procedure.
 
 ** A new `memoize-symbol' evaluator trap has been added.
 
@@ -1173,6 +1516,14 @@ It used to be that a new thread entering Guile would do so in the
 `(guile)' module, unless this was the first time Guile was initialized,
 in which case it was `(guile-user)'. This has been fixed to have all
 new threads unknown to Guile default to `(guile-user)'.
+
+** New helpers: `print-exception', `set-exception-printer!'
+
+These functions implement an extensible exception printer.  Guile
+registers printers for all of the exceptions it throws.  Users may add
+their own printers.  There is also `scm_print_exception', for use by C
+programs.  Pleasantly, this allows SRFI-35 and R6RS exceptions to be
+printed appropriately.
 
 ** GOOPS dispatch in scheme
 
@@ -1223,6 +1574,12 @@ sense to allow extensions that would subvert this optimization.
 Guile now use a portable implementation of `inet_pton'/`inet_ntop', so
 there is no more need to use `inet-aton'/`inet-ntoa'. The latter
 functions are deprecated.
+
+** `getopt-long' parsing errors throw to `quit', not `misc-error'
+
+This change should inhibit backtraces on argument parsing errors.
+`getopt-long' has been modified to print out the error that it throws
+itself.
 
 ** New primitive: `tmpfile'.
     
@@ -1380,12 +1737,57 @@ This module had some debugging helpers that are no longer applicable to
 the current debugging model. Importing this module will produce a
 deprecation warning. Users should contact bug-guile for support.
 
+** Remove obsolete debug-options
+
+Removed `breakpoints', `trace', `procnames', `indent', `frames',
+`maxdepth', and `debug' debug-options.
+
+** `backtrace' debug option on by default
+
+Given that Guile 2.0 can always give you a backtrace, backtraces are now
+on by default.
+
+** `turn-on-debugging' deprecated
+
+** Remove obsolete print-options
+    
+The `source' and `closure-hook' print options are obsolete, and have
+been removed.
+
+** Remove obsolete read-options
+
+The "elisp-strings" and "elisp-vectors" read options were unused and
+obsolete, so they have been removed.
+
+** Remove eval-options and trap-options
+
+Eval-options and trap-options are obsolete with the new VM and
+evaluator.
+
+** Remove (ice-9 debugger) and (ice-9 debugging)
+
+See "Traps" and "Interactive Debugging" in the manual, for information
+on their replacements.
+
+** Remove the GDS Emacs integration
+
+See "Using Guile in Emacs" in the manual, for info on how we think you
+should use Guile with Emacs.
+
 ** Deprecated: `lazy-catch'
 
 `lazy-catch' was a form that captured the stack at the point of a
 `throw', but the dynamic state at the point of the `catch'. It was a bit
 crazy. Please change to use `catch', possibly with a throw-handler, or
 `with-throw-handler'.
+
+** Deprecated: primitive properties
+
+The `primitive-make-property', `primitive-property-set!',
+`primitive-property-ref', and `primitive-property-del!' procedures were
+crufty and only used to implement object properties, which has a new,
+threadsafe implementation.  Use object properties or weak hash tables
+instead.
 
 ** Deprecated `@bind' syntax
 
@@ -1394,9 +1796,22 @@ and is no longer used.
     
 ** Miscellaneous other deprecations
 
-`apply-to-args', `has-suffix?', `scheme-file-suffix'
+`cuserid' has been deprecated, as it only returns 8 bytes of a user's
+login.  Use `(passwd:name (getpwuid (geteuid)))' instead.
+    
+Additionally, the procedures `apply-to-args', `has-suffix?', `scheme-file-suffix'
 `get-option', `for-next-option', `display-usage-report',
-`transform-usage-lambda', `collect', `set-batch-mode?!'
+`transform-usage-lambda', `collect', and `set-batch-mode?!' have all
+been deprecated.
+
+** Add support for unbound fluids
+    
+See `make-unbound-fluid', `fluid-unset!', and `fluid-bound?' in the
+manual.
+
+** Add `variable-unset!'
+    
+See "Variables" in the manual, for more details.
 
 ** Last but not least, the `λ' macro can be used in lieu of `lambda'
 
@@ -1410,6 +1825,24 @@ backward-compatible way.  A new allocation routine,
 
 Libgc is a conservative GC, which we hope will make interaction with C
 code easier and less error-prone.
+
+** New procedures: `scm_to_stringn', `scm_from_stringn'
+** New procedures: scm_{to,from}_{utf8,latin1}_symbol{n,}
+** New procedures: scm_{to,from}_{utf8,utf32,latin1}_string{n,}
+    
+These new procedures convert to and from string representations in
+particular encodings.
+
+Users should continue to use locale encoding for user input, user
+output, or interacting with the C library.
+
+Use the Latin-1 functions for ASCII, and for literals in source code.
+
+Use UTF-8 functions for interaction with modern libraries which deal in
+UTF-8, and UTF-32 for interaction with utf32-using libraries.
+
+Otherwise, use scm_to_stringn or scm_from_stringn with a specific
+encoding.
 
 ** New type definitions for `scm_t_intptr' and friends.
 
@@ -1525,6 +1958,18 @@ The upshot is that the mechanics used to apply a SMOB are different from
 1.8. Descriptors no longer have `apply_0', `apply_1', `apply_2', and
 `apply_3' functions, and the macros SCM_SMOB_APPLY_0 and friends are now
 deprecated. Just use the scm_call_0 family of procedures.
+
+** Removed support shlibs for SRFIs 1, 4, 13, 14, and 60
+
+Though these SRFI support libraries did expose API, they encoded a
+strange version string into their library names.  That version was never
+programmatically exported, so there was no way people could use the
+libs.
+
+This was a fortunate oversight, as it allows us to remove the need for
+extra, needless shared libraries --- the C support code for SRFIs 4, 13,
+and 14 was already in core --- and allow us to incrementally return the
+SRFI implementation to Scheme.
 
 ** New C function: scm_module_public_interface
 

@@ -1,6 +1,6 @@
 /* srfi-13.c --- SRFI-13 procedures for Guile
  *
- * Copyright (C) 2001, 2004, 2005, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+ * Copyright (C) 2001, 2004, 2005, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -251,14 +251,14 @@ SCM_DEFINE (scm_string_tabulate, "string-tabulate", 2, 0, 0,
     if (wide)
       {
         scm_t_wchar *wbuf = NULL;
-        res = scm_i_make_wide_string (clen, &wbuf);
+        res = scm_i_make_wide_string (clen, &wbuf, 0);
         memcpy (wbuf, buf, clen * sizeof (scm_t_wchar));
         free (buf);
       }
     else
       {
         char *nbuf = NULL;
-        res = scm_i_make_string (clen, &nbuf);
+        res = scm_i_make_string (clen, &nbuf, 0);
         for (i = 0; i < clen; i ++)
           nbuf[i] = (unsigned char) buf[i];
         free (buf);
@@ -336,7 +336,7 @@ SCM_DEFINE (scm_reverse_list_to_string, "reverse-list->string", 1, 0, 0,
 
   if (i < 0)
     SCM_WRONG_TYPE_ARG (1, chrs);
-  result = scm_i_make_string (i, &data);
+  result = scm_i_make_string (i, &data, 0);
 
   {
     SCM rest;
@@ -439,7 +439,7 @@ SCM_DEFINE (scm_string_join, "string-join", 1, 2, 0,
     SCM_MISC_ERROR ("strict-infix grammar requires non-empty list",
 		    SCM_EOL);
 
-  result = scm_i_make_string (0, NULL);
+  result = scm_i_make_string (0, NULL, 0);
 
   tmp = ls;
   switch (gram)
@@ -1181,7 +1181,9 @@ SCM_DEFINE (scm_string_eq, "string=", 2, 4, 0,
       len1 = scm_i_string_length (s1);
       len2 = scm_i_string_length (s2);
 
-      if (SCM_LIKELY (len1 == len2))
+      if (len1 != len2)
+	return SCM_BOOL_F;
+      else
 	{
 	  if (!scm_i_is_narrow_string (s1))
 	    len1 *= 4;
@@ -1640,18 +1642,19 @@ SCM_DEFINE (scm_string_suffix_ci_p, "string-suffix-ci?", 2, 4, 0,
 SCM_DEFINE (scm_string_index, "string-index", 2, 2, 0,
 	    (SCM s, SCM char_pred, SCM start, SCM end),
 	    "Search through the string @var{s} from left to right, returning\n"
-	    "the index of the first occurence of a character which\n"
+	    "the index of the first occurrence of a character which\n"
 	    "\n"
 	    "@itemize @bullet\n"
 	    "@item\n"
 	    "equals @var{char_pred}, if it is character,\n"
 	    "\n"
 	    "@item\n"
-	    "satisifies the predicate @var{char_pred}, if it is a procedure,\n"
+	    "satisfies the predicate @var{char_pred}, if it is a procedure,\n"
 	    "\n"
 	    "@item\n"
 	    "is in the set @var{char_pred}, if it is a character set.\n"
-	    "@end itemize")
+	    "@end itemize\n\n"
+	    "Return @code{#f} if no match is found.")
 #define FUNC_NAME s_scm_string_index
 {
   size_t cstart, cend;
@@ -1704,18 +1707,19 @@ SCM_DEFINE (scm_string_index, "string-index", 2, 2, 0,
 SCM_DEFINE (scm_string_index_right, "string-index-right", 2, 2, 0,
 	    (SCM s, SCM char_pred, SCM start, SCM end),
 	    "Search through the string @var{s} from right to left, returning\n"
-	    "the index of the last occurence of a character which\n"
+	    "the index of the last occurrence of a character which\n"
 	    "\n"
 	    "@itemize @bullet\n"
 	    "@item\n"
 	    "equals @var{char_pred}, if it is character,\n"
 	    "\n"
 	    "@item\n"
-	    "satisifies the predicate @var{char_pred}, if it is a procedure,\n"
+	    "satisfies the predicate @var{char_pred}, if it is a procedure,\n"
 	    "\n"
 	    "@item\n"
 	    "is in the set if @var{char_pred} is a character set.\n"
-	    "@end itemize")
+	    "@end itemize\n\n"
+	    "Return @code{#f} if no match is found.")
 #define FUNC_NAME s_scm_string_index_right
 {
   size_t cstart, cend;
@@ -1768,18 +1772,19 @@ SCM_DEFINE (scm_string_index_right, "string-index-right", 2, 2, 0,
 SCM_DEFINE (scm_string_rindex, "string-rindex", 2, 2, 0,
 	    (SCM s, SCM char_pred, SCM start, SCM end),
 	    "Search through the string @var{s} from right to left, returning\n"
-	    "the index of the last occurence of a character which\n"
+	    "the index of the last occurrence of a character which\n"
 	    "\n"
 	    "@itemize @bullet\n"
 	    "@item\n"
 	    "equals @var{char_pred}, if it is character,\n"
 	    "\n"
 	    "@item\n"
-	    "satisifies the predicate @var{char_pred}, if it is a procedure,\n"
+	    "satisfies the predicate @var{char_pred}, if it is a procedure,\n"
 	    "\n"
 	    "@item\n"
 	    "is in the set if @var{char_pred} is a character set.\n"
-	    "@end itemize")
+	    "@end itemize\n\n"
+	    "Return @code{#f} if no match is found.")
 #define FUNC_NAME s_scm_string_rindex
 {
   return scm_string_index_right (s, char_pred, start, end);
@@ -1789,14 +1794,14 @@ SCM_DEFINE (scm_string_rindex, "string-rindex", 2, 2, 0,
 SCM_DEFINE (scm_string_skip, "string-skip", 2, 2, 0,
 	    (SCM s, SCM char_pred, SCM start, SCM end),
 	    "Search through the string @var{s} from left to right, returning\n"
-	    "the index of the first occurence of a character which\n"
+	    "the index of the first occurrence of a character which\n"
 	    "\n"
 	    "@itemize @bullet\n"
 	    "@item\n"
 	    "does not equal @var{char_pred}, if it is character,\n"
 	    "\n"
 	    "@item\n"
-	    "does not satisify the predicate @var{char_pred}, if it is a\n"
+	    "does not satisfy the predicate @var{char_pred}, if it is a\n"
 	    "procedure,\n"
 	    "\n"
 	    "@item\n"
@@ -1855,7 +1860,7 @@ SCM_DEFINE (scm_string_skip, "string-skip", 2, 2, 0,
 SCM_DEFINE (scm_string_skip_right, "string-skip-right", 2, 2, 0,
 	    (SCM s, SCM char_pred, SCM start, SCM end),
 	    "Search through the string @var{s} from right to left, returning\n"
-	    "the index of the last occurence of a character which\n"
+	    "the index of the last occurrence of a character which\n"
 	    "\n"
 	    "@itemize @bullet\n"
 	    "@item\n"
@@ -1929,7 +1934,7 @@ SCM_DEFINE (scm_string_count, "string-count", 2, 2, 0,
 	    "equals @var{char_pred}, if it is character,\n"
 	    "\n"
 	    "@item\n"
-	    "satisifies the predicate @var{char_pred}, if it is a procedure.\n"
+	    "satisfies the predicate @var{char_pred}, if it is a procedure.\n"
 	    "\n"
 	    "@item\n"
 	    "is in the set @var{char_pred}, if it is a character set.\n"
@@ -2456,7 +2461,7 @@ SCM_DEFINE (scm_string_concatenate_shared, "string-concatenate/shared", 1, 0, 0,
 SCM_DEFINE (scm_string_concatenate_reverse_shared, "string-concatenate-reverse/shared", 1, 2, 0,
             (SCM ls, SCM final_string, SCM end),
 	    "Like @code{string-concatenate-reverse}, but the result may\n"
-	    "share memory with the the strings in the @var{ls} arguments.")
+	    "share memory with the strings in the @var{ls} arguments.")
 #define FUNC_NAME s_scm_string_concatenate_reverse_shared
 {
   /* Just call the non-sharing version.  */
@@ -2481,7 +2486,7 @@ SCM_DEFINE (scm_string_map, "string-map", 2, 2, 0,
   MY_VALIDATE_SUBSTRING_SPEC (2, s,
 			      3, start, cstart,
 			      4, end, cend);
-  result = scm_i_make_string (cend - cstart, NULL);
+  result = scm_i_make_string (cend - cstart, NULL, 0);
   p = 0;
   while (cstart < cend)
     {
@@ -2619,7 +2624,7 @@ SCM_DEFINE (scm_string_unfold, "string-unfold", 4, 2, 0,
       ans = base;
     }
   else
-    ans = scm_i_make_string (0, NULL);
+    ans = scm_i_make_string (0, NULL, 0);
   if (!SCM_UNBNDP (make_final))
     SCM_VALIDATE_PROC (6, make_final);
 
@@ -2631,7 +2636,7 @@ SCM_DEFINE (scm_string_unfold, "string-unfold", 4, 2, 0,
       SCM ch = scm_call_1 (f, seed);
       if (!SCM_CHARP (ch))
 	SCM_MISC_ERROR ("procedure ~S returned non-char", scm_list_1 (f));
-      str = scm_i_make_string (1, NULL);
+      str = scm_i_make_string (1, NULL, 0);
       str = scm_i_string_start_writing (str);
       scm_i_string_set_x (str, i, SCM_CHAR (ch));
       scm_i_string_stop_writing ();
@@ -2685,7 +2690,7 @@ SCM_DEFINE (scm_string_unfold_right, "string-unfold-right", 4, 2, 0,
       ans = base;
     }
   else
-    ans = scm_i_make_string (0, NULL);
+    ans = scm_i_make_string (0, NULL, 0);
   if (!SCM_UNBNDP (make_final))
     SCM_VALIDATE_PROC (6, make_final);
 
@@ -2697,7 +2702,7 @@ SCM_DEFINE (scm_string_unfold_right, "string-unfold-right", 4, 2, 0,
       SCM ch = scm_call_1 (f, seed);
       if (!SCM_CHARP (ch))
 	SCM_MISC_ERROR ("procedure ~S returned non-char", scm_list_1 (f));
-      str = scm_i_make_string (1, NULL);
+      str = scm_i_make_string (1, NULL, 0);
       str = scm_i_string_start_writing (str);
       scm_i_string_set_x (str, i, SCM_CHAR (ch));
       scm_i_string_stop_writing ();
@@ -2812,7 +2817,7 @@ SCM_DEFINE (scm_xsubstring, "xsubstring", 2, 3, 0,
   if (cstart == cend && cfrom != cto)
     SCM_MISC_ERROR ("start and end indices must not be equal", SCM_EOL);
 
-  result = scm_i_make_string (cto - cfrom, NULL);
+  result = scm_i_make_string (cto - cfrom, NULL, 0);
   result = scm_i_string_start_writing (result);
 
   p = 0;
@@ -2966,7 +2971,7 @@ SCM_DEFINE (scm_string_tokenize, "string-tokenize", 1, 3, 0,
 
 SCM_DEFINE (scm_string_split, "string-split", 2, 0, 0,
 	    (SCM str, SCM chr),
-	    "Split the string @var{str} into the a list of the substrings delimited\n"
+	    "Split the string @var{str} into a list of the substrings delimited\n"
 	    "by appearances of the character @var{chr}.  Note that an empty substring\n"
 	    "between separator characters will result in an empty string in the\n"
 	    "result list.\n"
@@ -3048,10 +3053,11 @@ SCM_DEFINE (scm_string_filter, "string-filter", 2, 2, 0,
   SCM result;
   size_t idx;
 
+#if SCM_ENABLE_DEPRECATED == 1
   if (scm_is_string (char_pred))
     {
       SCM tmp;
-      
+
       scm_c_issue_deprecation_warning
         ("Guile used to use the wrong argument order for string-filter.\n"
          "This call to string-filter had the arguments in the wrong order.\n"
@@ -3061,6 +3067,7 @@ SCM_DEFINE (scm_string_filter, "string-filter", 2, 2, 0,
       char_pred = s;
       s = tmp;
     }
+#endif
 
   MY_VALIDATE_SUBSTRING_SPEC (2, s,
 			      3, start, cstart,
@@ -3122,7 +3129,7 @@ SCM_DEFINE (scm_string_filter, "string-filter", 2, 2, 0,
       else
         {
           size_t dst = 0;
-          result = scm_i_make_string (count, NULL);
+          result = scm_i_make_string (count, NULL, 0);
 	  result = scm_i_string_start_writing (result);
 
           /* decrement "count" in this loop as well as using idx, so that if
@@ -3179,10 +3186,11 @@ SCM_DEFINE (scm_string_delete, "string-delete", 2, 2, 0,
   SCM result;
   size_t idx;
 
+#if SCM_ENABLE_DEPRECATED == 1
   if (scm_is_string (char_pred))
     {
       SCM tmp;
-      
+
       scm_c_issue_deprecation_warning
         ("Guile used to use the wrong argument order for string-delete.\n"
          "This call to string-filter had the arguments in the wrong order.\n"
@@ -3192,6 +3200,7 @@ SCM_DEFINE (scm_string_delete, "string-delete", 2, 2, 0,
       char_pred = s;
       s = tmp;
     }
+#endif
 
   MY_VALIDATE_SUBSTRING_SPEC (2, s,
 			      3, start, cstart,
@@ -3230,7 +3239,7 @@ SCM_DEFINE (scm_string_delete, "string-delete", 2, 2, 0,
         {
 	  int i = 0;
           /* new string for retained portion */
-          result = scm_i_make_string (count, NULL); 
+          result = scm_i_make_string (count, NULL, 0); 
           result = scm_i_string_start_writing (result);
           /* decrement "count" in this loop as well as using idx, so that if
              another thread is simultaneously changing "s" there's no chance
@@ -3272,7 +3281,7 @@ SCM_DEFINE (scm_string_delete, "string-delete", 2, 2, 0,
         {
 	  size_t i = 0;
           /* new string for retained portion */
-          result = scm_i_make_string (count, NULL);
+          result = scm_i_make_string (count, NULL, 0);
 	  result = scm_i_string_start_writing (result);
 
           /* decrement "count" in this loop as well as using idx, so that if

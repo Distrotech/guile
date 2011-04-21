@@ -1,4 +1,4 @@
-/* Copyright (C) 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -82,6 +82,25 @@ setlocale (int category, const char *name)
 /* Helper stringification macro.  */
 #define SCM_I18N_STRINGIFY(_name)   # _name
 
+/* Acquiring and releasing the locale lock.  */
+
+static inline void
+lock_locale_mutex (void)
+{
+#ifdef HAVE_POSIX
+  scm_i_pthread_mutex_lock (&scm_i_locale_mutex);
+#else
+#endif
+}
+
+static inline void
+unlock_locale_mutex (void)
+{
+#ifdef HAVE_POSIX
+  scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+#else
+#endif
+}
 
 
 /* Locale objects, string and character collation, and other locale-dependent
@@ -421,7 +440,7 @@ leave_locale_section (const scm_t_locale_settings *settings)
   /* Restore the previous locale settings.  */
   (void)restore_locale_settings (settings);
 
-  scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+  unlock_locale_mutex ();
 }
 
 /* Enter a locked locale section.  */
@@ -431,12 +450,12 @@ enter_locale_section (scm_t_locale locale,
 {
   int err;
 
-  scm_i_pthread_mutex_lock (&scm_i_locale_mutex);
+  lock_locale_mutex ();
 
   err = get_current_locale_settings (prev_locale);
   if (err)
     {
-      scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+      unlock_locale_mutex ();
       return err;
     }
 
@@ -483,7 +502,7 @@ get_current_locale (SCM *result)
   c_locale = scm_gc_malloc (sizeof (* c_locale), "locale");
 
 
-  scm_i_pthread_mutex_lock (&scm_i_locale_mutex);
+  lock_locale_mutex ();
 
   c_locale->category_mask = LC_ALL_MASK;
   c_locale->base_locale = SCM_UNDEFINED;
@@ -498,7 +517,7 @@ get_current_locale (SCM *result)
   else
     err = EINVAL;
 
-  scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+  unlock_locale_mutex ();
 
   if (err)
     scm_gc_free (c_locale, sizeof (* c_locale), "locale");
@@ -766,16 +785,10 @@ compare_u32_strings (SCM s1, SCM s2, SCM locale, const char *func_name)
 static const char *
 locale_language ()
 {
-  /* FIXME: If the locale has been set with 'uselocale',
-     libunistring's uc_locale_language will return the incorrect
-     language: it will return the language appropriate for the global
-     (non-thread-specific) locale.
-
-     There appears to be no portable way to extract the language from
-     the thread-specific locale_t.  There is no LANGUAGE capability in
-     nl_langinfo or nl_langinfo_l.
-
-     Thus, uc_locale_language needs to be fixed upstream.  */
+  /* Note: If the locale has been set with 'uselocale', uc_locale_language
+     from libunistring versions 0.9.1 and older will return the incorrect
+     (non-thread-specific) locale.  This is fixed in versions 0.9.2 and
+     newer.  */
   return uc_locale_language ();
 }
 
@@ -1113,23 +1126,19 @@ chr_to_case (SCM chr, scm_t_locale c_locale,
 #define FUNC_NAME func_name
 {
   int ret;
-  scm_t_wchar *buf;
+  scm_t_uint32 c;
   scm_t_uint32 *convbuf;
   size_t convlen;
-  SCM str, convchar;
+  SCM convchar;
 
-  str = scm_i_make_wide_string (1, &buf);
-  buf[0] = SCM_CHAR (chr);
+  c = SCM_CHAR (chr);
 
   if (c_locale != NULL)
     RUN_IN_LOCALE_SECTION (c_locale, ret =
-                           u32_locale_tocase ((scm_t_uint32 *) buf, 1,
-                                              &convbuf,
-                                              &convlen, func));
+                           u32_locale_tocase (&c, 1, &convbuf, &convlen, func));
   else
     ret =
-      u32_locale_tocase ((scm_t_uint32 *) buf, 1, &convbuf,
-                         &convlen, func);
+      u32_locale_tocase (&c, 1, &convbuf, &convlen, func);
 
   if (SCM_UNLIKELY (ret != 0))
     {
@@ -1256,7 +1265,7 @@ str_to_case (SCM str, scm_t_locale c_locale,
       return NULL;
     }
 
-  convstr = scm_i_make_wide_string (convlen, &c_buf);
+  convstr = scm_i_make_wide_string (convlen, &c_buf, 0);
   memcpy (c_buf, c_convstr, convlen * sizeof (scm_t_wchar));
   free (c_convstr);
 
@@ -1500,7 +1509,7 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
      http://opengroup.org/onlinepubs/007908799/xsh/nl_langinfo.html for
      details.  */
 
-  scm_i_pthread_mutex_lock (&scm_i_locale_mutex);
+  lock_locale_mutex ();
   if (c_locale != NULL)
     {
 #ifdef USE_GNU_LOCALE_API
@@ -1516,7 +1525,7 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 
       lsec_err = get_current_locale_settings (&lsec_prev_locale);
       if (lsec_err)
-	scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+	unlock_locale_mutex ();
       else
 	{
 	  lsec_err = install_locale (c_locale);
@@ -1550,7 +1559,7 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
     }
 
   c_result = strdup (c_result);
-  scm_i_pthread_mutex_unlock (&scm_i_locale_mutex);
+  unlock_locale_mutex ();
 
   if (c_result == NULL)
     result = SCM_BOOL_F;
@@ -1564,11 +1573,14 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 	  {
 	    char *p;
 
-	    /* In this cases, the result is to be interpreted as a list of
-	       numbers.  If the last item is `CHARS_MAX', it has the special
-	       meaning "no more grouping".  */
+	    /* In this cases, the result is to be interpreted as a list
+	       of numbers.  If the last item is `CHAR_MAX' or a negative
+	       number, it has the special meaning "no more grouping"
+	       (negative numbers aren't specified in POSIX but can be
+	       used by glibc; see
+	       <http://lists.gnu.org/archive/html/bug-guile/2011-02/msg00159.html>).  */
 	    result = SCM_EOL;
-	    for (p = c_result; (*p != '\0') && (*p != CHAR_MAX); p++)
+	    for (p = c_result; (*p > 0) && (*p != CHAR_MAX); p++)
 	      result = scm_cons (SCM_I_MAKINUM ((int) *p), result);
 
 	    {
@@ -1576,7 +1588,7 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 
 	      result = scm_reverse_x (result, SCM_EOL);
 
-	      if (*p != CHAR_MAX)
+	      if (*p == 0)
 		{
 		  /* Cyclic grouping information.  */
 		  if (last_pair != SCM_EOL)
@@ -1629,27 +1641,27 @@ SCM_DEFINE (scm_nl_langinfo, "nl-langinfo", 1, 1, 0,
 	  switch (*c_result)
 	    {
 	    case 0:
-	      result = scm_from_locale_symbol ("parenthesize");
+	      result = scm_from_latin1_symbol ("parenthesize");
 	      break;
 
 	    case 1:
-	      result = scm_from_locale_symbol ("sign-before");
+	      result = scm_from_latin1_symbol ("sign-before");
 	      break;
 
 	    case 2:
-	      result = scm_from_locale_symbol ("sign-after");
+	      result = scm_from_latin1_symbol ("sign-after");
 	      break;
 
 	    case 3:
-	      result = scm_from_locale_symbol ("sign-before-currency-symbol");
+	      result = scm_from_latin1_symbol ("sign-before-currency-symbol");
 	      break;
 
 	    case 4:
-	      result = scm_from_locale_symbol ("sign-after-currency-symbol");
+	      result = scm_from_latin1_symbol ("sign-after-currency-symbol");
 	      break;
 
 	    default:
-	      result = scm_from_locale_symbol ("unspecified");
+	      result = scm_from_latin1_symbol ("unspecified");
 	    }
 	  break;
 #endif

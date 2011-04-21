@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -91,11 +91,11 @@ dots.}, or in the worst case, displayed as @nicode{#}.
 @deffn {Scheme Procedure} truncated-print obj [port] [keyword-options]
 Print @var{obj}, truncating the output, if necessary, to make it fit
 into @var{width} characters. By default, @var{x} will be printed using
-@code{write}, though that behavior can be overriden via the
+@code{write}, though that behavior can be overridden via the
 @var{display?} keyword argument.
 
 The default behaviour is to print depth-first, meaning that the entire
-remaining width will be available to each sub-expressoin of @var{x} --
+remaining width will be available to each sub-expression of @var{x} --
 e.g., if @var{x} is a vector, each member of @var{x}. One can attempt to
 ``ration'' the available width, trying to allocate it equally to each
 sub-expression, via the @var{breadth-first?} keyword argument.
@@ -400,8 +400,8 @@ would exceed @var{width}, then that many @var{overflowchar}s are
 printed instead of the value.
 
 @example
-(format #t "~5,,,'xf" 12345) @print{} 12345
-(format #t "~4,,,'xf" 12345) @print{} xxxx
+(format #t "~6,,,'xf" 12345) @print{} 12345.
+(format #t "~5,,,'xf" 12345) @print{} xxxxx
 @end example
 
 @item @nicode{~e}
@@ -475,7 +475,7 @@ in which case leading zeros are shown after the decimal point.
 
 @c  FIXME: MANTDIGITS with negative INTDIGITS doesn't match CL spec,
 @c  believe the spec says it ought to still show mantdigits+1 sig
-@c  figures, ie. leading zeros don't count towards MANTDIGITS, but it
+@c  figures, i.e. leading zeros don't count towards MANTDIGITS, but it
 @c  seems to just treat MANTDIGITS as how many digits after the
 @c  decimal point.
 
@@ -1260,7 +1260,7 @@ The return value from @code{nftw} is @code{#t} if it ran to
 completion, or otherwise the non-@code{#t} value from @var{proc} which
 caused the stop.
 
-@c  For reference, one reason not to esacpe is that the current
+@c  For reference, one reason not to escape is that the current
 @c  directory is not saved and restored with dynamic-wind.  Maybe
 @c  changing that would be enough to allow escaping.
 @c

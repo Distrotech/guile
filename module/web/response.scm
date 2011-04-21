@@ -1,6 +1,6 @@
 ;;; HTTP response objects
 
-;; Copyright (C)  2010 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -21,7 +21,7 @@
 
 (define-module (web response)
   #:use-module (rnrs bytevectors)
-  #:use-module (rnrs io ports)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 rdelim)
   #:use-module (srfi srfi-9)
   #:use-module (web http)
@@ -33,15 +33,11 @@
             response-port
             read-response
             build-response
-            extend-response
             adapt-response-version
             write-response
 
-            read-response-body/latin-1
-            write-response-body/latin-1
-
-            read-response-body/bytevector
-            write-response-body/bytevector
+            read-response-body
+            write-response-body
 
             ;; General headers
             ;;
@@ -93,21 +89,38 @@
 (define (bad-response message . args)
   (throw 'bad-response message args))
 
-(define* (build-response #:key (version '(1 . 1)) (code 200) reason-phrase
-                         (headers '()) port)
-  (make-response version code reason-phrase headers port))
+(define (non-negative-integer? n)
+  (and (number? n) (>= n 0) (exact? n) (integer? n)))
+                                    
+(define (validate-headers headers)
+  (if (pair? headers)
+      (let ((h (car headers)))
+        (if (pair? h)
+            (let ((k (car h)) (v (cdr h)))
+              (if (valid-header? k v)
+                  (validate-headers (cdr headers))
+                  (bad-response "Bad value for header ~a: ~s" k v)))
+            (bad-response "Header not a pair: ~a" h)))
+      (if (not (null? headers))
+          (bad-response "Headers not a list: ~a" headers))))
 
-(define (extend-response r k v . additional)
-  (let ((r (build-response #:version (response-version r)
-                           #:code (response-code r)
-                           #:reason-phrase (%response-reason-phrase r)
-                           #:headers
-                           (assoc-set! (copy-tree (response-headers r))
-                                       k v)
-                           #:port (response-port r))))
-    (if (null? additional)
-        r
-        (apply extend-response r additional))))
+(define* (build-response #:key (version '(1 . 1)) (code 200) reason-phrase
+                         (headers '()) port (validate-headers? #t))
+  "Construct an HTTP response object. If @var{validate-headers?} is true,
+the headers are each run through their respective validators."
+  (cond
+   ((not (and (pair? version)
+              (non-negative-integer? (car version))
+              (non-negative-integer? (cdr version))))
+    (bad-response "Bad version: ~a" version))
+   ((not (and (non-negative-integer? code) (< code 600)))
+    (bad-response "Bad code: ~a" code))
+   ((and reason-phrase (not (string? reason-phrase)))
+    (bad-response "Bad reason phrase" reason-phrase))
+   (else
+    (if validate-headers?
+        (validate-headers headers))))
+  (make-response version code reason-phrase headers port))
 
 (define *reason-phrases*
   '((100 . "Continue")
@@ -156,22 +169,42 @@
       "(Unknown)"))
 
 (define (response-reason-phrase response)
+  "Return the reason phrase given in @var{response}, or the standard
+reason phrase for the response's code."
   (or (%response-reason-phrase response)
       (code->reason-phrase (response-code response))))
 
 (define (read-response port)
+  "Read an HTTP response from @var{port}.
+
+As a side effect, sets the encoding on @var{port} to
+ISO-8859-1 (latin-1), so that reading one character reads one byte.  See
+the discussion of character sets in \"HTTP Responses\" in the manual,
+for more information."
   (set-port-encoding! port "ISO-8859-1")
   (call-with-values (lambda () (read-response-line port))
     (lambda (version code reason-phrase)
       (make-response version code reason-phrase (read-headers port) port))))
 
 (define (adapt-response-version response version)
+  "Adapt the given response to a different HTTP version.  Returns a new
+HTTP response.
+
+The idea is that many applications might just build a response for the
+default HTTP version, and this method could handle a number of
+programmatic transformations to respond to older HTTP versions (0.9 and
+1.0).  But currently this function is a bit heavy-handed, just updating
+the version field."
   (build-response #:code (response-code response)
                   #:version version
                   #:headers (response-headers response)
                   #:port (response-port response)))
 
 (define (write-response r port)
+  "Write the given HTTP response to @var{port}.
+
+Returns a new response, whose @code{response-port} will continue writing
+on @var{port}, perhaps using some transfer encoding."
   (write-response-line (response-version r) (response-code r)
                        (response-reason-phrase r) port)
   (write-headers (response-headers r) port)
@@ -181,36 +214,9 @@
       (make-response (response-version r) (response-code r)
                      (response-reason-phrase r) (response-headers r) port)))
 
-;; Probably not what you want to use "in production". Relies on one byte
-;; per char because we are in latin-1 encoding.
-;;
-(define (read-response-body/latin-1 r)
-  (cond 
-   ((response-content-length r) =>
-    (lambda (nbytes)
-      (let ((buf (make-string nbytes))
-            (port (response-port r)))
-        (let lp ((i 0))
-          (cond
-           ((< i nbytes)
-            (let ((c (read-char port)))
-              (cond
-               ((eof-object? c)
-                (bad-response "EOF while reading response body: ~a bytes of ~a"
-                              i nbytes))
-               (else
-                (string-set! buf i c)
-                (lp (1+ i))))))
-           (else buf))))))
-   (else #f)))
-
-;; Likewise, assumes that body can be written in the latin-1 encoding,
-;; and that the latin-1 encoding is what is expected by the server.
-;;
-(define (write-response-body/latin-1 r body)
-  (display body (response-port r)))
-
-(define (read-response-body/bytevector r)
+(define (read-response-body r)
+  "Reads the response body from @var{r}, as a bytevector.  Returns
+@code{#f} if there was no response body."
   (let ((nbytes (response-content-length r)))
     (and nbytes
          (let ((bv (get-bytevector-n (response-port r) nbytes)))
@@ -219,7 +225,9 @@
                (bad-response "EOF while reading response body: ~a bytes of ~a"
                             (bytevector-length bv) nbytes))))))
 
-(define (write-response-body/bytevector r bv)
+(define (write-response-body r bv)
+  "Write @var{body}, a bytevector, to the port corresponding to the HTTP
+response @var{r}."
   (put-bytevector (response-port r) bv))
 
 (define-syntax define-response-accessor

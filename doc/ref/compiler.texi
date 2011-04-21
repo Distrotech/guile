@@ -295,7 +295,7 @@ Properties}, for more information.
 
 Although Tree-IL objects are represented internally using records,
 there is also an equivalent S-expression external representation for
-each kind of Tree-IL. For example, an the S-expression representation
+each kind of Tree-IL. For example, the S-expression representation
 of @code{#<const src: #f exp: 3>} expression would be:
 
 @example
@@ -357,7 +357,7 @@ Sets a lexically-bound variable.
 @deftpx {External Representation} (@@ @var{mod} @var{name})
 @deftpx {External Representation} (@@@@ @var{mod} @var{name})
 A reference to a variable in a specific module. @var{mod} should be
-the name of the module, e.g. @code{(guile-user)}.
+the name of the module, e.g.@: @code{(guile-user)}.
 
 If @var{public?} is true, the variable named @var{name} will be looked
 up in @var{mod}'s public interface, and serialized with @code{@@};
@@ -418,7 +418,7 @@ argument, or @code{#f}.
 (@var{keyword} @var{name} @var{var}) ...)}, where @var{keyword} is the
 keyword corresponding to the argument named @var{name}, and whose
 corresponding gensym is @var{var}. @var{inits} are tree-il expressions
-corresponding to all of the optional and keyword argumens, evaluated
+corresponding to all of the optional and keyword arguments, evaluated
 to bind variables whose value is not supplied by the procedure caller.
 Each @var{init} expression is evaluated in the lexical context of
 previously bound variables, from left to right.
@@ -522,7 +522,7 @@ Tree-IL expressions, writing out GLIL expressions into a linear list.
 The compiler also keeps some state as to whether the current
 expression is in tail context, and whether its value will be used in
 future computations. This state allows the compiler not to emit code
-for constant expressions that will not be used (e.g. docstrings), and
+for constant expressions that will not be used (e.g.@: docstrings), and
 to perform tail calls when in tail position.
 
 Most optimization, such as it currently is, is performed on Tree-IL
@@ -600,7 +600,7 @@ offset within a VM program.
 @deftp {Scheme Variable} <glil-source> loc
 Records source information for the preceding expression. @var{loc}
 should be an association list of containing @code{line} @code{column},
-and @code{filename} keys, e.g. as returned by
+and @code{filename} keys, e.g.@: as returned by
 @code{source-properties}.
 @end deftp
 @deftp {Scheme Variable} <glil-void>
@@ -852,13 +852,12 @@ for more information about the Brainfuck language itself.
 @node Extending the Compiler
 @subsection Extending the Compiler
 
-At this point, we break with the impersonal tone of the rest of the
-manual, and make an intervention. Admit it: if you've read this far
-into the compiler internals manual, you are a junkie. Perhaps a course
-at your university left you unsated, or perhaps you've always harbored
-a sublimated desire to hack the holy of computer science holies: a
-compiler. Well you're in good company, and in a good position. Guile's
-compiler needs your help.
+At this point we take a detour from the impersonal tone of the rest of
+the manual.  Admit it: if you've read this far into the compiler
+internals manual, you are a junkie.  Perhaps a course at your university
+left you unsated, or perhaps you've always harbored a desire to hack the
+holy of computer science holies: a compiler.  Well you're in good
+company, and in a good position.  Guile's compiler needs your help.
 
 There are many possible avenues for improving Guile's compiler.
 Probably the most important improvement, speed-wise, will be some form
@@ -877,7 +876,7 @@ next step.
 The compiler also needs help at the top end, enhancing the Scheme that
 it knows to also understand R6RS, and adding new high-level compilers.
 We have JavaScript and Emacs Lisp mostly complete, but they could use
-some love; Lua would be nice as well, butq whatever language it is
+some love; Lua would be nice as well, but whatever language it is
 that strikes your fancy would be welcome too.
 
 Compilers are for hacking, not for admiring or for complaining about.

@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -134,8 +134,8 @@ SCM_DEFINE (scm_procedure, "procedure", 1, 0, 0,
 	    "applicable struct.")
 #define FUNC_NAME s_scm_procedure
 {
-  SCM_VALIDATE_NIM (1, proc);
-  SCM_ASSERT (SCM_STRUCT_APPLICABLE_P (proc), proc, SCM_ARG1, FUNC_NAME);
+  SCM_ASSERT (SCM_STRUCTP (proc) && SCM_STRUCT_APPLICABLE_P (proc),
+              proc, SCM_ARG1, FUNC_NAME);
   return SCM_STRUCT_PROCEDURE (proc);
 }
 #undef FUNC_NAME
@@ -149,7 +149,8 @@ SCM_PRIMITIVE_GENERIC (scm_setter, "setter", 1, 0, 0,
   SCM_GASSERT1 (SCM_STRUCTP (proc), g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
   if (SCM_STRUCT_SETTER_P (proc))
     return SCM_STRUCT_SETTER (proc);
-  if (SCM_PUREGENERICP (proc))
+  if (SCM_PUREGENERICP (proc)
+      && SCM_IS_A_P (proc, scm_class_generic_with_setter))
     /* FIXME: might not be an accessor */
     return SCM_GENERIC_SETTER (proc);
   SCM_WTA_DISPATCH_1 (g_scm_setter, proc, SCM_ARG1, FUNC_NAME);
@@ -165,7 +166,7 @@ scm_init_procs ()
     scm_c_make_struct (scm_applicable_struct_with_setter_vtable_vtable,
                        0,
                        1,
-                       SCM_UNPACK (scm_from_locale_symbol ("pwpw")));
+                       SCM_UNPACK (scm_from_latin1_symbol ("pwpw")));
 
 #include "libguile/procs.x"
 }

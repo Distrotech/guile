@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -23,11 +23,17 @@
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
+#endif
+
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <assert.h>
 #include <alignof.h>
+
+#include <full-read.h>
 
 #include "_scm.h"
 #include "programs.h"
@@ -44,70 +50,145 @@ verify (((sizeof (SCM_OBJCODE_COOKIE) - 1) & 7) == 0);
  * Objcode type
  */
 
+static void
+verify_cookie (char *cookie, struct stat *st, int map_fd, void *map_addr)
+#define FUNC_NAME "make_objcode_from_file"
+{
+  /* The cookie ends with a version of the form M.N, where M is the
+     major version and N is the minor version.  For this Guile to be
+     able to load an objcode, M must be SCM_OBJCODE_MAJOR_VERSION, and N
+     must be less than or equal to SCM_OBJCODE_MINOR_VERSION.  Since N
+     is the last character, we do a strict comparison on all but the
+     last, then a <= on the last one.  */
+  if (memcmp (cookie, SCM_OBJCODE_COOKIE, strlen (SCM_OBJCODE_COOKIE) - 1))
+    {
+      SCM args = scm_list_1 (scm_from_latin1_stringn
+                             (cookie, strlen (SCM_OBJCODE_COOKIE)));
+      if (map_fd >= 0)
+        {
+          (void) close (map_fd);
+#ifdef HAVE_SYS_MMAN_H
+          (void) munmap (map_addr, st->st_size);
+#endif
+        }
+      scm_misc_error (FUNC_NAME, "bad header on object file: ~s", args);
+    }
+
+  {
+    char minor_version = cookie[strlen (SCM_OBJCODE_COOKIE) - 1];
+
+    if (minor_version > SCM_OBJCODE_MINOR_VERSION_STRING[0])
+      {
+        if (map_fd >= 0)
+          {
+            (void) close (map_fd);
+#ifdef HAVE_SYS_MMAN_H
+            (void) munmap (map_addr, st->st_size);
+#endif
+          }
+
+        scm_misc_error (FUNC_NAME, "objcode minor version too new (~a > ~a)",
+                        scm_list_2 (scm_from_latin1_stringn (&minor_version, 1),
+                                    scm_from_latin1_string
+                                    (SCM_OBJCODE_MINOR_VERSION_STRING)));
+      }
+  }
+}
+#undef FUNC_NAME
+
 /* The words in an objcode SCM object are as follows:
-     - scm_tc7_objcode | the flags for this objcode
+     - scm_tc7_objcode | type | flags
      - the struct scm_objcode C object
-     - the parent of this objcode, if this is a slice, or #f if none
-     - the file descriptor this objcode came from if this was mmaped,
-       or 0 if none
+     - the parent of this objcode: either another objcode, a bytevector,
+       or, in the case of mmap types, file descriptors (as an inum)
+     - "native code" -- not currently used.
  */
 
 static SCM
-make_objcode_by_mmap (int fd)
-#define FUNC_NAME "make_objcode_by_mmap"
+make_objcode_from_file (int fd)
+#define FUNC_NAME "make_objcode_from_file"
 {
   int ret;
-  char *addr;
+  /* The SCM_OBJCODE_COOKIE is a string literal, and thus has an extra
+     trailing NUL, hence the - 1. */
+  char cookie[sizeof (SCM_OBJCODE_COOKIE) - 1];
   struct stat st;
-  SCM sret = SCM_BOOL_F;
-  struct scm_objcode *data;
 
   ret = fstat (fd, &st);
   if (ret < 0)
     SCM_SYSERROR;
 
-  if (st.st_size <= sizeof (struct scm_objcode) + strlen (SCM_OBJCODE_COOKIE))
+  if (st.st_size <= sizeof (struct scm_objcode) + sizeof cookie)
     scm_misc_error (FUNC_NAME, "object file too small (~a bytes)",
 		    scm_list_1 (SCM_I_MAKINUM (st.st_size)));
 
-  addr = mmap (0, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
-  if (addr == MAP_FAILED)
-    {
-      (void) close (fd);
-      SCM_SYSERROR;
-    }
+#ifdef HAVE_SYS_MMAN_H
+  {
+    char *addr;
+    struct scm_objcode *data;
 
-  if (memcmp (addr, SCM_OBJCODE_COOKIE, strlen (SCM_OBJCODE_COOKIE)))
-    {
-      SCM args = scm_list_1 (scm_from_locale_stringn
-                             (addr, strlen (SCM_OBJCODE_COOKIE)));
-      (void) close (fd);
-      (void) munmap (addr, st.st_size);
-      scm_misc_error (FUNC_NAME, "bad header on object file: ~s", args);
-    }
+    addr = mmap (0, st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 
-  data = (struct scm_objcode*)(addr + strlen (SCM_OBJCODE_COOKIE));
+    if (addr == MAP_FAILED)
+      {
+        int errno_save = errno;
+        (void) close (fd);
+        errno = errno_save;
+        SCM_SYSERROR;
+      }
+    else
+      {
+        memcpy (cookie, addr, sizeof cookie);
+        data = (struct scm_objcode *) (addr + sizeof cookie);
+      }
 
-  if (data->len + data->metalen != (st.st_size - sizeof (*data) - strlen (SCM_OBJCODE_COOKIE)))
-    {
-      (void) close (fd);
-      (void) munmap (addr, st.st_size);
-      scm_misc_error (FUNC_NAME, "bad length header (~a, ~a)",
-		      scm_list_2 (scm_from_size_t (st.st_size),
-				  scm_from_uint32 (sizeof (*data) + data->len
-						   + data->metalen)));
-    }
+    verify_cookie (cookie, &st, fd, addr);
 
-  sret = scm_double_cell (scm_tc7_objcode | (SCM_F_OBJCODE_IS_MMAP<<8),
-                          (scm_t_bits)(addr + strlen (SCM_OBJCODE_COOKIE)),
-                          SCM_UNPACK (SCM_BOOL_F),
-                          (scm_t_bits)fd);
 
-  /* FIXME: we leak ourselves and the file descriptor. but then again so does
-     dlopen(). */
-  return scm_permanent_object (sret);
+    if (data->len + data->metalen
+        != (st.st_size - sizeof (*data) - sizeof cookie))
+      {
+        size_t total_len = sizeof (*data) + data->len + data->metalen;
+
+        (void) close (fd);
+        (void) munmap (addr, st.st_size);
+
+        scm_misc_error (FUNC_NAME, "bad length header (~a, ~a)",
+                        scm_list_2 (scm_from_size_t (st.st_size),
+                                    scm_from_size_t (total_len)));
+      }
+
+    /* FIXME: we leak ourselves and the file descriptor. but then again so does
+       dlopen(). */
+    return scm_permanent_object
+      (scm_double_cell (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_MMAP, 0),
+                        (scm_t_bits)(addr + strlen (SCM_OBJCODE_COOKIE)),
+                        SCM_UNPACK (scm_from_int (fd)), 0));
+  }
+#else
+  {
+    SCM bv = scm_c_make_bytevector (st.st_size - sizeof cookie);
+
+    if (full_read (fd, cookie, sizeof cookie) != sizeof cookie
+        || full_read (fd, SCM_BYTEVECTOR_CONTENTS (bv),
+                      SCM_BYTEVECTOR_LENGTH (bv)) != SCM_BYTEVECTOR_LENGTH (bv))
+      {
+        int errno_save = errno;
+        (void) close (fd);
+        errno = errno_save;
+        SCM_SYSERROR;
+      }
+
+    (void) close (fd);
+
+    verify_cookie (cookie, &st, -1, NULL);
+
+    return scm_bytecode_to_objcode (bv);
+  }
+#endif
 }
 #undef FUNC_NAME
+
 
 SCM
 scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr)
@@ -139,7 +220,7 @@ scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr)
   assert (SCM_C_OBJCODE_BASE (data) + data->len + data->metalen
 	  <= parent_base + parent_data->len + parent_data->metalen);
 
-  return scm_double_cell (scm_tc7_objcode | (SCM_F_OBJCODE_IS_SLICE<<8),
+  return scm_double_cell (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_SLICE, 0),
                           (scm_t_bits)data, SCM_UNPACK (parent), 0);
 }
 #undef FUNC_NAME
@@ -198,7 +279,7 @@ SCM_DEFINE (scm_bytecode_to_objcode, "bytecode->objcode", 1, 0, 0,
 
   /* foolishly, we assume that as long as bytecode is around, that c_bytecode
      will be of the same length; perhaps a bad assumption? */
-  return scm_double_cell (scm_tc7_objcode | (SCM_F_OBJCODE_IS_BYTEVECTOR<<8),
+  return scm_double_cell (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_BYTEVECTOR, 0),
                           (scm_t_bits)data, SCM_UNPACK (bytecode), 0);
 }
 #undef FUNC_NAME
@@ -218,7 +299,7 @@ SCM_DEFINE (scm_load_objcode, "load-objcode", 1, 0, 0,
   free (c_file);
   if (fd < 0) SCM_SYSERROR;
 
-  return make_objcode_by_mmap (fd);
+  return make_objcode_from_file (fd);
 }
 #undef FUNC_NAME
 

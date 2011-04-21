@@ -1,6 +1,6 @@
 ;;; Web I/O: HTTP
 
-;; Copyright (C)  2010 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -84,6 +84,7 @@
             (lp (1- (poll-set-nfds poll-set))))
            ((not (zero? (logand revents *error-events*)))
             ;; An error.
+            (set-http-poll-idx! server idx)
             (throw 'interrupt))
            (else
             ;; A new client. Add to set, poll, and loop.
@@ -104,6 +105,9 @@
          ;; it. Remove it from the poll set.
          (else
           (let ((port (poll-set-remove! poll-set idx)))
+            ;; Record the next index in all cases, in case the EOF check
+            ;; throws an error.
+            (set-http-poll-idx! server (1- idx))
             (cond
              ((eof-object? (peek-char port))
               ;; EOF.
@@ -111,15 +115,13 @@
               (lp (1- idx)))
              (else
               ;; Otherwise, try to read a request from this port.
-              ;; Record the next index.
-              (set-http-poll-idx! server (1- idx))
               (with-throw-handler
                #t
                (lambda ()
                  (let ((req (read-request port)))
                    (values port
                            req
-                           (read-request-body/bytevector req))))
+                           (read-request-body req))))
                (lambda (k . args)
                  (false-if-exception (close-port port)))))))))))))
 
@@ -140,12 +142,10 @@
          (port (response-port response)))
     (cond
      ((not body))                       ; pass
-     ((string? body)
-      (write-response-body/latin-1 response body))
      ((bytevector? body)
-      (write-response-body/bytevector response body))
+      (write-response-body response body))
      (else
-      (error "Expected a string or bytevector for body" body)))
+      (error "Expected a bytevector for body" body)))
     (cond
      ((keep-alive? response)
       (force-output port)

@@ -3,7 +3,7 @@
 #ifndef SCM_THREADS_H
 #define SCM_THREADS_H
 
-/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1996,1997,1998,2000,2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -109,7 +109,6 @@ typedef struct scm_i_thread {
   /* For keeping track of the stack and registers. */
   SCM vm;
   SCM_STACKITEM *base;
-  SCM_STACKITEM *top;
   scm_i_jmp_buf regs;
 #ifdef __ia64__
   void *register_backing_store_base;
@@ -137,13 +136,7 @@ SCM_API SCM scm_spawn_thread (scm_t_catch_body body, void *body_data,
 SCM_API void *scm_without_guile (void *(*func)(void *), void *data);
 SCM_API void *scm_with_guile (void *(*func)(void *), void *data);
 
-SCM_INTERNAL void *scm_i_with_guile_and_parent (void *(*func)(void *),
-						void *data, SCM parent);
-
-
-void scm_threads_prehistory (SCM_STACKITEM *);
-void scm_threads_init_first_thread (void);
-
+SCM_INTERNAL void scm_threads_prehistory (void *);
 SCM_INTERNAL void scm_init_threads (void);
 SCM_INTERNAL void scm_init_thread_procs (void);
 SCM_INTERNAL void scm_init_threads_default_dynamic_state (void);
@@ -193,6 +186,10 @@ SCM_API void scm_dynwind_critical_section (SCM mutex);
 
 #ifdef BUILDING_LIBGUILE
 
+/* Though we don't need the key for SCM_I_CURRENT_THREAD if we have TLS,
+   we do use it for cleanup purposes.  */
+SCM_INTERNAL scm_i_pthread_key_t scm_i_thread_key;
+
 # ifdef SCM_HAVE_THREAD_STORAGE_CLASS
 
 SCM_INTERNAL SCM_THREAD_LOCAL scm_i_thread *scm_i_current_thread;
@@ -200,7 +197,6 @@ SCM_INTERNAL SCM_THREAD_LOCAL scm_i_thread *scm_i_current_thread;
 
 # else /* !SCM_HAVE_THREAD_STORAGE_CLASS */
 
-SCM_INTERNAL scm_i_pthread_key_t scm_i_thread_key;
 #  define SCM_I_CURRENT_THREAD						\
     ((scm_i_thread *) scm_i_pthread_getspecific (scm_i_thread_key))
 

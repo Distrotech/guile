@@ -1,4 +1,4 @@
-/* Copyright (C) 2000, 2001, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 2000, 2001, 2006, 2008, 2009, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -35,6 +35,24 @@
 
 SCM scm_values_vtable;
 
+/* OBJ must be a values object containing exactly two values.
+   scm_i_extract_values_2 puts those two values into *p1 and *p2.  */
+void
+scm_i_extract_values_2 (SCM obj, SCM *p1, SCM *p2)
+{
+  SCM values;
+
+  SCM_ASSERT_TYPE (SCM_VALUESP (obj), obj, SCM_ARG1,
+		   "scm_i_extract_values_2", "values");
+  values = scm_struct_ref (obj, SCM_INUM0);
+  if (scm_ilength (values) != 2)
+    scm_wrong_type_arg_msg
+      ("scm_i_extract_values_2", SCM_ARG1, obj,
+       "a values object containing exactly two values");
+  *p1 = SCM_CAR (values);
+  *p2 = SCM_CADR (values);
+}
+
 static SCM
 print_values (SCM obj, SCM pwps)
 {
@@ -66,8 +84,7 @@ SCM_DEFINE (scm_values, "values", 0, 0, 1,
     result = SCM_CAR (args);
   else
     {
-      result = scm_make_struct (scm_values_vtable, SCM_INUM0,
-				scm_list_1 (args));
+      result = scm_c_make_struct (scm_values_vtable, 0, 1, SCM_UNPACK (args));
     }
 
   return result;

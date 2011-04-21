@@ -85,7 +85,8 @@
                    (SourceElements SourceElement) : (if (and (pair? $1) (eq? (car $1) 'begin))
                                                          `(begin ,@(cdr $1) ,$2)
                                                          `(begin ,$1 ,$2)))
-   (FunctionBody (SourceElements) : $1)
+   (FunctionBody (SourceElements) : $1
+                 () : '(begin))
 
    (Statement (Block) : $1
               (VariableStatement) : $1
@@ -196,6 +197,7 @@
                       (StringLiteral) : `(string ,$1)
                       (RegexpLiteral) : `(regexp ,$1)
                       (NumericLiteral) : `(number ,$1)
+                      (dot NumericLiteral) : `(number ,(string->number (string-append "." (number->string $2))))
                       (ArrayLiteral) : $1
                       (ObjectLiteral) : $1
                       (lparen Expression rparen) : $2)

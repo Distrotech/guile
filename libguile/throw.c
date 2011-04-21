@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -58,7 +58,7 @@
   if (scm_is_false (var))                                               \
     {                                                                   \
       var = scm_module_variable (scm_the_root_module (),                \
-                                 scm_from_locale_symbol (name));        \
+                                 scm_from_latin1_symbol (name));        \
       if (scm_is_false (var))                                           \
         abort ();                                                       \
     }
@@ -335,109 +335,43 @@ scm_exit_status (SCM args)
 }
 	
 
+static int
+should_print_backtrace (SCM tag, SCM stack)
+{
+  return SCM_BACKTRACE_P
+    && scm_is_true (stack)
+    && scm_initialized_p
+    /* It's generally not useful to print backtraces for errors reading
+       or expanding code in these fallback catch statements. */
+    && !scm_is_eq (tag, scm_from_latin1_symbol ("read-error"))
+    && !scm_is_eq (tag, scm_from_latin1_symbol ("syntax-error"));
+}
+
 static void
 handler_message (void *handler_data, SCM tag, SCM args)
 {
-  char *prog_name = (char *) handler_data;
-  SCM p = scm_current_error_port ();
+  SCM p, stack, frame;
 
-  if (scm_is_eq (tag, scm_from_locale_symbol ("syntax-error"))
-      && scm_ilength (args) >= 5)
+  p = scm_current_error_port ();
+  /* Usually we get here via a throw to a catch-all.  In that case
+     there is the throw frame active, and the catch closure, so narrow by
+     two frames.  It is possible for a user to invoke
+     scm_handle_by_message directly, though, so it could be this
+     narrows too much.  We'll have to see how this works out in
+     practice.  */
+  stack = scm_make_stack (SCM_BOOL_T, scm_list_1 (scm_from_int (2)));
+  frame = scm_is_true (stack) ? scm_stack_ref (stack, SCM_INUM0) : SCM_BOOL_F;
+
+  if (should_print_backtrace (tag, stack))
     {
-      SCM who = SCM_CAR (args);
-      SCM what = SCM_CADR (args);
-      SCM where = SCM_CADDR (args);
-      SCM form = SCM_CADDDR (args);
-      SCM subform = SCM_CAR (SCM_CDDDDR (args));
-
-      scm_puts ("Syntax error:\n", p);
-
-      if (scm_is_true (where))
-        {
-          SCM file, line, col;
-
-          file = scm_assq_ref (where, scm_sym_filename);
-          line = scm_assq_ref (where, scm_sym_line);
-          col = scm_assq_ref (where, scm_sym_column);
-
-          if (scm_is_true (file))
-            scm_display (file, p);
-          else
-            scm_puts ("unknown file", p);
-          scm_puts (":", p);
-          scm_display (line, p);
-          scm_puts (":", p);
-          scm_display (col, p);
-          scm_puts (": ", p);
-        }
-      else
-        scm_puts ("unknown location: ", p);
-
-      if (scm_is_true (who))
-        {
-          scm_display (who, p);
-          scm_puts (": ", p);
-        }
-      
-      scm_display (what, p);
-
-      if (scm_is_true (subform))
-        {
-          scm_puts (" in subform ", p);
-          scm_write (subform, p);
-          scm_puts (" of ", p);
-          scm_write (form, p);
-        }
-      else if (scm_is_true (form))
-        {
-          scm_puts (" in form ", p);
-          scm_write (form, p);
-        }
-
+      scm_puts ("Backtrace:\n", p);
+      scm_display_backtrace_with_highlights (stack, p,
+                                             SCM_BOOL_F, SCM_BOOL_F,
+                                             SCM_EOL);
       scm_newline (p);
     }
-  else if (scm_ilength (args) == 4)
-    {
-      SCM stack   = scm_make_stack (SCM_BOOL_T, SCM_EOL);
-      SCM subr    = SCM_CAR (args);
-      SCM message = SCM_CADR (args);
-      SCM parts   = SCM_CADDR (args);
-      SCM rest    = SCM_CADDDR (args);
 
-      if (SCM_BACKTRACE_P && scm_is_true (stack))
-	{
-	  SCM highlights;
-
-	  if (scm_is_eq (tag, scm_arg_type_key)
-	      || scm_is_eq (tag, scm_out_of_range_key))
-	    highlights = rest;
-	  else
-	    highlights = SCM_EOL;
-
-	  scm_puts ("Backtrace:\n", p);
-	  scm_display_backtrace_with_highlights (stack, p,
-						 SCM_BOOL_F, SCM_BOOL_F,
-						 highlights);
-	  scm_newline (p);
-	}
-      scm_i_display_error (scm_is_true (stack)
-                           ? scm_stack_ref (stack, SCM_INUM0) : SCM_BOOL_F,
-                           p, subr, message, parts, rest);
-    }
-  else
-    {
-      if (! prog_name)
-	prog_name = "guile";
-
-      scm_puts (prog_name, p);
-      scm_puts (": ", p);
-
-      scm_puts ("uncaught throw to ", p);
-      scm_prin1 (tag, p, 0);
-      scm_puts (": ", p);
-      scm_prin1 (args, p, 1);
-      scm_putc ('\n', p);
-    }
+  scm_print_exception (p, frame, tag, args);
 }
 
 
@@ -465,7 +399,7 @@ handler_message (void *handler_data, SCM tag, SCM args)
 SCM
 scm_handle_by_message (void *handler_data, SCM tag, SCM args)
 {
-  if (scm_is_true (scm_eq_p (tag, scm_from_locale_symbol ("quit"))))
+  if (scm_is_true (scm_eq_p (tag, scm_from_latin1_symbol ("quit"))))
     exit (scm_exit_status (args));
 
   handler_message (handler_data, tag, args);
@@ -485,7 +419,7 @@ scm_handle_by_message (void *handler_data, SCM tag, SCM args)
 SCM
 scm_handle_by_message_noexit (void *handler_data, SCM tag, SCM args)
 {
-  if (scm_is_true (scm_eq_p (tag, scm_from_locale_symbol ("quit"))))
+  if (scm_is_true (scm_eq_p (tag, scm_from_latin1_symbol ("quit"))))
     exit (scm_exit_status (args));
 
   handler_message (handler_data, tag, args);
@@ -533,7 +467,7 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   if (SCM_PROMPT_SETJMP (prompt))
     {
       /* nonlocal exit */
-      SCM args = scm_i_prompt_pop_abort_args_x (prompt);
+      SCM args = scm_i_prompt_pop_abort_args_x (vm);
       /* cdr past the continuation */
       return scm_apply_0 (handler, scm_cdr (args));
     }
@@ -544,10 +478,54 @@ pre_init_catch (SCM tag, SCM thunk, SCM handler, SCM pre_unwind_handler)
   return res;
 }
 
-static SCM
-pre_init_throw (SCM args)
+static int
+find_pre_init_catch (void)
 {
-  return scm_at_abort (sym_pre_init_catch_tag, args);
+  SCM winds;
+
+  /* Search the wind list for an appropriate prompt.
+     "Waiter, please bring us the wind list." */
+  for (winds = scm_i_dynwinds (); scm_is_pair (winds); winds = SCM_CDR (winds))
+    if (SCM_PROMPT_P (SCM_CAR (winds))
+        && scm_is_eq (SCM_PROMPT_TAG (SCM_CAR (winds)), sym_pre_init_catch_tag))
+      return 1;
+
+  return 0;
+}
+
+static SCM
+pre_init_throw (SCM k, SCM args)
+{
+  if (find_pre_init_catch ())
+    return scm_at_abort (sym_pre_init_catch_tag, scm_cons (k, args));
+  else
+    { 
+      static int error_printing_error = 0;
+      static int error_printing_fallback = 0;
+      
+      if (error_printing_fallback)
+        fprintf (stderr, "\nFailed to print exception.\n");
+      else if (error_printing_error)
+        {
+          fprintf (stderr, "\nError while printing exception:\n");
+          error_printing_fallback = 1;
+          fprintf (stderr, "Key: ");
+          scm_write (k, scm_current_error_port ());
+          fprintf (stderr, ", args: ");
+          scm_write (args, scm_current_error_port ());
+          scm_newline (scm_current_error_port ());
+        }
+      else
+        {
+          fprintf (stderr, "Throw without catch before boot:\n");
+          error_printing_error = 1;
+          scm_handle_by_message_noexit (NULL, k, args);
+        }
+
+      fprintf (stderr, "Aborting.\n");
+      abort ();
+      return SCM_BOOL_F; /* not reached */
+    }
 }
 
 void
@@ -557,7 +535,7 @@ scm_init_throw ()
   scm_set_smob_apply (tc16_catch_closure, apply_catch_closure, 0, 0, 1);
 
   scm_c_define ("catch", scm_c_make_gsubr ("catch", 3, 1, 0, pre_init_catch));
-  scm_c_define ("throw", scm_c_make_gsubr ("throw", 0, 0, 1, pre_init_throw));
+  scm_c_define ("throw", scm_c_make_gsubr ("throw", 1, 0, 1, pre_init_throw));
 
 #include "libguile/throw.x"
 }

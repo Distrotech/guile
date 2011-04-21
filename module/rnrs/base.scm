@@ -1,6 +1,6 @@
 ;;; base.scm --- The R6RS base library
 
-;;      Copyright (C) 2010 Free Software Foundation, Inc.
+;;      Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -74,11 +74,25 @@
 
 	  syntax-rules identifier-syntax)
   (import (rename (except (guile) error raise)
-                  (quotient div) 
-                  (modulo mod)
+                  (log log-internal)
+                  (euclidean-quotient div)
+                  (euclidean-remainder mod)
+                  (euclidean/ div-and-mod)
+                  (centered-quotient div0)
+                  (centered-remainder mod0)
+                  (centered/ div0-and-mod0)
+                  (inf? infinite?)
                   (exact->inexact inexact)
                   (inexact->exact exact))
           (srfi srfi-11))
+
+ (define log
+   (case-lambda
+     ((n)
+      (log-internal n))
+     ((n base)
+      (/ (log n)
+         (log base)))))
 
  (define (boolean=? . bools)
    (define (boolean=?-internal lst last)
@@ -98,54 +112,50 @@
        (let ((sym (car syms)))
          (and (symbol? sym) (symbol=?-internal (cdr syms) sym)))))
 
- (define (infinite? x) (or (eqv? x +inf.0) (eqv? x -inf.0)))
- (define (finite? x) (not (infinite? x)))
+ (define (real-valued? x)
+   (and (complex? x)
+        (zero? (imag-part x))))
 
- (define (exact-integer-sqrt x)
-   (let* ((s (exact (floor (sqrt x)))) (e (- x (* s s)))) (values s e)))
+ (define (rational-valued? x)
+   (and (real-valued? x)
+        (rational? (real-part x))))
 
- ;; These definitions should be revisited, since the behavior of Guile's 
- ;; implementations of `integer?', `rational?', and `real?' (exported from this
- ;; library) is not entirely consistent with R6RS's requirements for those 
- ;; functions.
-
- (define integer-valued? integer?)
- (define rational-valued? rational?)
- (define real-valued? real?)
+ (define (integer-valued? x)
+   (and (rational-valued? x)
+        (= x (floor (real-part x)))))
 
  (define (vector-for-each proc . vecs)
    (apply for-each (cons proc (map vector->list vecs))))
  (define (vector-map proc . vecs)
    (list->vector (apply map (cons proc (map vector->list vecs)))))
 
- (define (div-and-mod x y) (let ((q (div x y)) (r (mod x y))) (values q r)))
+ (define-syntax define-proxy
+   (syntax-rules (@)
+     ;; Define BINDING to point to (@ MODULE ORIGINAL).  This hack is to
+     ;; make sure MODULE is loaded lazily, at run-time, when BINDING is
+     ;; encountered, rather than being loaded while compiling and
+     ;; loading (rnrs base).
+     ;; This avoids circular dependencies among modules and makes
+     ;; (rnrs base) more lightweight.
+     ((_ binding (@ module original))
+      (define-syntax binding
+        (identifier-syntax
+         (module-ref (resolve-interface 'module) 'original))))))
 
- (define (div0 x y)
-   (call-with-values (lambda () (div0-and-mod0 x y)) (lambda (q r) q)))
-
- (define (mod0 x y)
-   (call-with-values (lambda () (div0-and-mod0 x y)) (lambda (q r) r)))
-
- (define (div0-and-mod0 x y)
-   (call-with-values (lambda () (div-and-mod x y))
-     (lambda (q r)
-       (cond ((< r (abs (/ y 2))) (values q r))
-	     ((negative? y) (values (- q 1) (+ r y)))
-	     (else (values (+ q 1) (+ r y)))))))
-
- (define raise
+ (define-proxy raise
    (@ (rnrs exceptions) raise))
- (define condition
+
+ (define-proxy condition
    (@ (rnrs conditions) condition))
- (define make-error
+ (define-proxy make-error
    (@ (rnrs conditions) make-error))
- (define make-assertion-violation
+ (define-proxy make-assertion-violation
    (@ (rnrs conditions) make-assertion-violation))
- (define make-who-condition
+ (define-proxy make-who-condition
    (@ (rnrs conditions) make-who-condition))
- (define make-message-condition
+ (define-proxy make-message-condition
    (@ (rnrs conditions) make-message-condition))
- (define make-irritants-condition
+ (define-proxy make-irritants-condition
    (@ (rnrs conditions) make-irritants-condition))
 
  (define (error who message . irritants)
@@ -165,7 +175,7 @@
  (define-syntax assert
    (syntax-rules ()
      ((_ expression)
-      (if (not expression)
+      (or expression
           (raise (condition
                   (make-assertion-violation)
                   (make-message-condition

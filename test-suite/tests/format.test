@@ -1,18 +1,18 @@
 ;;;; format.test --- test suite for Guile's CL-ish format  -*- scheme -*-
 ;;;; Matthias Koeppe <mkoeppe@mail.math.uni-magdeburg.de> --- June 2001
 ;;;;
-;;;; 	Copyright (C) 2001, 2003, 2004, 2006, 2010 Free Software Foundation, Inc.
-;;;; 
+;;;; Copyright (C) 2001, 2003, 2004, 2006, 2010, 2011 Free Software Foundation, Inc.
+;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
 ;;;; License as published by the Free Software Foundation; either
 ;;;; version 3 of the License, or (at your option) any later version.
-;;;; 
+;;;;
 ;;;; This library is distributed in the hope that it will be useful,
 ;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;;;; Lesser General Public License for more details.
-;;;; 
+;;;;
 ;;;; You should have received a copy of the GNU Lesser General Public
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
@@ -25,10 +25,16 @@
 ;;; FORMAT Basic Output
 
 (with-test-prefix "format basic output"
+  (pass-if "default to Unicode-capable port"
+    ;; `(format #f ...)' should be able to deal with Unicode characters.
+    (with-fluids ((%default-port-encoding "ISO-8859-1"))
+      (let ((alpha (integer->char #x03b1)))  ; GREEK SMALL LETTER ALPHA
+        (= 1 (string-length (format #f (string alpha)))))))
+
   (pass-if "format ~% produces a new line"
-	   (string=? (format "~%") "\n"))
+	   (string=? (format #f "~%") "\n"))
   (pass-if "format ~& starts a fresh line"
-	   (string=? (format "~&abc~&~&") "abc\n"))
+	   (string=? (format #f "~&abc~&~&") "abc\n"))
   (pass-if "format ~& is stateless but works properly across outputs via port-column"
 	   (string=?
 	    (with-output-to-string
@@ -39,7 +45,7 @@
 		(format #t "~&~&")))
 	    "xyz\nabc\n"))
   (pass-if "format ~F (format-out-substr) maintains the column correctly"
-	   (= (string-length (format "~@F~20T" 1)) 20)))
+	   (= (string-length (format #f "~@F~20T" 1)) 20)))
 
 ;;;
 ;;; misc
@@ -99,4 +105,4 @@
   ;; In Guile 1.6.4 and earlier, the maximum iterations parameter defaulted
   ;; to 100, but it's now like Common Lisp where the default is no limit
   (pass-if "no arbitrary iteration limit"
-    (= (string-length (format "~{~a~}" (make-list 200 #\b))) 200)))
+    (= (string-length (format #f "~{~a~}" (make-list 200 #\b))) 200)))

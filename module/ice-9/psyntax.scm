@@ -1,6 +1,6 @@
 ;;;; -*-scheme-*-
 ;;;;
-;;;; 	Copyright (C) 2001, 2003, 2006, 2009, 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2001, 2003, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -278,10 +278,10 @@
 
     ;; hooks to nonportable run-time helpers
     (begin
-      (define fx+ +)
-      (define fx- -)
-      (define fx= =)
-      (define fx< <)
+      (define-syntax fx+ (identifier-syntax +))
+      (define-syntax fx- (identifier-syntax -))
+      (define-syntax fx= (identifier-syntax =))
+      (define-syntax fx< (identifier-syntax <))
 
       (define top-level-eval-hook
         (lambda (x mod)
@@ -521,7 +521,7 @@
     ;;               (define-syntax)                 define-syntax
     ;;               (local-syntax . rec?)           let-syntax/letrec-syntax
     ;;               (eval-when)                     eval-when
-    ;;               #'. (<var> . <level>)    pattern variables
+    ;;               (syntax . (<var> . <level>))    pattern variables
     ;;               (global)                        assumed global variable
     ;;               (lexical . <var>)               lexical variables
     ;;               (displaced-lexical)             displaced lexicals
@@ -897,16 +897,160 @@
                               (let ((first (chi (car body) r w mod)))
                                 (cons first (dobody (cdr body) r w mod))))))))
 
+    ;; At top-level, we allow mixed definitions and expressions.  Like
+    ;; chi-body we expand in two passes.
+    ;;
+    ;; First, from left to right, we expand just enough to know what
+    ;; expressions are definitions, syntax definitions, and splicing
+    ;; statements (`begin').  If we anything needs evaluating at
+    ;; expansion-time, it is expanded directly.
+    ;;
+    ;; Otherwise we collect expressions to expand, in thunks, and then
+    ;; expand them all at the end.  This allows all syntax expanders
+    ;; visible in a toplevel sequence to be visible during the
+    ;; expansions of all normal definitions and expressions in the
+    ;; sequence.
+    ;;
     (define chi-top-sequence
       (lambda (body r w s m esew mod)
-        (build-sequence s
-                        (let dobody ((body body) (r r) (w w) (m m) (esew esew)
-                                     (mod mod) (out '()))
-                          (if (null? body)
-                              (reverse out)
-                              (dobody (cdr body) r w m esew mod
-                                      (cons (chi-top (car body) r w m esew mod) out)))))))
+        (define (scan body r w s m esew mod exps)
+          (cond
+           ((null? body)
+            ;; in reversed order
+            exps)
+           (else
+            (call-with-values
+                (lambda ()
+                  (call-with-values
+                      (lambda ()
+                        (let ((e (car body)))
+                          (syntax-type e r w (or (source-annotation e) s) #f mod #f)))
+                    (lambda (type value e w s mod)
+                      (case type
+                        ((begin-form)
+                         (syntax-case e ()
+                           ((_) exps)
+                           ((_ e1 e2 ...)
+                            (scan #'(e1 e2 ...) r w s m esew mod exps))))
+                        ((local-syntax-form)
+                         (chi-local-syntax value e r w s mod
+                                           (lambda (body r w s mod)
+                                             (scan body r w s m esew mod exps))))
+                        ((eval-when-form)
+                         (syntax-case e ()
+                           ((_ (x ...) e1 e2 ...)
+                            (let ((when-list (chi-when-list e #'(x ...) w))
+                                  (body #'(e1 e2 ...)))
+                              (cond
+                               ((eq? m 'e)
+                                (if (memq 'eval when-list)
+                                    (scan body r w s
+                                          (if (memq 'expand when-list) 'c&e 'e)
+                                          '(eval)
+                                          mod exps)
+                                    (begin
+                                      (if (memq 'expand when-list)
+                                          (top-level-eval-hook
+                                           (chi-top-sequence body r w s 'e '(eval) mod)
+                                           mod))
+                                      (values exps))))
+                               ((memq 'load when-list)
+                                (if (or (memq 'compile when-list)
+                                        (memq 'expand when-list)
+                                        (and (eq? m 'c&e) (memq 'eval when-list)))
+                                    (scan body r w s 'c&e '(compile load) mod exps)
+                                    (if (memq m '(c c&e))
+                                        (scan body r w s 'c '(load) mod exps)
+                                        (values exps))))
+                               ((or (memq 'compile when-list)
+                                    (memq 'expand when-list)
+                                    (and (eq? m 'c&e) (memq 'eval when-list)))
+                                (top-level-eval-hook
+                                 (chi-top-sequence body r w s 'e '(eval) mod)
+                                 mod)
+                                (values exps))
+                               (else
+                                (values exps)))))))
+                        ((define-syntax-form)
+                         (let ((n (id-var-name value w)) (r (macros-only-env r)))
+                           (case m
+                             ((c)
+                              (if (memq 'compile esew)
+                                  (let ((e (chi-install-global n (chi e r w mod))))
+                                    (top-level-eval-hook e mod)
+                                    (if (memq 'load esew)
+                                        (values (cons e exps))
+                                        (values exps)))
+                                  (if (memq 'load esew)
+                                      (values (cons (chi-install-global n (chi e r w mod))
+                                                    exps))
+                                      (values exps))))
+                             ((c&e)
+                              (let ((e (chi-install-global n (chi e r w mod))))
+                                (top-level-eval-hook e mod)
+                                (values (cons e exps))))
+                             (else
+                              (if (memq 'eval esew)
+                                  (top-level-eval-hook
+                                   (chi-install-global n (chi e r w mod))
+                                   mod))
+                              (values exps)))))
+                        ((define-form)
+                         (let* ((n (id-var-name value w))
+                                ;; Lookup the name in the module of the define form.
+                                (type (binding-type (lookup n r mod))))
+                           (case type
+                             ((global core macro module-ref)
+                              ;; affect compile-time environment (once we have booted)
+                              (if (and (memq m '(c c&e))
+                                       (not (module-local-variable (current-module) n))
+                                       (current-module))
+                                  (let ((old (module-variable (current-module) n)))
+                                    ;; use value of the same-named imported variable, if
+                                    ;; any
+                                    (if (and (variable? old) (variable-bound? old))
+                                        (module-define! (current-module) n (variable-ref old))
+                                        (module-add! (current-module) n (make-undefined-variable)))))
+                              (values
+                               (cons
+                                (if (eq? m 'c&e)
+                                    (let ((x (build-global-definition s n (chi e r w mod))))
+                                      (top-level-eval-hook x mod)
+                                      x)
+                                    (lambda ()
+                                      (build-global-definition s n (chi e r w mod))))
+                                exps)))
+                             ((displaced-lexical)
+                              (syntax-violation #f "identifier out of context"
+                                                e (wrap value w mod)))
+                             (else
+                              (syntax-violation #f "cannot define keyword at top level"
+                                                e (wrap value w mod))))))
+                        (else
+                         (values (cons
+                                  (if (eq? m 'c&e)
+                                      (let ((x (chi-expr type value e r w s mod)))
+                                        (top-level-eval-hook x mod)
+                                        x)
+                                      (lambda ()
+                                        (chi-expr type value e r w s mod)))
+                                  exps)))))))
+              (lambda (exps)
+                (scan (cdr body) r w s m esew mod exps))))))
 
+        (call-with-values (lambda ()
+                            (scan body r w s m esew mod '()))
+          (lambda (exps)
+            (if (null? exps)
+                (build-void s)
+                (build-sequence
+                 s
+                 (let lp ((in exps) (out '()))
+                   (if (null? in) out
+                       (let ((e (car in)))
+                         (lp (cdr in)
+                             (cons (if (procedure? e) (e) e) out)))))))))))
+    
     (define chi-install-global
       (lambda (name e)
         (build-global-definition
@@ -1053,110 +1197,6 @@
                        (or (syntax-object-module e) mod) for-car?))
          ((self-evaluating? e) (values 'constant #f e w s mod))
          (else (values 'other #f e w s mod)))))
-
-    (define chi-top
-      (lambda (e r w m esew mod)
-        (define-syntax eval-if-c&e
-          (syntax-rules ()
-            ((_ m e mod)
-             (let ((x e))
-               (if (eq? m 'c&e) (top-level-eval-hook x mod))
-               x))))
-        (call-with-values
-            (lambda () (syntax-type e r w (source-annotation e) #f mod #f))
-          (lambda (type value e w s mod)
-            (case type
-              ((begin-form)
-               (syntax-case e ()
-                 ((_) (chi-void))
-                 ((_ e1 e2 ...)
-                  (chi-top-sequence #'(e1 e2 ...) r w s m esew mod))))
-              ((local-syntax-form)
-               (chi-local-syntax value e r w s mod
-                                 (lambda (body r w s mod)
-                                   (chi-top-sequence body r w s m esew mod))))
-              ((eval-when-form)
-               (syntax-case e ()
-                 ((_ (x ...) e1 e2 ...)
-                  (let ((when-list (chi-when-list e #'(x ...) w))
-                        (body #'(e1 e2 ...)))
-                    (cond
-                     ((eq? m 'e)
-                      (if (memq 'eval when-list)
-                          (chi-top-sequence body r w s
-                                            (if (memq 'expand when-list) 'c&e 'e)
-                                            '(eval)
-                                            mod)
-                          (begin
-                            (if (memq 'expand when-list)
-                                (top-level-eval-hook
-                                 (chi-top-sequence body r w s 'e '(eval) mod)
-                                 mod))
-                            (chi-void))))
-                     ((memq 'load when-list)
-                      (if (or (memq 'compile when-list)
-                              (memq 'expand when-list)
-                              (and (eq? m 'c&e) (memq 'eval when-list)))
-                          (chi-top-sequence body r w s 'c&e '(compile load) mod)
-                          (if (memq m '(c c&e))
-                              (chi-top-sequence body r w s 'c '(load) mod)
-                              (chi-void))))
-                     ((or (memq 'compile when-list)
-                          (memq 'expand when-list)
-                          (and (eq? m 'c&e) (memq 'eval when-list)))
-                      (top-level-eval-hook
-                       (chi-top-sequence body r w s 'e '(eval) mod)
-                       mod)
-                      (chi-void))
-                     (else (chi-void)))))))
-              ((define-syntax-form)
-               (let ((n (id-var-name value w)) (r (macros-only-env r)))
-                 (case m
-                   ((c)
-                    (if (memq 'compile esew)
-                        (let ((e (chi-install-global n (chi e r w mod))))
-                          (top-level-eval-hook e mod)
-                          (if (memq 'load esew) e (chi-void)))
-                        (if (memq 'load esew)
-                            (chi-install-global n (chi e r w mod))
-                            (chi-void))))
-                   ((c&e)
-                    (let ((e (chi-install-global n (chi e r w mod))))
-                      (top-level-eval-hook e mod)
-                      e))
-                   (else
-                    (if (memq 'eval esew)
-                        (top-level-eval-hook
-                         (chi-install-global n (chi e r w mod))
-                         mod))
-                    (chi-void)))))
-              ((define-form)
-               (let* ((n (id-var-name value w))
-                      ;; Lookup the name in the module of the define form.
-                      (type (binding-type (lookup n r mod))))
-                 (case type
-                   ((global core macro module-ref)
-                    ;; affect compile-time environment (once we have booted)
-                    (if (and (memq m '(c c&e))
-                             (not (module-local-variable (current-module) n))
-                             (current-module))
-                        (let ((old (module-variable (current-module) n)))
-                          ;; use value of the same-named imported variable, if
-                          ;; any
-                          (module-define! (current-module) n
-                                          (if (variable? old)
-                                              (variable-ref old)
-                                              #f))))
-                    (eval-if-c&e m
-                                 (build-global-definition s n (chi e r w mod))
-                                 mod))
-                   ((displaced-lexical)
-                    (syntax-violation #f "identifier out of context"
-                                      e (wrap value w mod)))
-                   (else
-                    (syntax-violation #f "cannot define keyword at top level"
-                                      e (wrap value w mod))))))
-              (else (eval-if-c&e m (chi-expr type value e r w s mod) mod)))))))
 
     (define chi
       (lambda (e r w mod)
@@ -2376,8 +2416,8 @@
     ;; the object file if we are compiling a file.
     (set! macroexpand
           (lambda* (x #:optional (m 'e) (esew '(eval)))
-            (chi-top x null-env top-wrap m esew
-                     (cons 'hygiene (module-name (current-module))))))
+            (chi-top-sequence (list x) null-env top-wrap #f m esew
+                              (cons 'hygiene (module-name (current-module))))))
 
     (set! identifier?
           (lambda (x)
@@ -2592,12 +2632,13 @@
    (lambda (x)
       (syntax-case x ()
          ((_ () e1 e2 ...)
-          #'(begin e1 e2 ...))
+          #'(let () e1 e2 ...))
          ((_ ((out in)) e1 e2 ...)
-          #'(syntax-case in () (out (begin e1 e2 ...))))
+          #'(syntax-case in ()
+              (out (let () e1 e2 ...))))
          ((_ ((out in) ...) e1 e2 ...)
           #'(syntax-case (list in ...) ()
-              ((out ...) (begin e1 e2 ...)))))))
+              ((out ...) (let () e1 e2 ...)))))))
 
 (define-syntax syntax-rules
   (lambda (x)
@@ -2658,66 +2699,109 @@
                         (begin c ... (doloop step ...)))))))))))
 
 (define-syntax quasiquote
-   (letrec
-      ((quasicons
-        (lambda (x y)
-          (with-syntax ((x x) (y y))
-            (syntax-case #'y (quote list)
-              ((quote dy)
-               (syntax-case #'x (quote)
-                 ((quote dx) #'(quote (dx . dy)))
-                 (_ (if (null? #'dy)
-                        #'(list x)
-                        #'(cons x y)))))
-              ((list . stuff) #'(list x . stuff))
-              (else #'(cons x y))))))
-       (quasiappend
-        (lambda (x y)
-          (with-syntax ((x x) (y y))
-            (syntax-case #'y (quote)
-              ((quote ()) #'x)
-              (_ #'(append x y))))))
-       (quasivector
-        (lambda (x)
-          (with-syntax ((x x))
-            (syntax-case #'x (quote list)
-              ((quote (x ...)) #'(quote #(x ...)))
-              ((list x ...) #'(vector x ...))
-              (_ #'(list->vector x))))))
-       (quasi
-        (lambda (p lev)
-           (syntax-case p (unquote unquote-splicing quasiquote)
-              ((unquote p)
-               (if (= lev 0)
-                   #'p
-                   (quasicons #'(quote unquote)
-                              (quasi #'(p) (- lev 1)))))
-              ((unquote . args)
-               (= lev 0)
-               (syntax-violation 'unquote
-                                 "unquote takes exactly one argument"
-                                 p #'(unquote . args)))
-              (((unquote-splicing p) . q)
-               (if (= lev 0)
-                   (quasiappend #'p (quasi #'q lev))
-                   (quasicons (quasicons #'(quote unquote-splicing)
-                                         (quasi #'(p) (- lev 1)))
-                              (quasi #'q lev))))
-              (((unquote-splicing . args) . q)
-               (= lev 0)
-               (syntax-violation 'unquote-splicing
-                                 "unquote-splicing takes exactly one argument"
-                                 p #'(unquote-splicing . args)))
-              ((quasiquote p)
-               (quasicons #'(quote quasiquote)
-                          (quasi #'(p) (+ lev 1))))
-              ((p . q)
-               (quasicons (quasi #'p lev) (quasi #'q lev)))
-              (#(x ...) (quasivector (quasi #'(x ...) lev)))
-              (p #'(quote p))))))
+  (let ()
+    (define (quasi p lev)
+      (syntax-case p (unquote quasiquote)
+        ((unquote p)
+         (if (= lev 0)
+             #'("value" p)
+             (quasicons #'("quote" unquote) (quasi #'(p) (- lev 1)))))
+        ((quasiquote p) (quasicons #'("quote" quasiquote) (quasi #'(p) (+ lev 1))))
+        ((p . q)
+         (syntax-case #'p (unquote unquote-splicing)
+           ((unquote p ...)
+            (if (= lev 0)
+                (quasilist* #'(("value" p) ...) (quasi #'q lev))
+                (quasicons
+                 (quasicons #'("quote" unquote) (quasi #'(p ...) (- lev 1)))
+                 (quasi #'q lev))))
+           ((unquote-splicing p ...)
+            (if (= lev 0)
+                (quasiappend #'(("value" p) ...) (quasi #'q lev))
+                (quasicons
+                 (quasicons #'("quote" unquote-splicing) (quasi #'(p ...) (- lev 1)))
+                 (quasi #'q lev))))
+           (_ (quasicons (quasi #'p lev) (quasi #'q lev)))))
+        (#(x ...) (quasivector (vquasi #'(x ...) lev)))
+        (p #'("quote" p))))
+    (define (vquasi p lev)
+      (syntax-case p ()
+        ((p . q)
+         (syntax-case #'p (unquote unquote-splicing)
+           ((unquote p ...)
+            (if (= lev 0)
+                (quasilist* #'(("value" p) ...) (vquasi #'q lev))
+                (quasicons
+                 (quasicons #'("quote" unquote) (quasi #'(p ...) (- lev 1)))
+                 (vquasi #'q lev))))
+           ((unquote-splicing p ...)
+            (if (= lev 0)
+                (quasiappend #'(("value" p) ...) (vquasi #'q lev))
+                (quasicons
+                 (quasicons
+                  #'("quote" unquote-splicing)
+                  (quasi #'(p ...) (- lev 1)))
+                 (vquasi #'q lev))))
+           (_ (quasicons (quasi #'p lev) (vquasi #'q lev)))))
+        (() #'("quote" ()))))
+    (define (quasicons x y)
+      (with-syntax ((x x) (y y))
+        (syntax-case #'y ()
+          (("quote" dy)
+           (syntax-case #'x ()
+             (("quote" dx) #'("quote" (dx . dy)))
+             (_ (if (null? #'dy) #'("list" x) #'("list*" x y)))))
+          (("list" . stuff) #'("list" x . stuff))
+          (("list*" . stuff) #'("list*" x . stuff))
+          (_ #'("list*" x y)))))
+    (define (quasiappend x y)
+      (syntax-case y ()
+        (("quote" ())
+         (cond
+          ((null? x) #'("quote" ()))
+          ((null? (cdr x)) (car x))
+          (else (with-syntax (((p ...) x)) #'("append" p ...)))))
+        (_
+         (cond
+          ((null? x) y)
+          (else (with-syntax (((p ...) x) (y y)) #'("append" p ... y)))))))
+    (define (quasilist* x y)
+      (let f ((x x))
+        (if (null? x)
+            y
+            (quasicons (car x) (f (cdr x))))))
+    (define (quasivector x)
+      (syntax-case x ()
+        (("quote" (x ...)) #'("quote" #(x ...)))
+        (_
+         (let f ((y x) (k (lambda (ls) #`("vector" #,@ls))))
+           (syntax-case y ()
+             (("quote" (y ...)) (k #'(("quote" y) ...)))
+             (("list" y ...) (k #'(y ...)))
+             (("list*" y ... z) (f #'z (lambda (ls) (k (append #'(y ...) ls)))))
+             (else #`("list->vector" #,x)))))))
+    (define (emit x)
+      (syntax-case x ()
+        (("quote" x) #''x)
+        (("list" x ...) #`(list #,@(map emit #'(x ...))))
+        ;; could emit list* for 3+ arguments if implementation supports
+        ;; list*
+        (("list*" x ... y)
+         (let f ((x* #'(x ...)))
+           (if (null? x*)
+               (emit #'y)
+               #`(cons #,(emit (car x*)) #,(f (cdr x*))))))
+        (("append" x ...) #`(append #,@(map emit #'(x ...))))
+        (("vector" x ...) #`(vector #,@(map emit #'(x ...))))
+        (("list->vector" x) #`(list->vector #,(emit #'x)))
+        (("value" x) #'x)))
     (lambda (x)
-       (syntax-case x ()
-          ((_ e) (quasi #'e 0))))))
+      (syntax-case x ()
+        ;; convert to intermediate language, combining introduced (but
+        ;; not unquoted source) quote expressions where possible and
+        ;; choosing optimal construction code otherwise, then emit
+        ;; Scheme code corresponding to the intermediate language forms.
+        ((_ e) (emit (quasi #'e 0))))))) 
 
 (define-syntax include
   (lambda (x)
@@ -2753,19 +2837,15 @@
 
 (define-syntax unquote
   (lambda (x)
-    (syntax-case x ()
-      ((_ e)
-       (syntax-violation 'unquote
-                         "expression not valid outside of quasiquote"
-                         x)))))
+    (syntax-violation 'unquote
+                      "expression not valid outside of quasiquote"
+                      x)))
 
 (define-syntax unquote-splicing
   (lambda (x)
-    (syntax-case x ()
-      ((_ e)
-       (syntax-violation 'unquote-splicing
-                         "expression not valid outside of quasiquote"
-                         x)))))
+    (syntax-violation 'unquote-splicing
+                      "expression not valid outside of quasiquote"
+                      x)))
 
 (define-syntax case
   (lambda (x)

@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  2010
+@c Copyright (C)  2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -38,9 +38,11 @@ does not restore it.  This is a bug.
 
 @item
 R6RS unicode escapes within strings are disabled by default, because
-they conflict with Guile's already-existing escapes. R6RS behavior can
-be turned on via a reader option. @xref{String Syntax}, for more
-information.
+they conflict with Guile's already-existing escapes. The same is the
+case for R6RS treatment of escaped newlines in strings.
+
+R6RS behavior can be turned on via a reader option. @xref{String
+Syntax}, for more information.
 
 @item
 A @code{set!} to a variable transformer may only expand to an 
@@ -51,23 +53,8 @@ expression was in definition context.
 Instead of using the algorithm detailed in chapter 10 of the R6RS,
 expansion of toplevel forms happens sequentially.
 
-For example, while the expansion of the following set of recursive
-nested definitions does do the correct thing:
-
-@example
-(let ()
-  (define even?
-    (lambda (x)
-      (or (= x 0) (odd? (- x 1)))))
-  (define-syntax odd?
-    (syntax-rules ()
-      ((odd? x) (not (even? x)))))
-  (even? 10))
-@result{} #t
-@end example
-
-@noindent
-The same definitions at the toplevel do not:
+For example, while the expansion of the following set of toplevel
+definitions does the correct thing:
 
 @example
 (begin
@@ -78,6 +65,20 @@ The same definitions at the toplevel do not:
    (syntax-rules ()
      ((odd? x) (not (even? x)))))
  (even? 10))
+@result{} #t
+@end example
+
+@noindent
+The same definitions outside of the @code{begin} wrapper do not:
+
+@example
+(define even?
+  (lambda (x)
+    (or (= x 0) (odd? (- x 1)))))
+(define-syntax odd?
+  (syntax-rules ()
+    ((odd? x) (not (even? x)))))
+(even? 10)
 <unnamed port>:4:18: In procedure even?:
 <unnamed port>:4:18: Wrong type to apply: #<syntax-transformer odd?>
 @end example
@@ -86,10 +87,10 @@ This is because when expanding the right-hand-side of @code{even?}, the
 reference to @code{odd?} is not yet marked as a syntax transformer, so
 it is assumed to be a function.
 
-While it is likely that we can fix the case of toplevel forms nested in
-a @code{begin} or a @code{library} form, a fix for toplevel programs
-seems trickier to implement in a backward-compatible way. Suggestions
-and/or patches would be appreciated.
+This bug will only affect top-level programs, not code in @code{library}
+forms.  Fixing it for toplevel forms seems doable, but tricky to
+implement in a backward-compatible way. Suggestions and/or patches would
+be appreciated.
 
 @item
 The @code{(rnrs io ports)} module is mostly unimplemented. Work is
@@ -355,7 +356,6 @@ grouped below by the existing manual sections to which they correspond.
 
 @deffn {Scheme Procedure} real? x
 @deffnx {Scheme Procedure} rational? x
-@deffnx {Scheme Procedure} nan? x
 @deffnx {Scheme Procedure} numerator x
 @deffnx {Scheme Procedure} denominator x
 @deffnx {Scheme Procedure} rationalize x eps
@@ -379,6 +379,7 @@ grouped below by the existing manual sections to which they correspond.
 @deffnx {Scheme Procedure} even? n
 @deffnx {Scheme Procedure} gcd x ...
 @deffnx {Scheme Procedure} lcm x ...
+@deffnx {Scheme Procedure} exact-integer-sqrt k
 @xref{Integer Operations}, for documentation.
 @end deffn
 
@@ -464,26 +465,65 @@ grouped below by the existing manual sections to which they correspond.
 @xref{Arithmetic}, for documentation.
 @end deffn
 
-@deffn {Scheme Procedure} div x1 x2
-@deffnx {Scheme Procedure} mod x1 x2
-@deffnx {Scheme Procedure} div-and-mod x1 x2
-These procedures implement number-theoretic division.
+@rnindex div
+@rnindex mod
+@rnindex div-and-mod
+@deffn {Scheme Procedure} div x y
+@deffnx {Scheme Procedure} mod x y
+@deffnx {Scheme Procedure} div-and-mod x y
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{div} returns the integer @var{q}
+and @code{mod} returns the real number @var{r} such that
+@math{@var{x} = @var{q}*@var{y} + @var{r}} and @math{0 <= @var{r} < abs(@var{y})}.
+@code{div-and-mod} returns both @var{q} and @var{r}, and is more
+efficient than computing each separately.  Note that when @math{@var{y} > 0},
+@code{div} returns @math{floor(@var{x}/@var{y})}, otherwise
+it returns @math{ceiling(@var{x}/@var{y})}.
 
-@code{div-and-mod} returns two values, the respective results of
-@code{(div x1 x2)} and @code{(mod x1 x2)}.
+@lisp
+(div 123 10) @result{} 12
+(mod 123 10) @result{} 3
+(div-and-mod 123 10) @result{} 12 and 3
+(div-and-mod 123 -10) @result{} -12 and 3
+(div-and-mod -123 10) @result{} -13 and 7
+(div-and-mod -123 -10) @result{} 13 and 7
+(div-and-mod -123.2 -63.5) @result{} 2.0 and 3.8
+(div-and-mod 16/3 -10/7) @result{} -3 and 22/21
+@end lisp
 @end deffn
 
-@deffn {Scheme Procedure} div0 x1 x2
-@deffnx {Scheme Procedure} mod0 x1 x2
-@deffnx {Scheme Procedure} div0-and-mod0 x1 x2
-These procedures are similar to @code{div}, @code{mod}, and 
-@code{div-and-mod}, except that @code{mod0} returns values that lie
-within a half-open interval centered on zero.
-@end deffn
+@rnindex div0
+@rnindex mod0
+@rnindex div0-and-mod0
+@deffn {Scheme Procedure} div0 x y
+@deffnx {Scheme Procedure} mod0 x y
+@deffnx {Scheme Procedure} div0-and-mod0 x y
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{div0} returns the
+integer @var{q} and @code{mod0} returns the real number
+@var{r} such that @math{@var{x} = @var{q}*@var{y} + @var{r}} and
+@math{-abs(@var{y}/2) <= @var{r} < abs(@var{y}/2)}.  @code{div0-and-mod0}
+returns both @var{q} and @var{r}, and is more efficient than computing
+each separately.
 
-@deffn {Scheme Procedure} exact-integer-sqrt k
-This procedure returns two nonnegative integer objects @code{s} and 
-@code{r} such that k = s^2 + r and k < (s + 1)^2.
+Note that @code{div0} returns @math{@var{x}/@var{y}} rounded to the
+nearest integer.  When @math{@var{x}/@var{y}} lies exactly half-way
+between two integers, the tie is broken according to the sign of
+@var{y}.  If @math{@var{y} > 0}, ties are rounded toward positive
+infinity, otherwise they are rounded toward negative infinity.
+This is a consequence of the requirement that
+@math{-abs(@var{y}/2) <= @var{r} < abs(@var{y}/2)}.
+
+@lisp
+(div0 123 10) @result{} 12
+(mod0 123 10) @result{} 3
+(div0-and-mod0 123 10) @result{} 12 and 3
+(div0-and-mod0 123 -10) @result{} -12 and 3
+(div0-and-mod0 -123 10) @result{} -12 and -3
+(div0-and-mod0 -123 -10) @result{} 12 and -3
+(div0-and-mod0 -123.2 -63.5) @result{} 2.0 and 3.8
+(div0-and-mod0 16/3 -10/7) @result{} -4 and -8/21
+@end lisp
 @end deffn
 
 @deffn {Scheme Procedure} real-valued? obj
@@ -497,11 +537,15 @@ loss of numerical precision.
 imaginary parts are zero.
 @end deffn
 
-@deffn {Scheme Procedure} finite? x 
+@deffn {Scheme Procedure} nan? x
 @deffnx {Scheme Procedure} infinite? x
-@code{infinite?} returns @code{#t} if @var{x} is an infinite value,
-@code{#f} otherwise.  @code{finite?} returns the negation of 
-@code{infinite?}.
+@deffnx {Scheme Procedure} finite? x
+@code{nan?} returns @code{#t} if @var{x} is a NaN value, @code{#f}
+otherwise.  @code{infinite?} returns @code{#t} if @var{x} is an infinite
+value, @code{#f} otherwise.  @code{finite?} returns @code{#t} if @var{x}
+is neither infinite nor a NaN value, otherwise it returns @code{#f}.
+Every real number satisfies exactly one of these predicates.  An
+exception is raised if @var{x} is not real.
 @end deffn
 
 @deffn {Scheme Syntax} assert expr 
@@ -1081,7 +1125,7 @@ called on exceptions thrown by the corresponding @code{raise} procedure.
 
 @deffn {Scheme Procedure} with-exception-handler handler thunk
 Installs @var{handler}, which must be a procedure taking one argument,
-as the current exception handler during the invokation of @var{thunk}, a
+as the current exception handler during the invocation of @var{thunk}, a
 procedure taking zero arguments.  The handler in place at the time
 @code{with-exception-handler} is called is made current again once 
 either @var{thunk} returns or @var{handler} is invoked after an 
@@ -1246,7 +1290,7 @@ condition in a compound condition.
 @deffn {Condition Type} &who
 @deffnx {Scheme Procedure} make-who-condition who
 @deffnx {Scheme Procedure} who-condition? obj
-@deffnx {Scheme Procedure} condiction-who condition
+@deffnx {Scheme Procedure} condition-who condition
 A base type used for storing the identity, a string or symbol, of the
 entity responsible for another condition in a compound condition.
 @end deffn
@@ -1500,7 +1544,7 @@ value, and the maximum fixnum value.
 @deffnx {Scheme Procedure} fx<=? fx1 fx2 fx3 ...
 These procedures return @code{#t} if their fixnum arguments are
 (respectively): equal, monotonically increasing, monotonically
-decreasing, monotonically nondecreasing, or monotonically nonincrasing;
+decreasing, monotonically nondecreasing, or monotonically nonincreasing;
 @code{#f} otherwise.
 @end deffn
 
@@ -1672,7 +1716,7 @@ Returns the flonum that is numerically closest to the real number
 @deffnx {Scheme Procedure} fl>=? fl1 fl2 fl3 ...
 These procedures return @code{#t} if their flonum arguments are
 (respectively): equal, monotonically increasing, monotonically
-decreasing, monotonically nondecreasing, or monotonically nonincrasing;
+decreasing, monotonically nondecreasing, or monotonically nonincreasing;
 @code{#f} otherwise.
 @end deffn
 
@@ -1871,8 +1915,8 @@ in the direction of more significant bits.
 @end deffn
 
 @deffn {Scheme Procedure} bitwise-reverse-bit-field ei1 ei2 ei3
-Returns the result of reversing the order of the bits of @var{e1} 
-between position @var{ei2} (inclusive) and position @var{ei3} 
+Returns the result of reversing the order of the bits of @var{ei1}
+between position @var{ei2} (inclusive) and position @var{ei3}
 (exclusive).
 @end deffn
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2010  Free Software Foundation, Inc.
+/* Copyright (C) 2010, 2011  Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -30,6 +30,7 @@
 #include "libguile/_scm.h"
 #include "libguile/bytevectors.h"
 #include "libguile/instructions.h"
+#include "libguile/threads.h"
 #include "libguile/foreign.h"
 
 
@@ -86,11 +87,15 @@ static SCM cif_to_procedure (SCM cif, SCM func_ptr);
 
 
 static SCM pointer_weak_refs = SCM_BOOL_F;
+static scm_i_pthread_mutex_t weak_refs_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
+
 
 static void
 register_weak_reference (SCM from, SCM to)
 {
+  scm_i_pthread_mutex_lock (&weak_refs_lock);
   scm_hashq_set_x (pointer_weak_refs, from, to);
+  scm_i_pthread_mutex_unlock (&weak_refs_lock);
 }
 
 static void
@@ -99,6 +104,16 @@ pointer_finalizer_trampoline (GC_PTR ptr, GC_PTR data)
   scm_t_pointer_finalizer finalizer = data;
   finalizer (SCM_POINTER_VALUE (PTR2SCM (ptr)));
 }
+
+SCM_DEFINE (scm_pointer_p, "pointer?", 1, 0, 0,
+	    (SCM obj),
+	    "Return @code{#t} if @var{obj} is a pointer object, "
+	    "@code{#f} otherwise.\n")
+#define FUNC_NAME s_scm_pointer_p
+{
+  return scm_from_bool (SCM_POINTER_P (obj));
+}
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_make_pointer, "make-pointer", 1, 1, 0,
 	    (SCM address, SCM finalizer),
@@ -133,10 +148,7 @@ scm_from_pointer (void *ptr, scm_t_pointer_finalizer finalizer)
     ret = null_pointer;
   else
     {
-      scm_t_bits type;
-
-      type = scm_tc7_pointer | (finalizer ? (1 << 16UL) : 0UL);
-      ret = scm_cell (type, (scm_t_bits) ptr);
+      ret = scm_cell (scm_tc7_pointer, (scm_t_bits) ptr);
 
       if (finalizer)
 	{
@@ -162,6 +174,34 @@ SCM_DEFINE (scm_pointer_address, "pointer-address", 1, 0, 0,
   SCM_VALIDATE_POINTER (1, pointer);
 
   return scm_from_uintptr ((scm_t_uintptr) SCM_POINTER_VALUE (pointer));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_pointer_to_scm, "pointer->scm", 1, 0, 0,
+	    (SCM pointer),
+	    "Unsafely cast @var{pointer} to a Scheme object.\n"
+	    "Cross your fingers!")
+#define FUNC_NAME s_scm_pointer_to_scm
+{
+  SCM_VALIDATE_POINTER (1, pointer);
+  
+  return SCM_PACK ((scm_t_bits) SCM_POINTER_VALUE (pointer));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_scm_to_pointer, "scm->pointer", 1, 0, 0,
+	    (SCM scm),
+	    "Return a foreign pointer object with the @code{object-address}\n"
+            "of @var{scm}.")
+#define FUNC_NAME s_scm_scm_to_pointer
+{
+  SCM ret;
+
+  ret = scm_from_pointer ((void*) SCM_UNPACK (scm), NULL);
+  if (SCM_NIMP (ret))
+    register_weak_reference (ret, scm);
+
+  return ret;
 }
 #undef FUNC_NAME
 
@@ -315,13 +355,13 @@ SCM_DEFINE (scm_dereference_pointer, "dereference-pointer", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_string_to_pointer, "string->pointer", 1, 0, 0,
-	    (SCM string),
+SCM_DEFINE (scm_string_to_pointer, "string->pointer", 1, 1, 0,
+	    (SCM string, SCM encoding),
 	    "Return a foreign pointer to a nul-terminated copy of\n"
-	    "@var{string} in the current locale encoding.  The C\n"
-	    "string is freed when the returned foreign pointer\n"
-	    "becomes unreachable.\n\n"
-            "This is the Scheme equivalent of @code{scm_to_locale_string}.")
+	    "@var{string} in the given @var{encoding}, defaulting to\n"
+            "the current locale encoding.  The C string is freed when\n"
+            "the returned foreign pointer becomes unreachable.\n\n"
+            "This is the Scheme equivalent of @code{scm_to_stringn}.")
 #define FUNC_NAME s_scm_string_to_pointer
 {
   SCM_VALIDATE_STRING (1, string);
@@ -329,21 +369,72 @@ SCM_DEFINE (scm_string_to_pointer, "string->pointer", 1, 0, 0,
   /* XXX: Finalizers slow down libgc; they could be avoided if
      `scm_to_string' & co. were able to use libgc-allocated memory.  */
 
-  return scm_from_pointer (scm_to_locale_string (string), free);
+  if (SCM_UNBNDP (encoding))
+    return scm_from_pointer (scm_to_locale_string (string), free);
+  else
+    {
+      char *enc;
+      SCM ret;
+      
+      SCM_VALIDATE_STRING (2, encoding);
+
+      enc = scm_to_locale_string (encoding);
+      scm_dynwind_begin (0);
+      scm_dynwind_free (enc);
+
+      ret = scm_from_pointer
+        (scm_to_stringn (string, NULL, enc,
+                         scm_i_get_conversion_strategy (SCM_BOOL_F)),
+         free);
+
+      scm_dynwind_end ();
+
+      return ret;
+    }
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_pointer_to_string, "pointer->string", 1, 0, 0,
-	    (SCM pointer),
-	    "Return the string representing the C nul-terminated string\n"
-	    "pointed to by @var{pointer}.  The C string is assumed to be\n"
-	    "in the current locale encoding.\n\n"
-	    "This is the Scheme equivalent of @code{scm_from_locale_string}.")
+SCM_DEFINE (scm_pointer_to_string, "pointer->string", 1, 2, 0,
+	    (SCM pointer, SCM length, SCM encoding),
+	    "Return the string representing the C string pointed to by\n"
+            "@var{pointer}.  If @var{length} is omitted or @code{-1}, the\n"
+            "string is assumed to be nul-terminated.  Otherwise\n"
+            "@var{length} is the number of bytes in memory pointed to by\n"
+            "@var{pointer}.  The C string is assumed to be in the given\n"
+            "@var{encoding}, defaulting to the current locale encoding.\n\n"
+	    "This is the Scheme equivalent of @code{scm_from_stringn}.")
 #define FUNC_NAME s_scm_pointer_to_string
 {
+  size_t len;
+
   SCM_VALIDATE_POINTER (1, pointer);
 
-  return scm_from_locale_string (SCM_POINTER_VALUE (pointer));
+  if (SCM_UNBNDP (length)
+      || scm_is_true (scm_eqv_p (length, scm_from_int (-1))))
+    len = (size_t)-1;
+  else
+    len = scm_to_size_t (length);
+    
+  if (SCM_UNBNDP (encoding))
+    return scm_from_locale_stringn (SCM_POINTER_VALUE (pointer), len);
+  else
+    {
+      char *enc;
+      SCM ret;
+      
+      SCM_VALIDATE_STRING (3, encoding);
+
+      enc = scm_to_locale_string (encoding);
+      scm_dynwind_begin (0);
+      scm_dynwind_free (enc);
+
+      ret = scm_from_stringn (SCM_POINTER_VALUE (pointer), len, enc,
+                              scm_i_get_conversion_strategy (SCM_BOOL_F));
+
+      scm_dynwind_end ();
+
+      return ret;
+    }
 }
 #undef FUNC_NAME
 
@@ -390,8 +481,24 @@ SCM_DEFINE (scm_alignof, "alignof", 1, 0, 0, (SCM type),
     /* a pointer */
     return scm_from_size_t (alignof (void*));
   else if (scm_is_pair (type))
-    /* a struct, yo */
-    return scm_alignof (scm_car (type));
+    {
+      /* TYPE is a structure.  Section 3-3 of the i386, x86_64, PowerPC,
+	 and SPARC P.S. of the System V ABI all say: "Aggregates
+	 (structures and arrays) and unions assume the alignment of
+	 their most strictly aligned component."  */
+      size_t max;
+
+      for (max = 0; scm_is_pair (type); type = SCM_CDR (type))
+	{
+	  size_t align;
+
+	  align = scm_to_size_t (scm_alignof (SCM_CAR (type)));
+	  if (align  > max)
+	    max = align;
+	}
+
+      return scm_from_size_t (max);
+    }
   else
     scm_wrong_type_arg (FUNC_NAME, 1, type);
 }
@@ -734,7 +841,7 @@ static const struct
        (setq i (1+ i)))))
 */
 #define STATIC_OBJCODE_TAG                                      \
-  SCM_PACK (scm_tc7_objcode | (SCM_F_OBJCODE_IS_STATIC << 8))
+  SCM_PACK (SCM_MAKE_OBJCODE_TAG (SCM_OBJCODE_TYPE_STATIC, 0))
 
 static const struct
 {
@@ -807,6 +914,7 @@ cif_to_procedure (SCM cif, SCM func_ptr)
 /* Set *LOC to the foreign representation of X with TYPE.  */
 static void
 unpack (const ffi_type *type, void *loc, SCM x)
+#define FUNC_NAME "scm_i_foreign_call"
 {
   switch (type->type)
     {
@@ -841,15 +949,21 @@ unpack (const ffi_type *type, void *loc, SCM x)
       *(scm_t_int64 *) loc = scm_to_int64 (x);
       break;
     case FFI_TYPE_STRUCT:
+      SCM_VALIDATE_POINTER (1, x);
       memcpy (loc, SCM_POINTER_VALUE (x), type->size);
       break;
     case FFI_TYPE_POINTER:
+      SCM_VALIDATE_POINTER (1, x);
       *(void **) loc = SCM_POINTER_VALUE (x);
+      break;
+    case FFI_TYPE_VOID:
+      /* Do nothing.  */
       break;
     default:
       abort ();
     }
 }
+#undef FUNC_NAME
 
 /* Return a Scheme representation of the foreign value at LOC of type TYPE.  */
 static SCM

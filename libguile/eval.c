@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011
  * Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
@@ -162,14 +162,14 @@ static void error_used_before_defined (void)
 
 static void error_invalid_keyword (SCM proc)
 {
-  scm_error_scm (scm_from_locale_symbol ("keyword-argument-error"), proc,
+  scm_error_scm (scm_from_latin1_symbol ("keyword-argument-error"), proc,
                  scm_from_locale_string ("Invalid keyword"), SCM_EOL,
                  SCM_BOOL_F);
 }
 
 static void error_unrecognized_keyword (SCM proc)
 {
-  scm_error_scm (scm_from_locale_symbol ("keyword-argument-error"), proc,
+  scm_error_scm (scm_from_latin1_symbol ("keyword-argument-error"), proc,
                  scm_from_locale_string ("Unrecognized keyword"), SCM_EOL,
                  SCM_BOOL_F);
 }
@@ -408,7 +408,10 @@ eval (SCM x, SCM env)
 
     case SCM_M_PROMPT:
       {
-        SCM vm, prompt, handler, res;
+        SCM vm, res;
+        /* We need the prompt and handler values after a longjmp case,
+           so make sure they are volatile.  */
+        volatile SCM handler, prompt;
 
         vm = scm_the_vm ();
         prompt = scm_c_make_prompt (eval (CAR (mx), env), SCM_VM_DATA (vm)->fp,
@@ -421,7 +424,7 @@ eval (SCM x, SCM env)
           {
             /* The prompt exited nonlocally. */
             proc = handler;
-            args = scm_i_prompt_pop_abort_args_x (prompt);
+            args = scm_i_prompt_pop_abort_args_x (scm_the_vm ());
             goto apply_proc;
           }
         
@@ -471,6 +474,21 @@ scm_call_4 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4)
 {
   SCM args[] = { arg1, arg2, arg3, arg4 };
   return scm_c_vm_run (scm_the_vm (), proc, args, 4);
+}
+
+SCM
+scm_call_5 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5)
+{
+  SCM args[] = { arg1, arg2, arg3, arg4, arg5 };
+  return scm_c_vm_run (scm_the_vm (), proc, args, 5);
+}
+
+SCM
+scm_call_6 (SCM proc, SCM arg1, SCM arg2, SCM arg3, SCM arg4, SCM arg5,
+            SCM arg6)
+{
+  SCM args[] = { arg1, arg2, arg3, arg4, arg5, arg6 };
+  return scm_c_vm_run (scm_the_vm (), proc, args, 6);
 }
 
 SCM
@@ -540,11 +558,7 @@ SCM_DEFINE (scm_nconc2last, "apply:nconc2last", 1, 0, 0,
   SCM *lloc;
   SCM_VALIDATE_NONEMPTYLIST (1, lst);
   lloc = &lst;
-  while (!scm_is_null (SCM_CDR (*lloc))) /* Perhaps should be
-                                          SCM_NULL_OR_NIL_P, but not
-                                          needed in 99.99% of cases,
-                                          and it could seriously hurt
-                                          performance. - Neil */
+  while (!scm_is_null (SCM_CDR (*lloc)))
     lloc = SCM_CDRLOC (*lloc);
   SCM_ASSERT (scm_ilength (SCM_CAR (*lloc)) >= 0, lst, SCM_ARG1, FUNC_NAME);
   *lloc = SCM_CAR (*lloc);
@@ -1012,9 +1026,9 @@ boot_closure_print (SCM closure, SCM port, scm_print_state *pstate)
   scm_uintprint ((scm_t_bits)SCM2PTR (closure), 16, port);
   scm_putc (' ', port);
   args = scm_make_list (scm_from_int (BOOT_CLOSURE_NUM_REQUIRED_ARGS (closure)),
-                        scm_from_locale_symbol ("_"));
+                        scm_from_latin1_symbol ("_"));
   if (!BOOT_CLOSURE_IS_FIXED (closure) && BOOT_CLOSURE_HAS_REST_ARGS (closure))
-    args = scm_cons_star (scm_from_locale_symbol ("_"), args);
+    args = scm_cons_star (scm_from_latin1_symbol ("_"), args);
   /* FIXME: optionals and rests */
   scm_display (args, port);
   scm_putc ('>', port);

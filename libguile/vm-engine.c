@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -93,7 +93,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     fp = sp + 1;
     ip = SCM_C_OBJCODE_BASE (bp);
     /* MV-call frame, function & arguments */
-    PUSH ((SCM)fp); /* dynamic link */
+    PUSH (0); /* dynamic link */
     PUSH (0); /* mvra */
     PUSH (0); /* ra */
     PUSH (prog);
@@ -153,9 +153,16 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
                    scm_list_1 (finish_args), SCM_BOOL_F);
     goto vm_error;
 
+  vm_error_not_a_variable:
+    SYNC_ALL ();
+    scm_error (scm_arg_type_key, func_name, "Not a variable: ~S",
+               scm_list_1 (finish_args), scm_list_1 (finish_args));
+    goto vm_error;
+
   vm_error_apply_to_non_list:
+    SYNC_ALL ();
     scm_error (scm_arg_type_key, "apply", "Apply to non-list: ~S",
-               finish_args, finish_args);
+               scm_list_1 (finish_args), scm_list_1 (finish_args));
     goto vm_error;
 
   vm_error_kwargs_length_not_even:

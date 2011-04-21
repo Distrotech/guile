@@ -1,6 +1,7 @@
 ## Process this file with Automake to create Makefile.in
 ##
-##  	Copyright (C) 1998, 2004, 2006, 2008, 2009, 2010 Free Software Foundation, Inc.
+##   Copyright (C) 1998, 2004, 2006, 2008, 2009, 2010,
+##     2011 Free Software Foundation, Inc.
 ##
 ##   This file is part of GUILE.
 ##
@@ -57,6 +58,7 @@ guile_TEXINFOS = preface.texi			\
 		 scheme-indices.texi		\
 		 slib.texi			\
 		 posix.texi			\
+		 web.texi			\
 		 expect.texi			\
 		 scsh.texi			\
 		 sxml-match.texi		\
@@ -109,8 +111,6 @@ noinst_DATA = $(PICTURES)
 
 EXTRA_DIST = ChangeLog-2008 $(PICTURES)
 
-include $(top_srcdir)/am/pre-inst-guile
-
 # Automated snarfing
 
 autoconf.texi: autoconf-macros.texi
@@ -127,7 +127,8 @@ snarf_doc = standard-library
 $(snarf_doc).am: $(snarf_doc).scm
 	GUILE_AUTO_COMPILE=0 ;							\
 	variable="`echo $(snarf_doc) | tr - _`_scm_files" ;			\
-	"$(preinstguile)" -l "$(srcdir)/$(snarf_doc).scm" -c "			\
+	"$(top_builddir_absolute)/meta/guile" -l "$(srcdir)/$(snarf_doc).scm"   \
+	 -c "			 						\
 	 (format #t \"# Automatically generated, do not edit.~%\")		\
 	 (format #t \"$$variable = \")						\
 	 (for-each (lambda (m)							\
@@ -141,9 +142,16 @@ include standard-library.am
 
 $(snarf_doc).texi: $(standard_library_scm_files)
 	GUILE_AUTO_COMPILE=0				\
-	"$(preinstguile)" "$(srcdir)/make-texinfo.scm"	\
+	"$(top_builddir_absolute)/meta/guile" "$(srcdir)/make-texinfo.scm"	\
 	  "$(abs_srcdir)/$(snarf_doc).scm" > "$@.tmp"
 	mv "$@.tmp" "$@"
 
-CLEANFILES = $(snarf_doc).texi
+DISTCLEANFILES = $(snarf_doc).texi
 EXTRA_DIST += $(snarf_doc).scm make-texinfo.scm $(snarf_doc).texi $(snarf_doc).am
+
+
+www-commit: html
+	cd guile.html; \
+	cvs -d :ext:cvs.sv.gnu.org:/web/guile \
+	  import -m 'make www-commit in doc/ref' guile/docs/master/guile.html gnu \
+	  $(shell date "+D%Y%m%d%H%M%S")

@@ -1,6 +1,6 @@
 ;;; HTTP request objects
 
-;; Copyright (C)  2010 Free Software Foundation, Inc.
+;; Copyright (C)  2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -21,7 +21,7 @@
 
 (define-module (web request)
   #:use-module (rnrs bytevectors)
-  #:use-module (rnrs io ports)
+  #:use-module (ice-9 binary-ports)
   #:use-module (ice-9 rdelim)
   #:use-module (srfi srfi-9)
   #:use-module (web uri)
@@ -38,11 +38,8 @@
             build-request
             write-request
 
-            read-request-body/latin-1
-            write-request-body/latin-1
-
-            read-request-body/bytevector
-            write-request-body/bytevector
+            read-request-body
+            write-request-body
 
             ;; General headers
             ;;
@@ -142,20 +139,18 @@
       (let ((h (car headers)))
         (if (pair? h)
             (let ((k (car h)) (v (cdr h)))
-              (if (symbol? k)
-                  (if (not (valid-header? k v))
-                      (bad-request "Bad value for header ~a: ~s" k v))
-                  (if (not (and (string? k) (string? v)))
-                      (bad-request "Unknown header not a pair of strings: ~s"
-                                   h)))
-              (validate-headers (cdr headers)))
+              (if (valid-header? k v)
+                  (validate-headers (cdr headers))
+                  (bad-request "Bad value for header ~a: ~s" k v)))
             (bad-request "Header not a pair: ~a" h)))
       (if (not (null? headers))
           (bad-request "Headers not a list: ~a" headers))))
 
-(define* (build-request #:key (method 'GET) uri (version '(1 . 1))
+(define* (build-request uri #:key (method 'GET) (version '(1 . 1))
                         (headers '()) port (meta '())
                         (validate-headers? #t))
+  "Construct an HTTP request object. If @var{validate-headers?} is true,
+the headers are each run through their respective validators."
   (cond
    ((not (and (pair? version)
               (non-negative-integer? (car version))
@@ -173,6 +168,13 @@
   (make-request method uri version headers meta port))
 
 (define* (read-request port #:optional (meta '()))
+  "Read an HTTP request from @var{port}, optionally attaching the given
+metadata, @var{meta}.
+
+As a side effect, sets the encoding on @var{port} to
+ISO-8859-1 (latin-1), so that reading one character reads one byte.  See
+the discussion of character sets in \"HTTP Requests\" in the manual, for
+more information."
   (set-port-encoding! port "ISO-8859-1")
   (call-with-values (lambda () (read-request-line port))
     (lambda (method uri version)
@@ -180,6 +182,10 @@
 
 ;; FIXME: really return a new request?
 (define (write-request r port)
+  "Write the given HTTP request to @var{port}.
+
+Returns a new request, whose @code{request-port} will continue writing
+on @var{port}, perhaps using some transfer encoding."
   (write-request-line (request-method r) (request-uri r)
                       (request-version r) port)
   (write-headers (request-headers r) port)
@@ -189,36 +195,9 @@
       (make-request (request-method r) (request-uri r) (request-version r)
                     (request-headers r) (request-meta r) port)))
 
-;; Probably not what you want to use "in production". Relies on one byte
-;; per char because we are in latin-1 encoding.
-;;
-(define (read-request-body/latin-1 r)
-  (cond 
-   ((request-content-length r) =>
-    (lambda (nbytes)
-      (let ((buf (make-string nbytes))
-            (port (request-port r)))
-        (let lp ((i 0))
-          (cond
-           ((< i nbytes)
-            (let ((c (read-char port)))
-              (cond
-               ((eof-object? c)
-                (bad-request "EOF while reading request body: ~a bytes of ~a"
-                             i nbytes))
-               (else
-                (string-set! buf i c)
-                (lp (1+ i))))))
-           (else buf))))))
-   (else #f)))
-
-;; Likewise, assumes that body can be written in the latin-1 encoding,
-;; and that the latin-1 encoding is what is expected by the server.
-;;
-(define (write-request-body/latin-1 r body)
-  (display body (request-port r)))
-
-(define (read-request-body/bytevector r)
+(define (read-request-body r)
+  "Reads the request body from @var{r}, as a bytevector.  Returns
+@code{#f} if there was no request body."
   (let ((nbytes (request-content-length r)))
     (and nbytes
          (let ((bv (get-bytevector-n (request-port r) nbytes)))
@@ -227,7 +206,9 @@
                (bad-request "EOF while reading request body: ~a bytes of ~a"
                             (bytevector-length bv) nbytes))))))
 
-(define (write-request-body/bytevector r bv)
+(define (write-request-body r bv)
+  "Write @var{body}, a bytevector, to the port corresponding to the HTTP
+request @var{r}."
   (put-bytevector (request-port r) bv))
 
 (define-syntax define-request-accessor

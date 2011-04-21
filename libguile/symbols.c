@@ -1,5 +1,6 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2003, 2004, 2006, 2009 Free Software Foundation, Inc.
- * 
+/* Copyright (C) 1995, 1996, 1997, 1998, 2000, 2001, 2003, 2004,
+ *   2006, 2009, 2011 Free Software Foundation, Inc.
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -68,128 +69,141 @@ SCM_DEFINE (scm_sys_symbols, "%symbols", 0, 0, 0,
 /* {Symbols}
  */
 
-/* In order to optimize reading speed, this function breaks part of
- * the hashtable abstraction.  The optimizations are:
- *
- * 1. The argument string can be compared directly to symbol objects
- *    without first creating an SCM string object.  (This would have
- *    been necessary if we had used the hashtable API in hashtab.h.)
- *
- * 2. We can use the raw hash value stored in scm_i_symbol_hash (sym)
- *    to speed up lookup.
- *
- * Both optimizations might be possible without breaking the
- * abstraction if the API in hashtab.c is improved.
- */
-
 unsigned long
 scm_i_hash_symbol (SCM obj, unsigned long n, void *closure)
 {
   return scm_i_symbol_hash (obj) % n;
 }
 
+struct string_lookup_data
+{
+  SCM string;
+  unsigned long string_hash;
+};
+
+static int
+string_lookup_predicate_fn (SCM sym, void *closure)
+{
+  struct string_lookup_data *data = closure;
+
+  if (scm_i_symbol_hash (sym) == data->string_hash
+      && scm_i_symbol_length (sym) == scm_i_string_length (data->string))
+    {
+      size_t n = scm_i_symbol_length (sym);
+      while (n--)
+        if (scm_i_symbol_ref (sym, n) != scm_i_string_ref (data->string, n))
+          return 0;
+      return 1;
+    }
+  else
+    return 0;
+}
+
 static SCM
 lookup_interned_symbol (SCM name, unsigned long raw_hash)
 {
-  /* Try to find the symbol in the symbols table */
-  SCM result = SCM_BOOL_F;
-  SCM bucket, elt, previous_elt;
-  size_t len;
-  unsigned long hash = raw_hash % SCM_HASHTABLE_N_BUCKETS (symbols);
+  struct string_lookup_data data;
+  SCM handle;
 
-  len = scm_i_string_length (name);
-  bucket = SCM_HASHTABLE_BUCKET (symbols, hash);
+  data.string = name;
+  data.string_hash = raw_hash;
+  
+  /* Strictly speaking, we should take a lock here.  But instead we rely
+     on the fact that if this fails, we do take the lock on the
+     intern_symbol path; and since nothing deletes from the hash table
+     except GC, we should be OK.  */
+  handle = scm_hash_fn_get_handle_by_hash (symbols, raw_hash,
+                                           string_lookup_predicate_fn,
+                                           &data);  
 
-  for (elt = bucket, previous_elt = SCM_BOOL_F;
-       !scm_is_null (elt);
-       previous_elt = elt, elt = SCM_CDR (elt))
-    {
-      SCM pair, sym;
-
-      pair = SCM_CAR (elt);
-      if (!scm_is_pair (pair))
-	abort ();
-
-      if (SCM_WEAK_PAIR_CAR_DELETED_P (pair))
-	{
-	  /* PAIR is a weak pair whose key got nullified: remove it from
-	     BUCKET.  */
-	  /* FIXME: Since this is done lazily, i.e., only when a new symbol
-	     is to be inserted in a bucket containing deleted symbols, the
-	     number of items in the hash table may remain erroneous for some
-	     time, thus precluding proper rehashing.  */
-	  if (previous_elt != SCM_BOOL_F)
-	    SCM_SETCDR (previous_elt, SCM_CDR (elt));
-	  else
-	    bucket = SCM_CDR (elt);
-
-	  SCM_HASHTABLE_DECREMENT (symbols);
-	  continue;
-	}
-
-      sym = SCM_CAR (pair);
-
-      if (scm_i_symbol_hash (sym) == raw_hash
-	  && scm_i_symbol_length (sym) == len)
-	{
-          size_t i = len;
-
-          /* Slightly faster path for comparing narrow to narrow.  */
-          if (scm_i_is_narrow_string (name) && scm_i_is_narrow_symbol (sym))
-            {
-              const char *chrs = scm_i_symbol_chars (sym);
-              const char *str = scm_i_string_chars (name);
-
-              while (i != 0)
-                {
-                  --i;
-                  if (str[i] != chrs[i])
-                    goto next_symbol;
-                }
-            }
-          else
-            {
-              /* Somewhat slower path for comparing narrow to wide or
-                 wide to wide.  */
-              while (i != 0)
-                {
-                  --i;
-                  if (scm_i_string_ref (name, i) != scm_i_symbol_ref (sym, i))
-                    goto next_symbol;
-                }
-            }
-
-	  /* We found it.  */
-	  result = sym;
-	  break;
-	}
-    next_symbol:
-      ;
-    }
-
-  if (SCM_HASHTABLE_N_ITEMS (symbols) < SCM_HASHTABLE_LOWER (symbols))
-    /* We removed many symbols in this pass so trigger a rehashing.  */
-    scm_i_rehash (symbols, scm_i_hash_symbol, 0, "lookup_interned_symbol");
-
-  return result;
+  if (scm_is_true (handle))
+    return SCM_CAR (handle);
+  else
+    return SCM_BOOL_F;
 }
 
-/* Intern SYMBOL, an uninterned symbol.  */
-static void
+struct latin1_lookup_data
+{
+  const char *str;
+  size_t len;
+  unsigned long string_hash;
+};
+
+static int
+latin1_lookup_predicate_fn (SCM sym, void *closure)
+{
+  struct latin1_lookup_data *data = closure;
+
+  return scm_i_symbol_hash (sym) == data->string_hash
+    && scm_i_is_narrow_symbol (sym)
+    && scm_i_symbol_length (sym) == data->len
+    && strncmp (scm_i_symbol_chars (sym), data->str, data->len) == 0;
+}
+
+static SCM
+lookup_interned_latin1_symbol (const char *str, size_t len,
+                               unsigned long raw_hash)
+{
+  struct latin1_lookup_data data;
+  SCM handle;
+
+  data.str = str;
+  data.len = len;
+  data.string_hash = raw_hash;
+  
+  /* Strictly speaking, we should take a lock here.  But instead we rely
+     on the fact that if this fails, we do take the lock on the
+     intern_symbol path; and since nothing deletes from the hash table
+     except GC, we should be OK.  */
+  handle = scm_hash_fn_get_handle_by_hash (symbols, raw_hash,
+                                           latin1_lookup_predicate_fn,
+                                           &data);  
+
+  if (scm_is_true (handle))
+    return SCM_CAR (handle);
+  else
+    return SCM_BOOL_F;
+}
+
+static unsigned long
+symbol_lookup_hash_fn (SCM obj, unsigned long max, void *closure)
+{
+  return scm_i_symbol_hash (obj) % max;
+}
+
+static SCM
+symbol_lookup_assoc_fn (SCM obj, SCM alist, void *closure)
+{
+  for (; !scm_is_null (alist); alist = SCM_CDR (alist))
+    {
+      SCM sym = SCM_CAAR (alist);
+
+      if (scm_i_symbol_hash (sym) == scm_i_symbol_hash (obj)
+          && scm_is_true (scm_string_equal_p (scm_symbol_to_string (sym),
+                                              scm_symbol_to_string (obj))))
+        return SCM_CAR (alist);
+    }
+
+  return SCM_BOOL_F;
+}
+
+static scm_i_pthread_mutex_t intern_lock = SCM_I_PTHREAD_MUTEX_INITIALIZER;
+
+/* Intern SYMBOL, an uninterned symbol.  Might return a different
+   symbol, if another one was interned at the same time.  */
+static SCM
 intern_symbol (SCM symbol)
 {
-  SCM slot, cell;
-  unsigned long hash;
+  SCM handle;
 
-  hash = scm_i_symbol_hash (symbol) % SCM_HASHTABLE_N_BUCKETS (symbols);
-  slot = SCM_HASHTABLE_BUCKET (symbols, hash);
-  cell = scm_cons (symbol, SCM_UNDEFINED);
+  scm_i_pthread_mutex_lock (&intern_lock);
+  handle = scm_hash_fn_create_handle_x (symbols, symbol, SCM_UNDEFINED,
+                                        symbol_lookup_hash_fn,
+                                        symbol_lookup_assoc_fn,
+                                        NULL);
+  scm_i_pthread_mutex_unlock (&intern_lock);
 
-  SCM_SET_HASHTABLE_BUCKET (symbols, hash, scm_cons (cell, slot));
-  SCM_HASHTABLE_INCREMENT (symbols);
-
-  if (SCM_HASHTABLE_N_ITEMS (symbols) > SCM_HASHTABLE_UPPER (symbols))
-    scm_i_rehash (symbols, scm_i_hash_symbol, 0, "intern_symbol");
+  return SCM_CAR (handle);
 }
 
 static SCM
@@ -199,15 +213,15 @@ scm_i_str2symbol (SCM str)
   size_t raw_hash = scm_i_string_hash (str);
 
   symbol = lookup_interned_symbol (str, raw_hash);
-  if (scm_is_false (symbol))
+  if (scm_is_true (symbol))
+    return symbol;
+  else
     {
       /* The symbol was not found, create it.  */
       symbol = scm_i_make_symbol (str, 0, raw_hash,
 				  scm_cons (SCM_BOOL_F, SCM_EOL));
-      intern_symbol (symbol);
+      return intern_symbol (symbol);
     }
-
-  return symbol;
 }
 
 
@@ -328,6 +342,9 @@ SCM_DEFINE (scm_string_ci_to_symbol, "string-ci->symbol", 1, 0, 0,
 }
 #undef FUNC_NAME
 
+/* The default prefix for `gensym'd symbols.  */
+static SCM default_gensym_prefix;
+
 #define MAX_PREFIX_LENGTH 30
 
 SCM_DEFINE (scm_gensym, "gensym", 0, 1, 0,
@@ -346,15 +363,15 @@ SCM_DEFINE (scm_gensym, "gensym", 0, 1, 0,
   char buf[SCM_INTBUFLEN];
 
   if (SCM_UNBNDP (prefix))
-    prefix = scm_from_locale_string (" g");
-  
+    prefix = default_gensym_prefix;
+
   /* mutex in case another thread looks and incs at the exact same moment */
   scm_i_scm_pthread_mutex_lock (&scm_i_misc_mutex);
   n = gensym_counter++;
   scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
 
   n_digits = scm_iint2str (n, 10, buf);
-  suffix = scm_from_locale_stringn (buf, n_digits);
+  suffix = scm_from_latin1_stringn (buf, n_digits);
   name = scm_string_append (scm_list_2 (prefix, suffix));
   return scm_string_to_symbol (name);
 }
@@ -443,6 +460,45 @@ scm_take_locale_symbol (char *sym)
   return scm_take_locale_symboln (sym, (size_t)-1);
 }
 
+SCM
+scm_from_latin1_symbol (const char *sym)
+{
+  return scm_from_latin1_symboln (sym, -1);
+}
+
+SCM
+scm_from_latin1_symboln (const char *sym, size_t len)
+{
+  unsigned long hash;
+  SCM ret;
+
+  if (len == (size_t) -1)
+    len = strlen (sym);
+  hash = scm_i_latin1_string_hash (sym, len);
+
+  ret = lookup_interned_latin1_symbol (sym, len, hash);
+  if (scm_is_false (ret))
+    {
+      SCM str = scm_from_latin1_stringn (sym, len);
+      ret = scm_i_str2symbol (str);
+    }
+
+  return ret;
+}
+
+SCM
+scm_from_utf8_symbol (const char *sym)
+{
+  return scm_from_utf8_symboln (sym, -1);
+}
+
+SCM
+scm_from_utf8_symboln (const char *sym, size_t len)
+{
+  SCM str = scm_from_utf8_stringn (sym, len);
+  return scm_i_str2symbol (str);
+}
+
 void
 scm_symbols_prehistory ()
 {
@@ -454,6 +510,8 @@ void
 scm_init_symbols ()
 {
 #include "libguile/symbols.x"
+
+  default_gensym_prefix = scm_from_latin1_string (" g");
 }
 
 /*

@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -35,6 +35,7 @@ get the relevant SRFI documents from the SRFI home page
 * SRFI-17::                     Generalized set!
 * SRFI-18::                     Multithreading support
 * SRFI-19::                     Time/Date library.
+* SRFI-23::                     Error reporting
 * SRFI-26::                     Specializing parameters
 * SRFI-27::                     Sources of Random Bits
 * SRFI-30::                     Nested multi-line block comments
@@ -391,13 +392,13 @@ Return a list containing all but the first @var{i} elements of
 @end deffn
 
 @deffn {Scheme Procedure} take-right lst i
-Return the a list containing the @var{i} last elements of @var{lst}.
+Return a list containing the @var{i} last elements of @var{lst}.
 The return shares a common tail with @var{lst}.
 @end deffn
 
 @deffn {Scheme Procedure} drop-right lst i
 @deffnx {Scheme Procedure} drop-right! lst i
-Return the a list containing all but the @var{i} last elements of
+Return a list containing all but the @var{i} last elements of
 @var{lst}.
 
 @code{drop-right} always returns a new list, even when @var{i} is
@@ -633,7 +634,7 @@ Determines when to stop unfolding.
 Maps each seed value to the corresponding list element.
 
 @item g
-Maps each seed value to next seed valu.
+Maps each seed value to next seed value.
 
 @item seed
 The state value for the unfold.
@@ -665,7 +666,7 @@ Determines when to stop unfolding.
 Maps each seed value to the corresponding list element.
 
 @item g
-Maps each seed value to next seed valu.
+Maps each seed value to next seed value.
 
 @item seed
 The state value for the unfold.
@@ -976,7 +977,7 @@ extends the core @code{assoc} (@pxref{Retrieving Alist Entries}) by
 taking an optional @var{=} comparison procedure.
 
 The default comparison is @code{equal?}.  If an @var{=} parameter is
-given it's called @code{(@var{=} @var{key} @var{alistcar})}, ie. the
+given it's called @code{(@var{=} @var{key} @var{alistcar})}, i.e.@: the
 given target @var{key} is the first argument, and a @code{car} from
 @var{alist} is second.
 
@@ -1013,7 +1014,7 @@ elements will be in the same order as they were in @var{alist}.
 
 Equality is determined by the @var{=} predicate, or @code{equal?} if
 not given.  The order in which elements are tested is unspecified, but
-each equality call is made @code{(= key alistkey)}, ie. the given
+each equality call is made @code{(= key alistkey)}, i.e.@: the given
 @var{key} parameter is first and the key from @var{alist} second.
 This means for instance all associations with a key greater than 5 can
 be removed with @code{(alist-delete 5 alist <)}.
@@ -1678,7 +1679,7 @@ at the following odd index.
 @deftypefnx {C Function} {const scm_t_int32 *} scm_s32vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {const scm_t_uint64 *} scm_u64vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {const scm_t_int64 *} scm_s64vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
-@deftypefnx {C Function} {const float *} scm_f23vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
+@deftypefnx {C Function} {const float *} scm_f32vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {const double *} scm_f64vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {const float *} scm_c32vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {const double *} scm_c64vector_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
@@ -1695,7 +1696,7 @@ indicated kind.
 @deftypefnx {C Function} {scm_t_int32 *} scm_s32vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {scm_t_uint64 *} scm_u64vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {scm_t_int64 *} scm_s64vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
-@deftypefnx {C Function} {float *} scm_f23vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
+@deftypefnx {C Function} {float *} scm_f32vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {double *} scm_f64vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {float *} scm_c32vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
 @deftypefnx {C Function} {double *} scm_c64vector_writable_elements (SCM vec, scm_t_array_handle *handle, size_t *lenp, ssize_t *incp)
@@ -1884,7 +1885,7 @@ The @var{fieldname}s provide the names for the record fields, as per
 the core @code{record-type-fields} etc, and are referred to in the
 subsequent accessor/modifier forms.
 
-@var{predictate} is bound to a function to be called as
+@var{predicate} is bound to a function to be called as
 @code{(@var{predicate} obj)}.  It returns @code{#t} or @code{#f}
 according to whether @var{obj} is a record of this type.
 
@@ -1926,6 +1927,13 @@ employee-type @result{} #<record-type employee-type>
 The functions created by @code{define-record-type} are ordinary
 top-level @code{define}s.  They can be redefined or @code{set!} as
 desired, exported from a module, etc.
+
+@unnumberedsubsubsec Non-toplevel Record Definitions
+
+The SRFI-9 specification explicitly disallows record definitions in a
+non-toplevel context, such as inside @code{lambda} body or inside a
+@var{let} block.  However, Guile's implementation does not enforce that
+restriction.
 
 @unnumberedsubsubsec Custom Printers
 
@@ -1978,7 +1986,7 @@ parameters.  @var{tag}s are registered with the following procedure.
 
 @deffn {Scheme Procedure} define-reader-ctor tag proc
 Register @var{proc} as the constructor for a hash-comma read syntax
-starting with symbol @var{tag}, ie. @nicode{#,(@var{tag} arg@dots{})}.
+starting with symbol @var{tag}, i.e.@: @nicode{#,(@var{tag} arg@dots{})}.
 @var{proc} is called with the given arguments @code{(@var{proc}
 arg@dots{})} and the object it returns is the result of the read.
 @end deffn
@@ -3010,7 +3018,7 @@ locale.
 @cindex date, from string
 
 @c  FIXME: Can we say what happens when an incomplete date is
-@c  converted?  Ie. fields left as 0, or what?  The spec seems to be
+@c  converted?  I.e. fields left as 0, or what?  The spec seems to be
 @c  silent on this.
 
 @defun string->date input template
@@ -3128,6 +3136,11 @@ Conversion is locale-dependent on systems that support it
 locale.
 @end defun
 
+@node SRFI-23
+@subsection SRFI-23 - Error Reporting
+@cindex SRFI-23
+
+The SRFI-23 @code{error} procedure is always available.
 
 @node SRFI-26
 @subsection SRFI-26 - specializing parameters
@@ -3337,7 +3350,7 @@ with the following procedures:
 @defunx random-source-state-set! source state
 Get and set the state of a random source.  No assumptions should be made
 about the nature of the state object, besides it having an external
-representation (i.e. it can be passed to @code{write} and subsequently
+representation (i.e.@: it can be passed to @code{write} and subsequently
 @code{read} back).
 @end defun
 
@@ -4117,7 +4130,7 @@ stream-filter algorithm, expressed in a hypothetical lazy language as
             (stream-filter p? t)))))
 @end lisp
 
-This algorithm can be espressed as follows in Scheme:
+This algorithm can be expressed as follows in Scheme:
 
 @lisp
 (define (stream-filter p? s)

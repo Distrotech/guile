@@ -1,5 +1,5 @@
 /* A stack holds a frame chain
- * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010 Free Software Foundation
+ * Copyright (C) 1996,1997,2000,2001, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -247,7 +247,6 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
 #define FUNC_NAME s_scm_make_stack
 {
   long n;
-  int maxp;
   SCM frame;
   SCM stack;
   SCM inner_cut, outer_cut;
@@ -289,7 +288,6 @@ SCM_DEFINE (scm_make_stack, "make-stack", 1, 0, 1,
   /* Count number of frames.  Also get stack id tag and check whether
      there are more stackframes than we want to record
      (SCM_BACKTRACE_MAXDEPTH). */
-  maxp = 0;
   n = stack_depth (frame);
 
   /* Make the stack object. */
@@ -393,7 +391,7 @@ scm_init_stacks ()
   scm_stack_type = scm_make_vtable (scm_from_locale_string (SCM_STACK_LAYOUT),
                                     SCM_UNDEFINED);
   scm_set_struct_vtable_name_x (scm_stack_type,
-				scm_from_locale_symbol ("stack"));
+				scm_from_latin1_symbol ("stack"));
 #include "libguile/stacks.x"
 }
 

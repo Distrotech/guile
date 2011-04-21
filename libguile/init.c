@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2006, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -99,7 +99,6 @@
 #include "libguile/procs.h"
 #include "libguile/programs.h"
 #include "libguile/promises.h"
-#include "libguile/properties.h"
 #include "libguile/array-map.h"
 #include "libguile/random.h"
 #include "libguile/rdelim.h"
@@ -149,43 +148,6 @@
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
-
-
-
-#if 0
-static char remsg[] = "remove\n#define ", addmsg[] = "add\n#define ";
-
-
-static void 
-fixconfig (char *s1, char *s2, int s)
-{
-  fputs (s1, stderr);
-  fputs (s2, stderr);
-  fputs ("\nin ", stderr);
-  fputs (s ? "setjump" : "scmfig", stderr);
-  fputs (".h and recompile scm\n", stderr);
-  exit (EXIT_FAILURE);
-}
-
-
-static void
-check_config (void)
-{
-  size_t j;
-
-  j = HEAP_SEG_SIZE;
-  if (HEAP_SEG_SIZE != j)
-    fixconfig ("reduce", "size of HEAP_SEG_SIZE", 0);
-
-#if SCM_STACK_GROWS_UP
-  if (((SCM_STACKITEM *) & j - stack_start_ptr) < 0)
-    fixconfig (remsg, "SCM_STACK_GROWS_UP", 1);
-#else
-  if ((stack_start_ptr - (SCM_STACKITEM *) & j) < 0)
-    fixconfig (addmsg, "SCM_STACK_GROWS_UP", 1);
-#endif
-}
-#endif
 
 
 
@@ -195,7 +157,6 @@ typedef struct
 {
   int fdes;
   char *mode;
-  char *name;
 } stream_body_data;
 
 /* proc to be called in scope of exception handler stream_handler. */
@@ -203,8 +164,7 @@ static SCM
 stream_body (void *data)
 {
   stream_body_data *body_data = (stream_body_data *) data;
-  SCM port = scm_fdes_to_port (body_data->fdes, body_data->mode,
-			       scm_from_locale_string (body_data->name));
+  SCM port = scm_fdes_to_port (body_data->fdes, body_data->mode, SCM_BOOL_F);
 
   SCM_REVEALED (port) = 1;
   return port;
@@ -220,21 +180,19 @@ stream_handler (void *data SCM_UNUSED,
 }
 
 /* Convert a file descriptor to a port, using scm_fdes_to_port.
-   - NAME is a C string, not a Guile string
    - set the revealed count for FILE's file descriptor to 1, so
    that fdes won't be closed when the port object is GC'd.
    - catch exceptions: allow Guile to be able to start up even
    if it has been handed bogus stdin/stdout/stderr.  replace the
    bad ports with void ports.  */
 static SCM
-scm_standard_stream_to_port (int fdes, char *mode, char *name)
+scm_standard_stream_to_port (int fdes, char *mode)
 {
   SCM port;
   stream_body_data body_data;
 
   body_data.fdes = fdes;
   body_data.mode = mode;
-  body_data.name = name;
   port = scm_internal_catch (SCM_BOOL_T, stream_body, &body_data, 
 			     stream_handler, NULL);
   if (scm_is_false (port))
@@ -261,17 +219,11 @@ scm_init_standard_ports ()
      block buffering for higher performance.  */
 
   scm_set_current_input_port 
-    (scm_standard_stream_to_port (0, 
-				  isatty (0) ? "r0" : "r",
-				  "standard input"));
+    (scm_standard_stream_to_port (0, isatty (0) ? "r0" : "r"));
   scm_set_current_output_port
-    (scm_standard_stream_to_port (1,
-				  isatty (1) ? "w0" : "w",
-				  "standard output"));
+    (scm_standard_stream_to_port (1, isatty (1) ? "w0" : "w"));
   scm_set_current_error_port
-    (scm_standard_stream_to_port (2,
-				  isatty (2) ? "w0" : "w",
-				  "standard error"));
+    (scm_standard_stream_to_port (2, isatty (2) ? "w0" : "w"));
 }
 
 
@@ -424,16 +376,10 @@ cleanup_for_exit ()
 }
 
 void
-scm_i_init_guile (SCM_STACKITEM *base)
+scm_i_init_guile (void *base)
 {
   if (scm_initialized_p)
     return;
-
-  if (base == NULL)
-    {
-      fprintf (stderr, "cannot determine stack base!\n");
-      abort ();
-    }
 
   if (sizeof (mpz_t) > (3 * sizeof (scm_t_bits)))
     {
@@ -495,7 +441,6 @@ scm_i_init_guile (SCM_STACKITEM *base)
   scm_init_deprecation ();
   scm_init_objprop ();
   scm_init_promises ();         /* requires smob_prehistory */
-  scm_init_properties ();
   scm_init_hooks ();            /* Requires smob_prehistory */
   scm_init_gc ();		/* Requires hooks */
   scm_init_gc_protect_object ();  /* requires threads_prehistory */
@@ -510,8 +455,8 @@ scm_i_init_guile (SCM_STACKITEM *base)
   scm_init_numbers ();
   scm_init_options ();
   scm_init_pairs ();
-#ifdef HAVE_POSIX
   scm_init_filesys ();     /* Requires smob_prehistory */
+#ifdef HAVE_POSIX
   scm_init_posix ();
 #endif
 #ifdef HAVE_REGCOMP
@@ -585,7 +530,7 @@ scm_i_init_guile (SCM_STACKITEM *base)
 
   atexit (cleanup_for_exit);
   scm_load_startup_files ();
-  scm_init_load_should_autocompile ();
+  scm_init_load_should_auto_compile ();
 
   /* Capture the dynamic state after loading boot-9, so that new threads end up
      in the guile-user module. */

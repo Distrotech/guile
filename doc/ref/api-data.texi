@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2006, 2007, 2008, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -303,10 +303,6 @@ representation where the required number does not fit in the native
 form.  Conversion between these two representations is automatic and
 completely invisible to the Scheme level programmer.
 
-The infinities @samp{+inf.0} and @samp{-inf.0} are considered to be
-inexact integers.  They are explained in detail in the next section,
-together with reals and rationals.
-
 C has a host of different integer types, and Guile offers a host of
 functions to convert between them and the @code{SCM} representation.
 For example, a C @code{int} can be handled with @code{scm_to_int} and
@@ -492,14 +488,14 @@ all possible points along a continuous, infinite, one-dimensional line.
 The rational numbers are the set of all numbers that can be written as
 fractions @var{p}/@var{q}, where @var{p} and @var{q} are integers.
 All rational numbers are also real, but there are real numbers that
-are not rational, for example @m{\sqrt2, the square root of 2}, and
+are not rational, for example @m{\sqrt{2}, the square root of 2}, and
 @m{\pi,pi}.
 
 Guile can represent both exact and inexact rational numbers, but it
-can not represent irrational numbers.  Exact rationals are represented
-by storing the numerator and denominator as two exact integers.
-Inexact rationals are stored as floating point numbers using the C
-type @code{double}.
+cannot represent precise finite irrational numbers.  Exact rationals are
+represented by storing the numerator and denominator as two exact
+integers.  Inexact rationals are stored as floating point numbers using
+the C type @code{double}.
 
 Exact rationals are written as a fraction of integers.  There must be
 no whitespace around the slash:
@@ -522,38 +518,47 @@ example:
 4.0
 @end lisp
 
-The limited precision of Guile's encoding means that any ``real'' number
-in Guile can be written in a rational form, by multiplying and then dividing
-by sufficient powers of 10 (or in fact, 2).  For example,
-@samp{-0.00000142857931198} is the same as @minus{}142857931198 divided by
-100000000000000000.  In Guile's current incarnation, therefore, the
-@code{rational?} and @code{real?} predicates are equivalent.
+The limited precision of Guile's encoding means that any finite ``real''
+number in Guile can be written in a rational form, by multiplying and
+then dividing by sufficient powers of 10 (or in fact, 2).  For example,
+@samp{-0.00000142857931198} is the same as @minus{}142857931198 divided
+by 100000000000000000.  In Guile's current incarnation, therefore, the
+@code{rational?} and @code{real?} predicates are equivalent for finite
+numbers.
 
 
-Dividing by an exact zero leads to a error message, as one might
-expect.  However, dividing by an inexact zero does not produce an
-error.  Instead, the result of the division is either plus or minus
-infinity, depending on the sign of the divided number.
+Dividing by an exact zero leads to a error message, as one might expect.
+However, dividing by an inexact zero does not produce an error.
+Instead, the result of the division is either plus or minus infinity,
+depending on the sign of the divided number and the sign of the zero
+divisor (some platforms support signed zeroes @samp{-0.0} and
+@samp{+0.0}; @samp{0.0} is the same as @samp{+0.0}).
 
-The infinities are written @samp{+inf.0} and @samp{-inf.0},
-respectively.  This syntax is also recognized by @code{read} as an
-extension to the usual Scheme syntax.
+Dividing zero by an inexact zero yields a @acronym{NaN} (`not a number')
+value, although they are actually considered numbers by Scheme.
+Attempts to compare a @acronym{NaN} value with any number (including
+itself) using @code{=}, @code{<}, @code{>}, @code{<=} or @code{>=}
+always returns @code{#f}.  Although a @acronym{NaN} value is not
+@code{=} to itself, it is both @code{eqv?} and @code{equal?} to itself
+and other @acronym{NaN} values.  However, the preferred way to test for
+them is by using @code{nan?}.
 
-Dividing zero by zero yields something that is not a number at all:
-@samp{+nan.0}.  This is the special `not a number' value.
+The real @acronym{NaN} values and infinities are written @samp{+nan.0},
+@samp{+inf.0} and @samp{-inf.0}.  This syntax is also recognized by
+@code{read} as an extension to the usual Scheme syntax.  These special
+values are considered by Scheme to be inexact real numbers but not
+rational.  Note that non-real complex numbers may also contain
+infinities or @acronym{NaN} values in their real or imaginary parts.  To
+test a real number to see if it is infinite, a @acronym{NaN} value, or
+neither, use @code{inf?}, @code{nan?}, or @code{finite?}, respectively.
+Every real number in Scheme belongs to precisely one of those three
+classes.
 
 On platforms that follow @acronym{IEEE} 754 for their floating point
 arithmetic, the @samp{+inf.0}, @samp{-inf.0}, and @samp{+nan.0} values
 are implemented using the corresponding @acronym{IEEE} 754 values.
 They behave in arithmetic operations like @acronym{IEEE} 754 describes
 it, i.e., @code{(= +nan.0 +nan.0)} @result{} @code{#f}.
-
-The infinities are inexact integers and are considered to be both even
-and odd.  While @samp{+nan.0} is not @code{=} to itself, it is
-@code{eqv?} to itself.
-
-To test for the special values, use the functions @code{inf?} and
-@code{nan?}.
 
 @deffn {Scheme Procedure} real? obj
 @deffnx {C Function} scm_real_p (obj)
@@ -567,11 +572,8 @@ is an integer number or a rational number.
 @deffnx {C Function} scm_rational_p (x)
 Return @code{#t} if @var{x} is a rational number, @code{#f} otherwise.
 Note that the set of integer values forms a subset of the set of
-rational numbers, i. e. the predicate will also be fulfilled if
+rational numbers, i.e.@: the predicate will also be fulfilled if
 @var{x} is an integer number.
-
-Since Guile can not represent irrational numbers, every number
-satisfying @code{real?} also satisfies @code{rational?} in Guile.
 @end deffn
 
 @deffn {Scheme Procedure} rationalize x eps
@@ -592,23 +594,30 @@ to use @code{inexact->exact} on the arguments.
 
 @deffn  {Scheme Procedure} inf? x
 @deffnx {C Function} scm_inf_p (x)
-Return @code{#t} if @var{x} is either @samp{+inf.0} or @samp{-inf.0},
-@code{#f} otherwise.
+Return @code{#t} if the real number @var{x} is @samp{+inf.0} or
+@samp{-inf.0}.  Otherwise return @code{#f}.
 @end deffn
 
 @deffn {Scheme Procedure} nan? x
 @deffnx {C Function} scm_nan_p (x)
-Return @code{#t} if @var{x} is @samp{+nan.0}, @code{#f} otherwise.
+Return @code{#t} if the real number @var{x} is @samp{+nan.0}, or
+@code{#f} otherwise.
+@end deffn
+
+@deffn {Scheme Procedure} finite? x
+@deffnx {C Function} scm_finite_p (x)
+Return @code{#t} if the real number @var{x} is neither infinite nor a
+NaN, @code{#f} otherwise.
 @end deffn
 
 @deffn {Scheme Procedure} nan
 @deffnx {C Function} scm_nan ()
-Return NaN.
+Return @samp{+nan.0}, a @acronym{NaN} value.
 @end deffn
 
 @deffn {Scheme Procedure} inf
 @deffnx {C Function} scm_inf ()
-Return Inf.
+Return @samp{+inf.0}, positive infinity.
 @end deffn
 
 @deffn {Scheme Procedure} numerator x
@@ -674,17 +683,21 @@ angle,
 -1@@1.57079 @result{} 0.0-1.0i  (approx)
 @end lisp
 
-Guile represents a complex number with a non-zero imaginary part as a
-pair of inexact rationals, so the real and imaginary parts of a
-complex number have the same properties of inexactness and limited
-precision as single inexact rational numbers.  Guile can not represent
-exact complex numbers with non-zero imaginary parts.
+Guile represents a complex number as a pair of inexact reals, so the
+real and imaginary parts of a complex number have the same properties of
+inexactness and limited precision as single inexact real numbers.
+
+Note that each part of a complex number may contain any inexact real
+value, including the special values @samp{+nan.0}, @samp{+inf.0} and
+@samp{-inf.0}, as well as either of the signed zeroes @samp{0.0} or
+@samp{-0.0}.
+
 
 @deffn {Scheme Procedure} complex? z
 @deffnx {C Function} scm_complex_p (z)
 Return @code{#t} if @var{x} is a complex number, @code{#f}
 otherwise.  Note that the sets of real, rational and integer
-values form subsets of the set of complex numbers, i. e. the
+values form subsets of the set of complex numbers, i.e.@: the
 predicate will also be fulfilled if @var{x} is a real,
 rational or integer number.
 @end deffn
@@ -703,13 +716,18 @@ Equivalent to @code{scm_is_true (scm_complex_p (val))}.
 @rnindex exact->inexact
 @rnindex inexact->exact
 
-R5RS requires that a calculation involving inexact numbers always
-produces an inexact result.  To meet this requirement, Guile
-distinguishes between an exact integer value such as @samp{5} and the
-corresponding inexact real value which, to the limited precision
+R5RS requires that, with few exceptions, a calculation involving inexact
+numbers always produces an inexact result.  To meet this requirement,
+Guile distinguishes between an exact integer value such as @samp{5} and
+the corresponding inexact integer value which, to the limited precision
 available, has no fractional part, and is printed as @samp{5.0}.  Guile
 will only convert the latter value to the former when forced to do so by
 an invocation of the @code{inexact->exact} procedure.
+
+The only exception to the above requirement is when the values of the
+inexact numbers do not affect the result.  For example @code{(expt n 0)}
+is @samp{1} for any value of @code{n}, therefore @code{(expt 5.0 0)} is
+permitted to return an exact @samp{1}.
 
 @deffn {Scheme Procedure} exact? z
 @deffnx {C Function} scm_exact_p (z)
@@ -888,6 +906,9 @@ sign as @var{n}.  In all cases quotient and remainder satisfy
 (remainder 13 4) @result{} 1
 (remainder -13 4) @result{} -1
 @end lisp
+
+See also @code{truncate-quotient}, @code{truncate-remainder} and
+related operations in @ref{Arithmetic}.
 @end deffn
 
 @c begin (texi-doc-string "guile" "modulo")
@@ -902,6 +923,9 @@ sign as @var{d}.
 (modulo 13 -4) @result{} -3
 (modulo -13 -4) @result{} -1
 @end lisp
+
+See also @code{floor-quotient}, @code{floor-remainder} and
+related operations in @ref{Arithmetic}.
 @end deffn
 
 @c begin (texi-doc-string "guile" "gcd")
@@ -934,6 +958,18 @@ Return @var{n} raised to the integer exponent
    @result{} 3
 @end lisp
 @end deffn
+
+@deftypefn {Scheme Procedure} {} exact-integer-sqrt @var{k}
+@deftypefnx {C Function} void scm_exact_integer_sqrt (SCM @var{k}, SCM *@var{s}, SCM *@var{r})
+Return two exact non-negative integers @var{s} and @var{r}
+such that @math{@var{k} = @var{s}^2 + @var{r}} and
+@math{@var{s}^2 <= @var{k} < (@var{s} + 1)^2}.
+An error is raised if @var{k} is not an exact non-negative integer.
+
+@lisp
+(exact-integer-sqrt 10) @result{} 3 and 1
+@end lisp
+@end deftypefn
 
 @node Comparison
 @subsubsection Comparison Predicates
@@ -1029,7 +1065,7 @@ Return a number of the maximally precise representation
 expressed by the given @var{string}. @var{radix} must be an
 exact integer, either 2, 8, 10, or 16. If supplied, @var{radix}
 is a default radix that may be overridden by an explicit radix
-prefix in @var{string} (e.g. "#o177"). If @var{radix} is not
+prefix in @var{string} (e.g.@: "#o177"). If @var{radix} is not
 supplied, then the default radix is 10. If string is not a
 syntactically valid notation for a number, then
 @code{string->number} returns @code{#f}.
@@ -1057,10 +1093,10 @@ locale-dependent parsing).
 Return a complex number constructed of the given @var{real-part} and @var{imaginary-part} parts.
 @end deffn
 
-@deffn {Scheme Procedure} make-polar x y
-@deffnx {C Function} scm_make_polar (x, y)
+@deffn {Scheme Procedure} make-polar mag ang
+@deffnx {C Function} scm_make_polar (mag, ang)
 @cindex polar form
-Return the complex number @var{x} * e^(i * @var{y}).
+Return the complex number @var{mag} * e^(i * @var{ang}).
 @end deffn
 
 @c begin (texi-doc-string "guile" "real-part")
@@ -1121,11 +1157,29 @@ Returns the magnitude or angle of @var{z} as a @code{double}.
 @rnindex ceiling
 @rnindex truncate
 @rnindex round
+@rnindex euclidean/
+@rnindex euclidean-quotient
+@rnindex euclidean-remainder
+@rnindex floor/
+@rnindex floor-quotient
+@rnindex floor-remainder
+@rnindex ceiling/
+@rnindex ceiling-quotient
+@rnindex ceiling-remainder
+@rnindex truncate/
+@rnindex truncate-quotient
+@rnindex truncate-remainder
+@rnindex centered/
+@rnindex centered-quotient
+@rnindex centered-remainder
+@rnindex round/
+@rnindex round-quotient
+@rnindex round-remainder
 
 The C arithmetic functions below always takes two arguments, while the
 Scheme functions can take an arbitrary number.  When you need to
 invoke them with just one argument, for example to compute the
-equivalent od @code{(- x)}, pass @code{SCM_UNDEFINED} as the second
+equivalent of @code{(- x)}, pass @code{SCM_UNDEFINED} as the second
 one: @code{scm_difference (x, SCM_UNDEFINED)}.
 
 @c begin (texi-doc-string "guile" "+")
@@ -1220,6 +1274,207 @@ respectively, but these functions take and return @code{double}
 values.
 @end deftypefn
 
+@deftypefn {Scheme Procedure} {} euclidean/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} euclidean-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} euclidean-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_euclidean_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_euclidean_quotient (SCM @var{x}, SCM @var{y})
+@deftypefnx {C Function} SCM scm_euclidean_remainder (SCM @var{x}, SCM @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{euclidean-quotient} returns the
+integer @var{q} and @code{euclidean-remainder} returns the real number
+@var{r} such that @math{@var{x} = @var{q}*@var{y} + @var{r}} and
+@math{0 <= @var{r} < |@var{y}|}.  @code{euclidean/} returns both @var{q} and
+@var{r}, and is more efficient than computing each separately.  Note
+that when @math{@var{y} > 0}, @code{euclidean-quotient} returns
+@math{floor(@var{x}/@var{y})}, otherwise it returns
+@math{ceiling(@var{x}/@var{y})}.
+
+Note that these operators are equivalent to the R6RS operators
+@code{div}, @code{mod}, and @code{div-and-mod}.
+
+@lisp
+(euclidean-quotient 123 10) @result{} 12
+(euclidean-remainder 123 10) @result{} 3
+(euclidean/ 123 10) @result{} 12 and 3
+(euclidean/ 123 -10) @result{} -12 and 3
+(euclidean/ -123 10) @result{} -13 and 7
+(euclidean/ -123 -10) @result{} 13 and 7
+(euclidean/ -123.2 -63.5) @result{} 2.0 and 3.8
+(euclidean/ 16/3 -10/7) @result{} -3 and 22/21
+@end lisp
+@end deftypefn
+
+@deftypefn {Scheme Procedure} {} floor/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} floor-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} floor-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_floor_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_floor_quotient (@var{x}, @var{y})
+@deftypefnx {C Function} SCM scm_floor_remainder (@var{x}, @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{floor-quotient} returns the
+integer @var{q} and @code{floor-remainder} returns the real number
+@var{r} such that @math{@var{q} = floor(@var{x}/@var{y})} and
+@math{@var{x} = @var{q}*@var{y} + @var{r}}.  @code{floor/} returns
+both @var{q} and @var{r}, and is more efficient than computing each
+separately.  Note that @var{r}, if non-zero, will have the same sign
+as @var{y}.
+
+When @var{x} and @var{y} are integers, @code{floor-remainder} is
+equivalent to the R5RS integer-only operator @code{modulo}.
+
+@lisp
+(floor-quotient 123 10) @result{} 12
+(floor-remainder 123 10) @result{} 3
+(floor/ 123 10) @result{} 12 and 3
+(floor/ 123 -10) @result{} -13 and -7
+(floor/ -123 10) @result{} -13 and 7
+(floor/ -123 -10) @result{} 12 and -3
+(floor/ -123.2 -63.5) @result{} 1.0 and -59.7
+(floor/ 16/3 -10/7) @result{} -4 and -8/21
+@end lisp
+@end deftypefn
+
+@deftypefn {Scheme Procedure} {} ceiling/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} ceiling-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} ceiling-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_ceiling_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_ceiling_quotient (@var{x}, @var{y})
+@deftypefnx {C Function} SCM scm_ceiling_remainder (@var{x}, @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{ceiling-quotient} returns the
+integer @var{q} and @code{ceiling-remainder} returns the real number
+@var{r} such that @math{@var{q} = ceiling(@var{x}/@var{y})} and
+@math{@var{x} = @var{q}*@var{y} + @var{r}}.  @code{ceiling/} returns
+both @var{q} and @var{r}, and is more efficient than computing each
+separately.  Note that @var{r}, if non-zero, will have the opposite sign
+of @var{y}.
+
+@lisp
+(ceiling-quotient 123 10) @result{} 13
+(ceiling-remainder 123 10) @result{} -7
+(ceiling/ 123 10) @result{} 13 and -7
+(ceiling/ 123 -10) @result{} -12 and 3
+(ceiling/ -123 10) @result{} -12 and -3
+(ceiling/ -123 -10) @result{} 13 and 7
+(ceiling/ -123.2 -63.5) @result{} 2.0 and 3.8
+(ceiling/ 16/3 -10/7) @result{} -3 and 22/21
+@end lisp
+@end deftypefn
+
+@deftypefn {Scheme Procedure} {} truncate/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} truncate-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} truncate-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_truncate_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_truncate_quotient (@var{x}, @var{y})
+@deftypefnx {C Function} SCM scm_truncate_remainder (@var{x}, @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{truncate-quotient} returns the
+integer @var{q} and @code{truncate-remainder} returns the real number
+@var{r} such that @var{q} is @math{@var{x}/@var{y}} rounded toward zero,
+and @math{@var{x} = @var{q}*@var{y} + @var{r}}.  @code{truncate/} returns
+both @var{q} and @var{r}, and is more efficient than computing each
+separately.  Note that @var{r}, if non-zero, will have the same sign
+as @var{x}.
+
+When @var{x} and @var{y} are integers, these operators are
+equivalent to the R5RS integer-only operators @code{quotient} and
+@code{remainder}.
+
+@lisp
+(truncate-quotient 123 10) @result{} 12
+(truncate-remainder 123 10) @result{} 3
+(truncate/ 123 10) @result{} 12 and 3
+(truncate/ 123 -10) @result{} -12 and 3
+(truncate/ -123 10) @result{} -12 and -3
+(truncate/ -123 -10) @result{} 12 and -3
+(truncate/ -123.2 -63.5) @result{} 1.0 and -59.7
+(truncate/ 16/3 -10/7) @result{} -3 and 22/21
+@end lisp
+@end deftypefn
+
+@deftypefn {Scheme Procedure} {} centered/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} centered-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} centered-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_centered_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_centered_quotient (SCM @var{x}, SCM @var{y})
+@deftypefnx {C Function} SCM scm_centered_remainder (SCM @var{x}, SCM @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{centered-quotient} returns the
+integer @var{q} and @code{centered-remainder} returns the real number
+@var{r} such that @math{@var{x} = @var{q}*@var{y} + @var{r}} and
+@math{-|@var{y}/2| <= @var{r} < |@var{y}/2|}.  @code{centered/}
+returns both @var{q} and @var{r}, and is more efficient than computing
+each separately.
+
+Note that @code{centered-quotient} returns @math{@var{x}/@var{y}}
+rounded to the nearest integer.  When @math{@var{x}/@var{y}} lies
+exactly half-way between two integers, the tie is broken according to
+the sign of @var{y}.  If @math{@var{y} > 0}, ties are rounded toward
+positive infinity, otherwise they are rounded toward negative infinity.
+This is a consequence of the requirement that
+@math{-|@var{y}/2| <= @var{r} < |@var{y}/2|}.
+
+Note that these operators are equivalent to the R6RS operators
+@code{div0}, @code{mod0}, and @code{div0-and-mod0}.
+
+@lisp
+(centered-quotient 123 10) @result{} 12
+(centered-remainder 123 10) @result{} 3
+(centered/ 123 10) @result{} 12 and 3
+(centered/ 123 -10) @result{} -12 and 3
+(centered/ -123 10) @result{} -12 and -3
+(centered/ -123 -10) @result{} 12 and -3
+(centered/ 125 10) @result{} 13 and -5
+(centered/ 127 10) @result{} 13 and -3
+(centered/ 135 10) @result{} 14 and -5
+(centered/ -123.2 -63.5) @result{} 2.0 and 3.8
+(centered/ 16/3 -10/7) @result{} -4 and -8/21
+@end lisp
+@end deftypefn
+
+@deftypefn {Scheme Procedure} {} round/ @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} round-quotient @var{x} @var{y}
+@deftypefnx {Scheme Procedure} {} round-remainder @var{x} @var{y}
+@deftypefnx {C Function} void scm_round_divide (SCM @var{x}, SCM @var{y}, SCM *@var{q}, SCM *@var{r})
+@deftypefnx {C Function} SCM scm_round_quotient (@var{x}, @var{y})
+@deftypefnx {C Function} SCM scm_round_remainder (@var{x}, @var{y})
+These procedures accept two real numbers @var{x} and @var{y}, where the
+divisor @var{y} must be non-zero.  @code{round-quotient} returns the
+integer @var{q} and @code{round-remainder} returns the real number
+@var{r} such that @math{@var{x} = @var{q}*@var{y} + @var{r}} and
+@var{q} is @math{@var{x}/@var{y}} rounded to the nearest integer,
+with ties going to the nearest even integer.  @code{round/}
+returns both @var{q} and @var{r}, and is more efficient than computing
+each separately.
+
+Note that @code{round/} and @code{centered/} are almost equivalent, but
+their behavior differs when @math{@var{x}/@var{y}} lies exactly half-way
+between two integers.  In this case, @code{round/} chooses the nearest
+even integer, whereas @code{centered/} chooses in such a way to satisfy
+the constraint @math{-|@var{y}/2| <= @var{r} < |@var{y}/2|}, which
+is stronger than the corresponding constraint for @code{round/},
+@math{-|@var{y}/2| <= @var{r} <= |@var{y}/2|}.  In particular,
+when @var{x} and @var{y} are integers, the number of possible remainders
+returned by @code{centered/} is @math{|@var{y}|}, whereas the number of
+possible remainders returned by @code{round/} is @math{|@var{y}|+1} when
+@var{y} is even.
+
+@lisp
+(round-quotient 123 10) @result{} 12
+(round-remainder 123 10) @result{} 3
+(round/ 123 10) @result{} 12 and 3
+(round/ 123 -10) @result{} -12 and 3
+(round/ -123 10) @result{} -12 and -3
+(round/ -123 -10) @result{} 12 and -3
+(round/ 125 10) @result{} 12 and 5
+(round/ 127 10) @result{} 13 and -3
+(round/ 135 10) @result{} 14 and -5
+(round/ -123.2 -63.5) @result{} 2.0 and 3.8
+(round/ 16/3 -10/7) @result{} -4 and -8/21
+@end lisp
+@end deftypefn
+
 @node Scientific
 @subsubsection Scientific Functions
 
@@ -1230,7 +1485,7 @@ including complex numbers.
 @c begin (texi-doc-string "guile" "sqrt")
 @deffn {Scheme Procedure} sqrt z
 Return the square root of @var{z}.  Of the two possible roots
-(positive and negative), the one with the a positive real part is
+(positive and negative), the one with a positive real part is
 returned, or if that's zero then a positive imaginary part.  Thus,
 
 @example
@@ -1511,7 +1766,7 @@ through @var{end} (exclusive) bits of @var{n}.  The
 
 Pseudo-random numbers are generated from a random state object, which
 can be created with @code{seed->random-state} or
-@code{datum->random-state}.  An external representation (i.e. one
+@code{datum->random-state}.  An external representation (i.e.@: one
 which can written with @code{write} and read with @code{read}) of a
 random state object can be obtained via
 @code{random-state->datum}.  The @var{state} parameter to the
@@ -2671,6 +2926,23 @@ Backspace character (ASCII 8).
 @item @nicode{\0}
 NUL character (ASCII 0).
 
+@item @nicode{\} followed by newline (ASCII 10)
+Nothing.  This way if @nicode{\} is the last character in a line, the
+string will continue with the first character from the next line,
+without a line break.
+
+If the @code{hungry-eol-escapes} reader option is enabled, which is not
+the case by default, leading whitespace on the next line is discarded.
+
+@lisp
+"foo\
+  bar"
+@result{} "foo  bar"
+(read-enable 'hungry-eol-escapes)
+"foo\
+  bar"
+@result{} "foobar"
+@end lisp
 @item @nicode{\xHH}
 Character code given by two hexadecimal digits.  For example
 @nicode{\x7f} for an ASCII DEL (127).
@@ -2875,7 +3147,7 @@ Convert the string @var{str} into a list of characters.
 
 @deffn {Scheme Procedure} string-split str chr
 @deffnx {C Function} scm_string_split (str, chr)
-Split the string @var{str} into the a list of the substrings delimited
+Split the string @var{str} into a list of substrings delimited
 by appearances of the character @var{chr}.  Note that an empty substring
 between separator characters will result in an empty string in the
 result list.
@@ -3308,12 +3580,12 @@ case-insensitively.
 
 @deffn {Scheme Procedure} string-hash s [bound [start [end]]]
 @deffnx {C Function} scm_substring_hash (s, bound, start, end)
-Compute a hash value for @var{S}.  the optional argument @var{bound} is a non-negative exact integer specifying the range of the hash function. A positive value restricts the return value to the range [0,bound).
+Compute a hash value for @var{S}.  The optional argument @var{bound} is a non-negative exact integer specifying the range of the hash function. A positive value restricts the return value to the range [0,bound).
 @end deffn
 
 @deffn {Scheme Procedure} string-hash-ci s [bound [start [end]]]
 @deffnx {C Function} scm_substring_hash_ci (s, bound, start, end)
-Compute a hash value for @var{S}.  the optional argument @var{bound} is a non-negative exact integer specifying the range of the hash function. A positive value restricts the return value to the range [0,bound).
+Compute a hash value for @var{S}.  The optional argument @var{bound} is a non-negative exact integer specifying the range of the hash function. A positive value restricts the return value to the range [0,bound).
 @end deffn
 
 Because the same visual appearance of an abstract Unicode character can 
@@ -3335,7 +3607,7 @@ Unicode Standard; and composition, which performs the converse.
 
 There are two decomposition operations.  ``Canonical decomposition'' 
 produces character sequences that share the same visual appearance as
-the original characters, while ``compatiblity decomposition'' produces
+the original characters, while ``compatibility decomposition'' produces
 ones whose visual appearances may differ from the originals but which
 represent the same abstract character.
 
@@ -3398,6 +3670,8 @@ satisfies the predicate @var{char_pred}, if it is a procedure,
 @item
 is in the set @var{char_pred}, if it is a character set.
 @end itemize
+
+Return @code{#f} if no match is found.
 @end deffn
 
 @deffn {Scheme Procedure} string-rindex s char_pred [start [end]]
@@ -3415,6 +3689,8 @@ satisfies the predicate @var{char_pred}, if it is a procedure,
 @item
 is in the set if @var{char_pred} is a character set.
 @end itemize
+
+Return @code{#f} if no match is found.
 @end deffn
 
 @deffn {Scheme Procedure} string-prefix-length s1 s2 [start1 [end1 [start2 [end2]]]]
@@ -3476,6 +3752,8 @@ satisfies the predicate @var{char_pred}, if it is a procedure,
 @item
 is in the set if @var{char_pred} is a character set.
 @end itemize
+
+Return @code{#f} if no match is found.
 @end deffn
 
 @deffn {Scheme Procedure} string-skip s char_pred [start [end]]
@@ -3905,8 +4183,7 @@ using @code{scm_dynwind_free} inside an appropriate dynwind context,
 @deftypefn  {C Function} SCM scm_from_locale_string (const char *str)
 @deftypefnx {C Function} SCM scm_from_locale_stringn (const char *str, size_t len)
 Creates a new Scheme string that has the same contents as @var{str} when
-interpreted in the locale character encoding of the
-@code{current-input-port}.
+interpreted in the character encoding of the current locale.
 
 For @code{scm_from_locale_string}, @var{str} must be null-terminated.
 
@@ -3916,6 +4193,12 @@ If @var{len} is @code{(size_t)-1}, then @var{str} does need to be
 null-terminated and the real length will be found with @code{strlen}.
 
 If the C string is ill-formed, an error will be raised.
+
+Note that these functions should @emph{not} be used to convert C string
+constants, because there is no guarantee that the current locale will
+match that of the source code.  To convert C string constants, use
+@code{scm_from_latin1_string}, @code{scm_from_utf8_string} or
+@code{scm_from_utf32_string}.
 @end deftypefn
 
 @deftypefn  {C Function} SCM scm_take_locale_string (char *str)
@@ -3929,9 +4212,9 @@ can then use @var{str} directly as its internal representation.
 
 @deftypefn  {C Function} {char *} scm_to_locale_string (SCM str)
 @deftypefnx {C Function} {char *} scm_to_locale_stringn (SCM str, size_t *lenp)
-Returns a C string with the same contents as @var{str} in the locale
-encoding of the @code{current-output-port}.  The C string must be freed
-with @code{free} eventually, maybe by using @code{scm_dynwind_free},
+Returns a C string with the same contents as @var{str} in the character
+encoding of the current locale.  The C string must be freed with
+@code{free} eventually, maybe by using @code{scm_dynwind_free},
 @xref{Dynamic Wind}.
 
 For @code{scm_to_locale_string}, the returned string is
@@ -3945,13 +4228,14 @@ returned string will not be null-terminated in this case.  If
 @var{lenp} is @code{NULL}, @code{scm_to_locale_stringn} behaves like
 @code{scm_to_locale_string}.
 
-If a character in @var{str} cannot be represented in the locale encoding
-of the current output port, the port conversion strategy of the current
-output port will determine the result, @xref{Ports}.  If output port's
-conversion strategy is @code{error}, an error will be raised.  If it is
-@code{subsitute}, a replacement character, such as a question mark, will
-be inserted in its place.  If it is @code{escape}, a hex escape will be
-inserted in its place.
+If a character in @var{str} cannot be represented in the character
+encoding of the current locale, the default port conversion strategy is
+used.  @xref{Ports}, for more on conversion strategies.
+
+If the conversion strategy is @code{error}, an error will be raised.  If
+it is @code{substitute}, a replacement character, such as a question
+mark, will be inserted in its place.  If it is @code{escape}, a hex
+escape will be inserted in its place.
 @end deftypefn
 
 @deftypefn {C Function} size_t scm_to_locale_stringbuf (SCM str, char *buf, size_t max_len)
@@ -3996,43 +4280,59 @@ strings to Scheme.
 
 @deftypefn {C Function} char *scm_to_stringn (SCM str, size_t *lenp, const char *encoding, scm_t_string_failed_conversion_handler handler)
 This function returns a newly allocated C string from the Guile string
-@var{str}.  The length of the string will be returned in @var{lenp}.
-The character encoding of the C string is passed as the ASCII,
+@var{str}.  The length of the returned string in bytes will be returned in
+@var{lenp}.  The character encoding of the C string is passed as the ASCII,
 null-terminated C string @var{encoding}.  The @var{handler} parameter
 gives a strategy for dealing with characters that cannot be converted
 into @var{encoding}.
 
-If @var{lenp} is NULL, this function will return a null-terminated C
+If @var{lenp} is @code{NULL}, this function will return a null-terminated C
 string.  It will throw an error if the string contains a null
 character.
 @end deftypefn
 
 @deftypefn {C Function} SCM scm_from_stringn (const char *str, size_t len, const char *encoding, scm_t_string_failed_conversion_handler handler)
 This function returns a scheme string from the C string @var{str}.  The
-length of the C string is input as @var{len}.  The encoding of the C
+length in bytes of the C string is input as @var{len}.  The encoding of the C
 string is passed as the ASCII, null-terminated C string @code{encoding}.
 The @var{handler} parameters suggests a strategy for dealing with
 unconvertable characters.
 @end deftypefn
 
-ISO-8859-1 is the most common 8-bit character encoding.  This encoding
-is also referred to as the Latin-1 encoding.  The following two
-conversion functions are provided to convert between Latin-1 C strings
-and Guile strings.
+The following conversion functions are provided as a convenience for the
+most commonly used encodings.
 
-@deftypefn {C Function} SCM scm_from_latin1_stringn (const char *str, size_t len)
-This function returns a scheme string from an ISO-8859-1-encoded C
-string @var{str} of length @var{len}.
+@deftypefn {C Function} SCM scm_from_latin1_string (const char *str)
+@deftypefnx {C Function} SCM scm_from_utf8_string (const char *str)
+@deftypefnx {C Function} SCM scm_from_utf32_string (const scm_t_wchar *str)
+Return a scheme string from the null-terminated C string @var{str},
+which is ISO-8859-1-, UTF-8-, or UTF-32-encoded.  These functions should
+be used to convert hard-coded C string constants into Scheme strings.
 @end deftypefn
 
-@deftypefn {C function} char * scm_to_latin1_stringn (SCM str, size_t *lenp)
-This function returns a newly allocated, ISO-8859-1-encoded C string
-from the scheme string @var{str}.  An error will be thrown if the scheme
-string cannot be converted to the ISO-8859-1 encoding.  If @var{lenp} is
+@deftypefn {C Function} SCM scm_from_latin1_stringn (const char *str, size_t len)
+@deftypefnx {C Function} SCM scm_from_utf8_stringn (const char *str, size_t len)
+@deftypefnx {C Function} SCM scm_from_utf32_stringn (const scm_t_wchar *str, size_t len)
+Return a scheme string from C string @var{str}, which is ISO-8859-1-,
+UTF-8-, or UTF-32-encoded, of length @var{len}.  @var{len} is the number
+of bytes pointed to by @var{str} for @code{scm_from_latin1_stringn} and
+@code{scm_from_utf8_stringn}; it is the number of elements (code points)
+in @var{str} in the case of @code{scm_from_utf32_stringn}.
+@end deftypefn
+
+@deftypefn {C function} char *scm_to_latin1_stringn (SCM str, size_t *lenp)
+@deftypefnx {C function} char *scm_to_utf8_stringn (SCM str, size_t *lenp)
+@deftypefnx {C function} scm_t_wchar *scm_to_utf32_stringn (SCM str, size_t *lenp)
+Return a newly allocated, ISO-8859-1-, UTF-8-, or UTF-32-encoded C string
+from Scheme string @var{str}.  An error is thrown when @var{str}
+cannot be converted to the specified encoding.  If @var{lenp} is
 @code{NULL}, the returned C string will be null terminated, and an error
 will be thrown if the C string would otherwise contain null
-characters. If @var{lenp} is not NULL, the length of the string is
-returned in @var{lenp}, and the string is not null terminated.
+characters.  If @var{lenp} is not @code{NULL}, the string is not null terminated,
+and the length of the returned string is returned in @var{lenp}.  The length
+returned is the number of bytes for @code{scm_to_latin1_stringn} and
+@code{scm_to_utf8_stringn}; it is the number of elements (code points)
+for @code{scm_to_utf32_stringn}.
 @end deftypefn
 
 @node String Internals
@@ -4287,19 +4587,27 @@ The most generic procedures to interpret bytevector contents as integers
 are described below.
 
 @deffn {Scheme Procedure} bytevector-uint-ref bv index endianness size
-@deffnx {Scheme Procedure} bytevector-sint-ref bv index endianness size
 @deffnx {C Function} scm_bytevector_uint_ref (bv, index, endianness, size)
+Return the @var{size}-byte long unsigned integer at index @var{index} in
+@var{bv}, decoded according to @var{endianness}.
+@end deffn
+
+@deffn {Scheme Procedure} bytevector-sint-ref bv index endianness size
 @deffnx {C Function} scm_bytevector_sint_ref (bv, index, endianness, size)
-Return the @var{size}-byte long unsigned (resp. signed) integer at
-index @var{index} in @var{bv}, decoded according to @var{endianness}.
+Return the @var{size}-byte long signed integer at index @var{index} in
+@var{bv}, decoded according to @var{endianness}.
 @end deffn
 
 @deffn {Scheme Procedure} bytevector-uint-set! bv index value endianness size
-@deffnx {Scheme Procedure} bytevector-sint-set! bv index value endianness size
 @deffnx {C Function} scm_bytevector_uint_set_x (bv, index, value, endianness, size)
+Set the @var{size}-byte long unsigned integer at @var{index} to
+@var{value}, encoded according to @var{endianness}.
+@end deffn
+
+@deffn {Scheme Procedure} bytevector-sint-set! bv index value endianness size
 @deffnx {C Function} scm_bytevector_sint_set_x (bv, index, value, endianness, size)
-Set the @var{size}-byte long unsigned (resp. signed) integer at
-@var{index} to @var{value}, encoded according to @var{endianness}.
+Set the @var{size}-byte long signed integer at @var{index} to
+@var{value}, encoded according to @var{endianness}.
 @end deffn
 
 The following procedures are similar to the ones above, but specialized
@@ -4411,21 +4719,27 @@ integers listed in @var{lst}.
 @end deffn
 
 @deffn {Scheme Procedure} bytevector->uint-list bv endianness size
-@deffnx {Scheme Procedure} bytevector->sint-list bv endianness size
 @deffnx {C Function} scm_bytevector_to_uint_list (bv, endianness, size)
+Return a list of unsigned integers of @var{size} bytes representing the
+contents of @var{bv}, decoded according to @var{endianness}.
+@end deffn
+
+@deffn {Scheme Procedure} bytevector->sint-list bv endianness size
 @deffnx {C Function} scm_bytevector_to_sint_list (bv, endianness, size)
-Return a list of unsigned (resp. signed) integers of @var{size} bytes
-representing the contents of @var{bv}, decoded according to
-@var{endianness}.
+Return a list of signed integers of @var{size} bytes representing the
+contents of @var{bv}, decoded according to @var{endianness}.
 @end deffn
 
 @deffn {Scheme Procedure} uint-list->bytevector lst endianness size
-@deffnx {Scheme Procedure} sint-list->bytevector lst endianness size
 @deffnx {C Function} scm_uint_list_to_bytevector (lst, endianness, size)
+Return a new bytevector containing the unsigned integers listed in
+@var{lst} and encoded on @var{size} bytes according to @var{endianness}.
+@end deffn
+
+@deffn {Scheme Procedure} sint-list->bytevector lst endianness size
 @deffnx {C Function} scm_sint_list_to_bytevector (lst, endianness, size)
-Return a new bytevector containing the unsigned (resp. signed) integers
-listed in @var{lst} and encoded on @var{size} bytes according to
-@var{endianness}.
+Return a new bytevector containing the signed integers listed in
+@var{lst} and encoded on @var{size} bytes according to @var{endianness}.
 @end deffn
 
 @node Bytevectors as Floats
@@ -4838,7 +5152,37 @@ strings returned by this procedure.
 
 Most symbols are created by writing them literally in code.  However it
 is also possible to create symbols programmatically using the following
-@code{string->symbol} and @code{string-ci->symbol} procedures:
+procedures:
+
+@deffn {Scheme Procedure} symbol char@dots{}
+@rnindex symbol
+Return a newly allocated symbol made from the given character arguments.
+
+@example
+(symbol #\x #\y #\z) @result{} xyz
+@end example
+@end deffn
+
+@deffn {Scheme Procedure} list->symbol lst
+@rnindex list->symbol
+Return a newly allocated symbol made from a list of characters.
+
+@example
+(list->symbol '(#\a #\b #\c)) @result{} abc
+@end example
+@end deffn
+
+@rnindex symbol-append
+@deffn {Scheme Procedure} symbol-append . args
+Return a newly allocated symbol whose characters form the
+concatenation of the given symbols, @var{args}.
+
+@example
+(let ((h 'hello))
+  (symbol-append h 'world))
+@result{} helloworld
+@end example
+@end deffn
 
 @rnindex string->symbol
 @deffn {Scheme Procedure} string->symbol string
@@ -4901,12 +5245,24 @@ When you want to do more from C, you should convert between symbols
 and strings using @code{scm_symbol_to_string} and
 @code{scm_string_to_symbol} and work with the strings.
 
+@deffn {C Function} scm_from_latin1_symbol (const char *name)
+@deffnx {C Function} scm_from_utf8_symbol (const char *name)
+Construct and return a Scheme symbol whose name is specified by the
+null-terminated C string @var{name}.  These are appropriate when
+the C string is hard-coded in the source code.
+@end deffn
+
 @deffn {C Function} scm_from_locale_symbol (const char *name)
 @deffnx {C Function} scm_from_locale_symboln (const char *name, size_t len)
 Construct and return a Scheme symbol whose name is specified by
 @var{name}.  For @code{scm_from_locale_symbol}, @var{name} must be null
 terminated; for @code{scm_from_locale_symboln} the length of @var{name} is
 specified explicitly by @var{len}.
+
+Note that these functions should @emph{not} be used when @var{name} is a
+C string constant, because there is no guarantee that the current locale
+will match that of the source code.  In such cases, use
+@code{scm_from_latin1_symbol} or @code{scm_from_utf8_symbol}.
 @end deffn
 
 @deftypefn  {C Function} SCM scm_take_locale_symbol (char *str)
@@ -4957,7 +5313,7 @@ code in a variable reference context
 
 @item
 a @dfn{function} value, which is used when the symbol appears in
-code in a function name position (i.e. as the first element in an
+code in a function name position (i.e.@: as the first element in an
 unquoted list)
 
 @item
@@ -4971,8 +5327,8 @@ Guile currently retains some elements of the traditional structure in
 case they turn out to be useful when implementing translators for other
 languages, in particular Emacs Lisp.
 
-Specifically, Guile symbols have two extra slots. for a symbol's
-property list, and for its ``function value.''  The following procedures
+Specifically, Guile symbols have two extra slots, one for a symbol's
+property list, and one for its ``function value.''  The following procedures
 are provided to access these slots.
 
 @deffn {Scheme Procedure} symbol-fref symbol
@@ -5096,7 +5452,7 @@ just returns that symbol.  When not, a new symbol with the name is
 created and entered into the table so that it can be found later.
 
 Sometimes you might want to create a symbol that is guaranteed `fresh',
-i.e. a symbol that did not exist previously.  You might also want to
+i.e.@: a symbol that did not exist previously.  You might also want to
 somehow guarantee that no one else will ever unintentionally stumble
 across your symbol in the future.  These properties of a symbol are
 often needed when generating code during macro expansion.  When
@@ -5389,11 +5745,23 @@ Return the keyword with the same name as @var{symbol}.
 Equivalent to @code{scm_is_true (scm_keyword_p (@var{obj}))}.
 @end deftypefn
 
-@deftypefn {C Function} SCM scm_from_locale_keyword (const char *str)
-@deftypefnx {C Function} SCM scm_from_locale_keywordn (const char *str, size_t len)
+@deftypefn {C Function} SCM scm_from_locale_keyword (const char *name)
+@deftypefnx {C Function} SCM scm_from_locale_keywordn (const char *name, size_t len)
 Equivalent to @code{scm_symbol_to_keyword (scm_from_locale_symbol
-(@var{str}))} and @code{scm_symbol_to_keyword (scm_from_locale_symboln
-(@var{str}, @var{len}))}, respectively.
+(@var{name}))} and @code{scm_symbol_to_keyword (scm_from_locale_symboln
+(@var{name}, @var{len}))}, respectively.
+
+Note that these functions should @emph{not} be used when @var{name} is a
+C string constant, because there is no guarantee that the current locale
+will match that of the source code.  In such cases, use
+@code{scm_from_latin1_keyword} or @code{scm_from_utf8_keyword}.
+@end deftypefn
+
+@deftypefn {C Function} SCM scm_from_latin1_keyword (const char *name)
+@deftypefnx {C Function} SCM scm_from_utf8_keyword (const char *name)
+Equivalent to @code{scm_symbol_to_keyword (scm_from_latin1_symbol
+(@var{name}))} and @code{scm_symbol_to_keyword (scm_from_utf8_symbol
+(@var{name}))}, respectively.
 @end deftypefn
 
 @node Other Types

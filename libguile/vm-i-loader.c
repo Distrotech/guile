@@ -1,4 +1,4 @@
-/* Copyright (C) 2001,2008,2009,2010 Free Software Foundation, Inc.
+/* Copyright (C) 2001,2008,2009,2010,2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -40,7 +40,7 @@ VM_DEFINE_LOADER (102, load_string, "load-string")
 
   FETCH_LENGTH (len);
   SYNC_REGISTER ();
-  PUSH (scm_i_make_string (len, &buf));
+  PUSH (scm_i_make_string (len, &buf, 1));
   memcpy (buf, (char *) ip, len);
   ip += len;
   NEXT;
@@ -52,7 +52,7 @@ VM_DEFINE_LOADER (103, load_symbol, "load-symbol")
   FETCH_LENGTH (len);
   SYNC_REGISTER ();
   /* FIXME: should be scm_from_latin1_symboln */
-  PUSH (scm_from_locale_symboln ((const char*)ip, len));
+  PUSH (scm_from_latin1_symboln ((const char*)ip, len));
   ip += len;
   NEXT;
 }
@@ -113,7 +113,7 @@ VM_DEFINE_LOADER (107, load_wide_string, "load-wide-string")
     }
 
   SYNC_REGISTER ();
-  PUSH (scm_i_make_wide_string (len / 4, &wbuf));
+  PUSH (scm_i_make_wide_string (len / 4, &wbuf, 1));
   memcpy ((char *) wbuf, (char *) ip, len);
   ip += len;
   NEXT;

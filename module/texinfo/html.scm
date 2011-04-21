@@ -1,6 +1,6 @@
 ;;;; (texinfo html) -- translating stexinfo into shtml
 ;;;;
-;;;; 	Copyright (C) 2009, 2010  Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2009, 2010, 2011  Free Software Foundation, Inc.
 ;;;;    Copyright (C) 2003,2004,2009 Andy Wingo <wingo at pobox dot com>
 ;;;; 
 ;;;; This library is free software; you can redistribute it and/or
@@ -148,8 +148,12 @@ name, @code{#}, and the node name."
                (apply append body)))))
 
 (define (entry tag args . body)
-  `((dt ,@(arg-req 'heading args))
-    (dd ,@body)))
+  (let lp ((out `((dt ,@(arg-req 'heading args))))
+           (body body))
+    (if (and (pair? body) (pair? (car body)) (eq? (caar body) 'itemx))
+        (lp (append out `(dt ,@(map stexi->shtml (cdar body))))
+            (cdr body))
+        (append out `((dd ,@(map stexi->shtml body)))))))
 
 (define tag-replacements
   '((titlepage    div (@ (class "titlepage")))
@@ -230,7 +234,7 @@ name, @code{#}, and the node name."
     (node . ,node) (anchor . ,node)
     (table . ,table)
     (enumerate . ,enumerate)
-    (entry . ,entry)
+    (entry *preorder* . ,entry)
 
     (deftp . ,def) (defcv . ,def) (defivar . ,def) (deftypeivar . ,def)
     (defop . ,def) (deftypeop . ,def) (defmethod . ,def)

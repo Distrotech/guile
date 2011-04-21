@@ -1,6 +1,6 @@
 ;;; Error handling in the REPL
 
-;; Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -34,16 +34,11 @@
 ;;;
 
 (define (error-string stack key args)
-  (pmatch args
-    ((,subr ,msg ,args . ,rest)
-     (guard (> (vector-length stack) 0))
-     (with-output-to-string
-       (lambda ()
-         (display-error (vector-ref stack 0) (current-output-port)
-                        subr msg args rest))))
-    (else
-     (format #f "Throw to key `~a' with args `~s'." key args))))
-
+  (call-with-output-string
+   (lambda (port)
+     (let ((frame (and (< 0 (vector-length stack)) (vector-ref stack 0))))
+       (print-exception port frame key args)))))
+                  
 (define* (call-with-error-handling thunk #:key
                                    (on-error 'debug) (post-error 'catch)
                                    (pass-keys '(quit)) (trap-handler 'debug))
@@ -107,17 +102,12 @@
            (if (memq key pass-keys)
                (apply throw key args)
                (begin
-                 (pmatch args
-                   ((,subr ,msg ,args . ,rest)
-                    (with-saved-ports
-                     (lambda ()
-                       (run-hook before-error-hook)
-                       (display-error #f err subr msg args rest)
-                       (run-hook after-error-hook)
-                       (force-output err))))
-                   (else
-                    (format err "\nERROR: uncaught throw to `~a', args: ~a\n"
-                            key args)))
+                 (with-saved-ports
+                   (lambda ()
+                     (run-hook before-error-hook)
+                     (print-exception err #f key args)
+                     (run-hook after-error-hook)
+                     (force-output err)))
                  (if #f #f)))))
         ((catch)
          (lambda (key . args)
@@ -132,27 +122,56 @@
       (case on-error
         ((debug)
          (lambda (key . args)
-           (let* ((tag (and (pair? (fluid-ref %stacks))
-                            (cdar (fluid-ref %stacks))))
-                  (stack (narrow-stack->vector
-                          (make-stack #t)
-                          ;; Cut three frames from the top of the stack:
-                          ;; make-stack, this one, and the throw handler.
-                          3
-                          ;; Narrow the end of the stack to the most recent
-                          ;; start-stack.
-                          tag
-                          ;; And one more frame, because %start-stack invoking
-                          ;; the start-stack thunk has its own frame too.
-                          0 (and tag 1)))
-                  (error-msg (error-string stack key args))
-                  (debug (make-debug stack 0 error-msg #f)))
-             (with-saved-ports
-              (lambda ()
-                (format #t "~a~%" error-msg)
-                (format #t "Entering a new prompt.  ")
-                (format #t "Type `,bt' for a backtrace or `,q' to continue.\n")
-                ((@ (system repl repl) start-repl) #:debug debug))))))
+           (if (not (memq key pass-keys))
+               (let* ((tag (and (pair? (fluid-ref %stacks))
+                                (cdar (fluid-ref %stacks))))
+                      (stack (narrow-stack->vector
+                              (make-stack #t)
+                              ;; Cut three frames from the top of the stack:
+                              ;; make-stack, this one, and the throw handler.
+                              3
+                              ;; Narrow the end of the stack to the most recent
+                              ;; start-stack.
+                              tag
+                              ;; And one more frame, because %start-stack invoking
+                              ;; the start-stack thunk has its own frame too.
+                              0 (and tag 1)))
+                      (error-msg (error-string stack key args))
+                      (debug (make-debug stack 0 error-msg #f)))
+                 (with-saved-ports
+                  (lambda ()
+                    (format #t "~a~%" error-msg)
+                    (format #t "Entering a new prompt.  ")
+                    (format #t "Type `,bt' for a backtrace or `,q' to continue.\n")
+                    ((@ (system repl repl) start-repl) #:debug debug)))))))
+        ((report)
+         (lambda (key . args)
+           (if (not (memq key pass-keys))
+               (begin
+                 (with-saved-ports
+                  (lambda ()
+                    (run-hook before-error-hook)
+                    (print-exception err #f key args)
+                    (run-hook after-error-hook)
+                    (force-output err)))
+                 (if #f #f)))))
+        ((backtrace)
+         (lambda (key . args)
+           (if (not (memq key pass-keys))
+               (let* ((tag (and (pair? (fluid-ref %stacks))
+                                (cdar (fluid-ref %stacks))))
+                      (frames (narrow-stack->vector
+                               (make-stack #t)
+                               ;; Narrow as above, for the debugging case.
+                               3 tag 0 (and tag 1))))
+                 (with-saved-ports
+                  (lambda ()
+                    (print-frames frames)
+                    (run-hook before-error-hook)
+                    (print-exception err #f key args)
+                    (run-hook after-error-hook)
+                    (force-output err)))
+                 (if #f #f)))))
         ((pass)
          (lambda (key . args)
            ;; fall through to rethrow

@@ -1,6 +1,6 @@
 ;;;; web-response.test --- HTTP responses       -*- mode: scheme; coding: utf-8; -*-
 ;;;;
-;;;; 	Copyright (C) 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -20,6 +20,7 @@
 (define-module (test-suite web-response)
   #:use-module (web uri)
   #:use-module (web response)
+  #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-19)
   #:use-module (test-suite lib))
 
@@ -53,9 +54,9 @@ abcdefghijklmnopqrstuvwxyz0123456789")
         (set! r (read-response (open-input-string example-1)))
         (response? r)))
     
-    (pass-if "read-response-body/latin-1"
+    (pass-if "read-response-body"
       (begin
-        (set! body (read-response-body/latin-1 r))
+        (set! body (read-response-body r))
         #t))
     
     (pass-if (equal? (response-version r) '(1 . 1)))
@@ -64,7 +65,9 @@ abcdefghijklmnopqrstuvwxyz0123456789")
     
     (pass-if (equal? (response-reason-phrase r) "OK"))
     
-    (pass-if (equal? body "abcdefghijklmnopqrstuvwxyz0123456789"))
+    (pass-if (equal? body 
+                     (string->utf8
+                      "abcdefghijklmnopqrstuvwxyz0123456789")))
     
     (pass-if "checking all headers"
       (equal?
@@ -72,14 +75,14 @@ abcdefghijklmnopqrstuvwxyz0123456789")
        `((date . ,(string->date "Wed, 03 Nov 2010 22:27:07 +0000"
                                 "~a, ~d ~b ~Y ~H:~M:~S ~z"))
          (server . "Apache/2.0.55")
-         (accept-ranges . ("bytes"))
+         (accept-ranges . (bytes))
          (cache-control . ((max-age . 543234)))
          (expires . ,(string->date "Thu, 28 Oct 2010 15:33:13 GMT +0000"
                                    "~a, ~d ~b ~Y ~H:~M:~S ~z"))
-         (vary . ("Accept-Encoding"))
-         (content-encoding . ("gzip"))
+         (vary . (accept-encoding))
+         (content-encoding . (gzip))
          (content-length . 36)
-         (content-type . ("text/html" ("charset" . "utf-8"))))))
+         (content-type . (text/html (charset . "utf-8"))))))
     
     (pass-if "write then read"
       (call-with-values
@@ -88,12 +91,12 @@ abcdefghijklmnopqrstuvwxyz0123456789")
                 (with-output-to-string
                   (lambda ()
                     (let ((r (write-response r (current-output-port))))
-                      (write-response-body/latin-1 r body))))
+                      (write-response-body r body))))
               (lambda ()
                 (let ((r (read-response (current-input-port))))
-                  (values r (read-response-body/latin-1 r))))))
+                  (values r (read-response-body r))))))
         (lambda (r* body*)
           (responses-equal? r body r* body*))))
 
     (pass-if "by accessor"
-      (equal? (response-content-encoding r) '("gzip")))))
+      (equal? (response-content-encoding r) '(gzip)))))

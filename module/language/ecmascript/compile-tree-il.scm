@@ -1,6 +1,6 @@
 ;;; ECMAScript for Guile
 
-;; Copyright (C) 2009 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -366,16 +366,16 @@
        `(apply ,(@implv new-array)
                ,@(map (lambda (x) (comp x e)) args)))
       ((object . ,args)
-       (@impl new-object
-              (map (lambda (x)
-                     (pmatch x
-                       ((,prop ,val)
-                        (-> (apply (-> (primitive 'cons))
-                                   (-> (const prop))
-                                   (comp val e))))
-                       (else
-                        (error "bad prop-val pair" x))))
-                   args)))
+       `(apply ,(@implv new-object)
+               ,@(map (lambda (x)
+                         (pmatch x
+                                 ((,prop ,val)
+                                  (-> (apply (-> (primitive 'cons))
+                                             (-> (const prop))
+                                             (comp val e))))
+                                 (else
+                                  (error "bad prop-val pair" x))))
+                       args)))
       ((pref ,obj ,prop)
        (@impl pget
               (comp obj e)

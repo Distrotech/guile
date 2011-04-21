@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,1999,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -26,6 +26,10 @@
 #include <stdio.h>
 #include <errno.h>
 #include <uniconv.h>
+
+#ifdef HAVE_SCHED_H
+# include <sched.h>
+#endif
 
 #include "libguile/_scm.h"
 #include "libguile/dynwind.h"
@@ -1325,54 +1329,6 @@ SCM_DEFINE (scm_tmpnam, "tmpnam", 0, 0, 0,
 
 #endif
 
-#ifndef HAVE_MKSTEMP
-extern int mkstemp (char *);
-#endif
-
-SCM_DEFINE (scm_mkstemp, "mkstemp!", 1, 0, 0,
-	    (SCM tmpl),
-	    "Create a new unique file in the file system and return a new\n"
-	    "buffered port open for reading and writing to the file.\n"
-	    "\n"
-	    "@var{tmpl} is a string specifying where the file should be\n"
-	    "created: it must end with @samp{XXXXXX} and those @samp{X}s\n"
-	    "will be changed in the string to return the name of the file.\n"
-	    "(@code{port-filename} on the port also gives the name.)\n"
-	    "\n"
-	    "POSIX doesn't specify the permissions mode of the file, on GNU\n"
-	    "and most systems it's @code{#o600}.  An application can use\n"
-	    "@code{chmod} to relax that if desired.  For example\n"
-	    "@code{#o666} less @code{umask}, which is usual for ordinary\n"
-	    "file creation,\n"
-	    "\n"
-	    "@example\n"
-	    "(let ((port (mkstemp! (string-copy \"/tmp/myfile-XXXXXX\"))))\n"
-	    "  (chmod port (logand #o666 (lognot (umask))))\n"
-	    "  ...)\n"
-	    "@end example")
-#define FUNC_NAME s_scm_mkstemp
-{
-  char *c_tmpl;
-  int rv;
-  
-  scm_dynwind_begin (0);
-
-  c_tmpl = scm_to_locale_string (tmpl);
-  scm_dynwind_free (c_tmpl);
-
-  SCM_SYSCALL (rv = mkstemp (c_tmpl));
-  if (rv == -1)
-    SCM_SYSERROR;
-
-  scm_substring_move_x (scm_from_locale_string (c_tmpl),
-			SCM_INUM0, scm_string_length (tmpl),
-			tmpl, SCM_INUM0);
-
-  scm_dynwind_end ();
-  return scm_fdes_to_port (rv, "w+", tmpl);
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_tmpfile, "tmpfile", 0, 0, 0,
             (void),
             "Return an input/output port to a unique temporary file\n"
@@ -1485,58 +1441,6 @@ SCM_DEFINE (scm_utime, "utime", 1, 5, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_access, "access?", 2, 0, 0,
-            (SCM path, SCM how),
-	    "Test accessibility of a file under the real UID and GID of the\n"
-	    "calling process.  The return is @code{#t} if @var{path} exists\n"
-	    "and the permissions requested by @var{how} are all allowed, or\n"
-	    "@code{#f} if not.\n"
-	    "\n"
-	    "@var{how} is an integer which is one of the following values,\n"
-	    "or a bitwise-OR (@code{logior}) of multiple values.\n"
-	    "\n"
-	    "@defvar R_OK\n"
-	    "Test for read permission.\n"
-	    "@end defvar\n"
-	    "@defvar W_OK\n"
-	    "Test for write permission.\n"
-	    "@end defvar\n"
-	    "@defvar X_OK\n"
-	    "Test for execute permission.\n"
-	    "@end defvar\n"
-	    "@defvar F_OK\n"
-	    "Test for existence of the file.  This is implied by each of the\n"
-	    "other tests, so there's no need to combine it with them.\n"
-	    "@end defvar\n"
-	    "\n"
-	    "It's important to note that @code{access?} does not simply\n"
-	    "indicate what will happen on attempting to read or write a\n"
-	    "file.  In normal circumstances it does, but in a set-UID or\n"
-	    "set-GID program it doesn't because @code{access?} tests the\n"
-	    "real ID, whereas an open or execute attempt uses the effective\n"
-	    "ID.\n"
-	    "\n"
-	    "A program which will never run set-UID/GID can ignore the\n"
-	    "difference between real and effective IDs, but for maximum\n"
-	    "generality, especially in library functions, it's best not to\n"
-	    "use @code{access?} to predict the result of an open or execute,\n"
-	    "instead simply attempt that and catch any exception.\n"
-	    "\n"
-	    "The main use for @code{access?} is to let a set-UID/GID program\n"
-	    "determine what the invoking user would have been allowed to do,\n"
-	    "without the greater (or perhaps lesser) privileges afforded by\n"
-	    "the effective ID.  For more on this, see ``Testing File\n"
-	    "Access'' in The GNU C Library Reference Manual.")
-#define FUNC_NAME s_scm_access
-{
-  int rv;
-
-  WITH_STRING (path, c_path,
-	       rv = access (c_path, scm_to_int (how)));
-  return scm_from_bool (!rv);
-}
-#undef FUNC_NAME
-
 SCM_DEFINE (scm_getpid, "getpid", 0, 0, 0,
             (),
 	    "Return an integer representing the current process ID.")
@@ -1631,8 +1535,10 @@ SCM_DEFINE (scm_setlocale, "setlocale", 1, 1, 0,
     }
 
   enc = locale_charset ();
+
   /* Set the default encoding for new ports.  */
-  scm_i_set_port_encoding_x (SCM_BOOL_F, enc);
+  scm_i_set_default_port_encoding (enc);
+
   /* Set the encoding for the stdio ports.  */
   scm_i_set_port_encoding_x (scm_current_input_port (), enc);
   scm_i_set_port_encoding_x (scm_current_output_port (), enc);
@@ -1711,12 +1617,10 @@ SCM_DEFINE (scm_nice, "nice", 1, 0, 0,
 	    "The return value is unspecified.")
 #define FUNC_NAME s_scm_nice
 {
-  int nice_value;
-
   /* nice() returns "prio-NZERO" on success or -1 on error, but -1 can arise
      from "prio-NZERO", so an error must be detected from errno changed */
   errno = 0;
-  nice_value = nice (scm_to_int (incr));
+  nice (scm_to_int (incr));
   if (errno != 0)
     SCM_SYSERROR;
 
@@ -2015,7 +1919,7 @@ SCM_DEFINE (scm_current_processor_count, "current-processor-count", 0, 0, 0,
 	    "processors available to the current process.  See\n"
 	    "@code{setaffinity} and @code{getaffinity} for more\n"
 	    "information.\n")
-#define FUNC_NAME s_scm_total_processor_count
+#define FUNC_NAME s_scm_current_processor_count
 {
   return scm_from_ulong (num_processors (NPROC_CURRENT));
 }
@@ -2217,12 +2121,6 @@ scm_init_posix ()
 #ifdef WUNTRACED
   scm_c_define ("WUNTRACED", scm_from_int (WUNTRACED));
 #endif
-
-  /* access() symbols.  */
-  scm_c_define ("R_OK", scm_from_int (R_OK));
-  scm_c_define ("W_OK", scm_from_int (W_OK));
-  scm_c_define ("X_OK", scm_from_int (X_OK));
-  scm_c_define ("F_OK", scm_from_int (F_OK));
 
 #ifdef LC_COLLATE
   scm_c_define ("LC_COLLATE", scm_from_int (LC_COLLATE));

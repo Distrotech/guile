@@ -1,6 +1,6 @@
 ;;; Repl common routines
 
-;; Copyright (C) 2001, 2008, 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -22,6 +22,7 @@
   #:use-module (system base syntax)
   #:use-module (system base compile)
   #:use-module (system base language)
+  #:use-module (system base message)
   #:use-module (system vm program)
   #:use-module (ice-9 control)
   #:use-module (ice-9 history)
@@ -36,7 +37,7 @@
 
 (define *version*
   (format #f "GNU Guile ~A
-Copyright (C) 1995-2010 Free Software Foundation, Inc.
+Copyright (C) 1995-2011 Free Software Foundation, Inc.
 
 Guile comes with ABSOLUTELY NO WARRANTY; for details type `,show w'.
 This program is free software, and you are welcome to redistribute it
@@ -106,7 +107,7 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
 
 (define repl-default-options
   (copy-tree
-   `((compile-options (#:warnings (unbound-variable arity-mismatch)) #f)
+   `((compile-options ,%auto-compilation-options #f)
      (trace #f #f)
      (interp #f #f)
      (prompt #f ,(lambda (prompt)
@@ -120,7 +121,14 @@ See <http://www.gnu.org/licenses/lgpl.html>, for more details.")
       ,(value-history-enabled?)
       ,(lambda (x)
          (if x (enable-value-history!) (disable-value-history!))
-         (->bool x))))))
+         (->bool x)))
+     (on-error
+      debug
+      ,(let ((vals '(debug backtrace report pass)))
+         (lambda (x)
+           (if (memq x vals)
+               x
+               (error "Bad on-error value ~a; expected one of ~a" x vals))))))))
 
 (define %make-repl make-repl)
 (define* (make-repl lang #:optional debug)

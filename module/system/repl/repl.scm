@@ -1,6 +1,6 @@
 ;;; Read-Eval-Print Loop
 
-;; Copyright (C) 2001, 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -32,27 +32,46 @@
   #:export (start-repl run-repl))
 
 
-
 ;;;
-;;; Syntax errors
+;;; Comments
+;;;
+;;; (You don't want a comment to force a continuation line.)
 ;;;
 
-(define (display-syntax-error port who what where form subform extra)
-  (format port "Syntax error:~%")
-  (if where
-      (let ((file (or (assq-ref where 'filename) "unknown file"))
-            (line (and=> (assq-ref where 'line) 1+))
-            (col (assq-ref where 'column)))
-        (format port "~a:~a:~a: " file line col))
-      (format port "unknown location: "))
-  (if who
-      (format port "~a: " who))
-  (format port "~a" what)
-  (if subform
-      (format port " in subform ~s of ~s" subform form)
-      (if form
-          (format port " in form ~s" form)))
-  (newline port))
+(define (read-scheme-line-comment port)
+  (let lp ()
+    (let ((ch (read-char port)))
+      (or (eof-object? ch)
+          (eqv? ch #\newline)
+          (lp)))))
+
+(define (read-scheme-datum-comment port)
+  (read port))
+
+;; ch is a peeked char
+(define (read-comment lang port ch)
+  (and (eq? (language-name lang) 'scheme)
+       (case ch
+         ((#\;)
+          (read-char port)
+          (read-scheme-line-comment port)
+          #t)
+         ((#\#)
+          (read-char port)
+          (case (peek-char port)
+            ((#\;)
+             (read-char port)
+             (read-scheme-datum-comment port)
+             #t)
+            ;; Not doing R6RS block comments because of the possibility
+            ;; of read-hash extensions.  Lame excuse.  Not doing scsh
+            ;; block comments either, because I don't feel like handling
+            ;; #!r6rs.
+            (else
+             (unread-char #\# port)
+             #f)))
+         (else
+          #f))))
 
 
 
@@ -62,11 +81,11 @@
 
 (define meta-command-token (cons 'meta 'command))
 
-(define (meta-reader read env)
+(define (meta-reader lang env)
   (lambda* (#:optional (port (current-input-port)))
     (with-input-from-port port
       (lambda ()
-        (let ((ch (next-char #t)))
+        (let ((ch (flush-leading-whitespace)))
           (cond ((eof-object? ch)
                  ;; EOF objects are not buffered. It's quite possible
                  ;; to peek an EOF then read something else. It's
@@ -75,8 +94,17 @@
                 ((eqv? ch #\,)
                  (read-char port)
                  meta-command-token)
-                (else (read port env))))))))
+                ((read-comment lang port ch)
+                 *unspecified*)
+                (else ((language-reader lang) port env))))))))
         
+(define (flush-all-input)
+  (if (and (char-ready?)
+           (not (eof-object? (peek-char))))
+      (begin
+        (read-char)
+        (flush-all-input))))
+
 ;; repl-reader is a function defined in boot-9.scm, and is replaced by
 ;; something else if readline has been activated. much of this hoopla is
 ;; to be able to re-use the existing readline machinery.
@@ -86,24 +114,15 @@
   (catch #t
     (lambda ()
       (repl-reader (lambda () (repl-prompt repl))
-                   (meta-reader (language-reader (repl-language repl))
-                                (current-module))))
+                   (meta-reader (repl-language repl) (current-module))))
     (lambda (key . args)
       (case key
         ((quit)
          (apply throw key args))
         (else
-         (pmatch (cons key args)
-           ((syntax-error ,who ,message ,where ,form ,subform . ,rest)
-            (display-syntax-error (current-output-port)
-                                  who message where form subform rest))
-           ((_ ,subr ,msg ,args . ,rest)
-            (format #t "Throw to key `~a' while reading expression:\n" key)
-            (display-error #f (current-output-port) subr msg args rest))
-           (else
-            (format #t "Throw to key `~a' with args `~s' while reading expression.\n"
-                    key args)))
-         (force-output)
+         (format (current-output-port) "While reading expression:\n")
+         (print-exception (current-output-port) #f key args)
+         (flush-all-input)
          *unspecified*)))))
 
 
@@ -123,15 +142,7 @@
        (lambda () exp)
        (lambda (key . args)
          (format #t "While ~A:~%" string)
-         (pmatch (cons key args)
-           ((syntax-error ,who ,message ,where ,form ,subform . ,rest)
-            (display-syntax-error (current-output-port)
-                                  who message where form subform rest))
-           ((_ ,subr ,msg ,args . ,rest)
-            (display-error #f (current-output-port) subr msg args rest))
-           (else
-            (format #t "ERROR: Throw to key `~a' with args `~s'.\n" key args)))
-         (force-output)
+         (print-exception (current-output-port) #f key args)
          (abort))))))
 
 (define (run-repl repl)
@@ -148,7 +159,7 @@
        (let prompt-loop ()
          (let ((exp (prompting-meta-read repl)))
            (cond
-            ((eqv? exp *unspecified*))  ; read error, pass
+            ((eqv? exp *unspecified*))  ; read error or comment, pass
             ((eq? exp meta-command-token)
              (catch #t
                (lambda ()
@@ -158,15 +169,7 @@
                      (abort args)
                      (begin
                        (format #t "While executing meta-command:~%")
-                       (pmatch args
-                         ((syntax-error ,who ,message ,where ,form ,subform . ,rest)
-                          (display-syntax-error (current-output-port)
-                                                who message where form subform rest))
-                         ((,subr ,msg ,args . ,rest)
-                          (display-error #f (current-output-port) subr msg args rest))
-                         (else
-                          (format #t "ERROR: Throw to key `~a' with args `~s'.\n" k args)))
-                       (force-output))))))
+                       (print-exception (current-output-port) #f k args))))))
             ((eof-object? exp)
              (newline)
              (abort '()))
@@ -187,8 +190,10 @@
                                        (abort-on-error "parsing expression"
                                          (repl-parse repl exp))))))
                                (run-hook before-eval-hook exp)
-                               (with-error-handling
-                                 (with-stack-and-prompt thunk)))
+                               (call-with-error-handling
+                                (lambda ()
+                                  (with-stack-and-prompt thunk))
+                                #:on-error (repl-option-ref repl 'on-error)))
                              (lambda (k) (values))))
                       (lambda l
                         (for-each (lambda (v)
@@ -196,19 +201,19 @@
                                   l))))
                   (lambda (k . args)
                     (abort args))))
+              #:on-error (repl-option-ref repl 'on-error)
               #:trap-handler 'disabled)))
-           (next-char #f) ;; consume trailing whitespace
+           (flush-to-newline) ;; consume trailing whitespace
            (prompt-loop))))
      (lambda (k status)
        status)))
 
-(define (next-char wait)
-  (if (or wait (char-ready?))
-      (let ((ch (peek-char)))
-	(cond ((eof-object? ch) ch)
-	      ((char-whitespace? ch) (read-char) (next-char wait))
-	      (else ch)))
-      #f))
+;; Returns first non-whitespace char.
+(define (flush-leading-whitespace)
+  (let ((ch (peek-char)))
+    (cond ((eof-object? ch) ch)
+          ((char-whitespace? ch) (read-char) (flush-leading-whitespace))
+          (else ch))))
 
 (define (flush-to-newline) 
   (if (char-ready?)

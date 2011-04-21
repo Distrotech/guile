@@ -1,6 +1,6 @@
 ;;; ECMAScript for Guile
 
-;; Copyright (C) 2009, 2010 Free Software Foundation, Inc.
+;; Copyright (C) 2009, 2010, 2011 Free Software Foundation, Inc.
 
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -150,7 +150,11 @@
                 (else
                  (syntax-error "bad hex character escape" loc (string a b))))))
             ((#\u)
-             (syntax-error "unicode not supported" loc #f))
+             (let* ((a (read-char port))
+                    (b (read-char port))
+                    (c (read-char port))
+                    (d (read-char port)))
+               (integer->char (string->number (string a b c d) 16))))
             (else
              c))))
       (let lp ((str (read-until terms port loc)))
@@ -258,7 +262,7 @@
          (c1 (peek-char port)))
     (cond
      ((eof-object? c1) (digit->number c0))
-     ((and (char=? c0 #\0) (char=? c1 #\x))
+     ((and (char=? c0 #\0) (or (char=? c1 #\x) (char=? c1 #\X)))
       (read-char port)
       (let ((c (peek-char port)))
         (if (not (char-hex? c))
@@ -408,7 +412,7 @@
   (let ((c   (peek-char port))
         (loc (port-source-location port)))
     (case c
-      ((#\ht #\vt #\np #\space)         ; whitespace
+      ((#\ht #\vt #\np #\space #\x00A0) ; whitespace
        (read-char port)
        (next-token port div?))
       ((#\newline #\cr)                 ; line break

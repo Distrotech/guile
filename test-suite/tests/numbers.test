@@ -1,5 +1,5 @@
 ;;;; numbers.test --- tests guile's numbers     -*- scheme -*-
-;;;; Copyright (C) 2000, 2001, 2003, 2004, 2005, 2006, 2009, 2010 Free Software Foundation, Inc.
+;;;; Copyright (C) 2000, 2001, 2003, 2004, 2005, 2006, 2009, 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -17,7 +17,9 @@
 
 (define-module (test-suite test-numbers)
   #:use-module (test-suite lib)
-  #:use-module (ice-9 documentation))
+  #:use-module (ice-9 documentation)
+  #:use-module (srfi srfi-1)    ; list library
+  #:use-module (srfi srfi-11))  ; let-values
 
 ;;;
 ;;; miscellaneous
@@ -91,6 +93,63 @@
   (and (real? obj)
        (negative? obj)
        (inf? obj)))
+
+;;
+;; Tolerance used by test-eqv? for inexact numbers.
+;;
+(define test-epsilon 1e-10)
+
+;;
+;; Like eqv?, except that inexact finite numbers need only be within
+;; test-epsilon (1e-10) to be considered equal.  For non-real complex
+;; numbers, each component is tested according to these rules.  The
+;; intent is that the known-correct value will be the first parameter.
+;;
+(define (test-eqv? x y)
+  (cond ((real? x)
+	 (and (real? y) (test-real-eqv? x y)))
+	((complex? x)
+	 (and (not (real? y))
+	      (test-real-eqv? (real-part x) (real-part y))
+	      (test-real-eqv? (imag-part x) (imag-part y))))
+	(else (eqv? x y))))
+
+;; Auxiliary predicate used by test-eqv?
+(define (test-real-eqv? x y)
+  (cond ((or (exact? x) (nan? x) (inf? x))
+	 (eqv? x y))
+	(else (and (inexact? y) (> test-epsilon (abs (- x y)))))))
+
+;; return true if OBJ is a real NaN
+(define (real-nan? obj)
+  (and (real? obj)
+       (nan? obj)))
+
+;; return true if OBJ is a non-real complex number
+;; whose real part is a nan, and whose imaginary
+;; part is an inexact zero.
+(define (almost-real-nan? obj)
+  (and (not (real? obj))
+       (nan?  (real-part obj))
+       (zero? (imag-part obj))))
+
+;; return true if both the real and imaginary
+;; parts of OBJ are NaNs
+(define (complex-nan? obj)
+  (and (nan? (real-part obj))
+       (nan? (imag-part obj))))
+
+;; return true if the real part of OBJ is zero
+;; and the imaginary part is a NaN.
+(define (imaginary-nan? obj)
+  (and (zero? (real-part obj))
+       (nan?  (imag-part obj))))
+
+;; return true if OBJ is a non-real complex zero
+(define (complex-zero? obj)
+  (and (zero? obj)
+       (complex? obj)
+       (not (real? obj))))
 
 (define const-e    2.7182818284590452354)
 (define const-e^2  7.3890560989306502274)
@@ -240,15 +299,18 @@
       (eq? #f (exact? (sqrt (- (expt fixnum-max 2) 1)))))
 
     (pass-if "sqrt ((fixnum-max+1)^2 - 1)"
-      (eq? #f (exact? (sqrt (- (expt (+ fixnum-max 1) 2) 1)))))))
+      (eq? #f (exact? (sqrt (- (expt (+ fixnum-max 1) 2) 1)))))
+
+    (pass-if (not (exact? +inf.0)))
+    (pass-if (not (exact? -inf.0)))
+    (pass-if (not (exact? +nan.0)))))
 
 ;;;
 ;;; exp
 ;;;
 
 (with-test-prefix "exp"
-  (pass-if "documented?"
-    (documented? exp))
+  (pass-if (documented? exp))
 
   (pass-if-exception "no args" exception:wrong-num-args
     (exp))
@@ -305,6 +367,38 @@
   (pass-if (even? (* 2 fixnum-min))))
 
 ;;;
+;;; finite?
+;;;
+
+(with-test-prefix "finite?"
+  (pass-if (documented? finite?))
+  (pass-if (not (finite? (inf))))
+  (pass-if (not (finite? +inf.0)))
+  (pass-if (not (finite? -inf.0)))
+  (pass-if-exception
+   "complex numbers not in domain of finite?"
+   exception:wrong-type-arg
+   (finite? +inf.0+1i))
+  (pass-if-exception
+   "complex numbers not in domain of finite? (2)"
+   exception:wrong-type-arg
+   (finite? +1+inf.0i))
+  (pass-if-exception
+   "complex numbers not in domain of finite? (3)"
+   exception:wrong-type-arg
+   (finite? +1+1i))
+  (pass-if (finite? 3+0i))
+  (pass-if (not (finite? (nan))))
+  (pass-if (not (finite? +nan.0)))
+  (pass-if (finite? 0))
+  (pass-if (finite? 0.0))
+  (pass-if (finite? -0.0))
+  (pass-if (finite? 42.0))
+  (pass-if (finite? 1/2))
+  (pass-if (finite? (+ fixnum-max 1)))
+  (pass-if (finite? (- fixnum-min 1))))
+
+;;;
 ;;; inf? and inf
 ;;;
 
@@ -314,6 +408,11 @@
   ;; FIXME: what are the expected behaviors?
   ;; (pass-if (inf? (/ 1.0 0.0))
   ;; (pass-if (inf? (/ 1 0.0))
+  (pass-if-exception
+   "complex numbers not in domain of inf?"
+   exception:wrong-type-arg
+   (inf? +1+inf.0i))
+  (pass-if (inf? +inf.0+0i))
   (pass-if (not (inf? 0)))
   (pass-if (not (inf? 42.0)))
   (pass-if (not (inf? (+ fixnum-max 1))))
@@ -338,26 +437,30 @@
 
 (with-test-prefix "abs"
   (pass-if (documented? abs))
-  (pass-if (zero? (abs 0)))
-  (pass-if (= 1 (abs 1)))
-  (pass-if (= 1 (abs -1)))
-  (pass-if (= (+ fixnum-max 1) (abs (+ fixnum-max 1))))
-  (pass-if (= (+ (- fixnum-min) 1) (abs (- fixnum-min 1))))  
-  (pass-if (= 0.0 (abs 0.0)))
-  (pass-if (= 1.0 (abs 1.0)))
-  (pass-if (= 1.0 (abs -1.0)))
-  (pass-if (nan? (abs +nan.0)))
-  (pass-if (= +inf.0 (abs +inf.0)))
-  (pass-if (= +inf.0 (abs -inf.0))))
+  (pass-if (eqv? 0 (abs 0)))
+  (pass-if (eqv? 1 (abs 1)))
+  (pass-if (eqv? 1 (abs -1)))
+
+  (with-test-prefix "double-negation of fixnum-min"
+    (pass-if (eqv?   fixnum-min (- (abs fixnum-min)))))
+
+  (pass-if (eqv? (+    fixnum-max  1) (abs (+ fixnum-max 1))))
+  (pass-if (eqv? (+ (- fixnum-min) 1) (abs (- fixnum-min 1))))
+
+  (pass-if (eqv? 0.0    (abs  0.0)))
+  (pass-if (eqv? 0.0    (abs -0.0)))
+  (pass-if (eqv? 1.0    (abs  1.0)))
+  (pass-if (eqv? 1.0    (abs -1.0)))
+  (pass-if (real-nan?   (abs +nan.0)))
+  (pass-if (eqv? +inf.0 (abs +inf.0)))
+  (pass-if (eqv? +inf.0 (abs -inf.0))))
 
 ;;;
 ;;; quotient
 ;;;
 
 (with-test-prefix "quotient"
-
-  (expect-fail "documented?"
-    (documented? quotient))
+  (pass-if (documented? quotient))
 
   (with-test-prefix "0 / n"
 
@@ -530,6 +633,12 @@
     (pass-if "n = fixnum-min - 1"
       (eqv? 1 (quotient (- fixnum-min 1) (- fixnum-min 1)))))
   
+  ;; Inexact integers
+
+  (pass-if (eqv? 5.0 (quotient 35.0 7.0)))
+  (pass-if (eqv? 5.0 (quotient 35   7.0)))
+  (pass-if (eqv? 5.0 (quotient 35.0 7  )))
+
   ;; Positive dividend and divisor
 
   (pass-if "35 / 7"
@@ -571,9 +680,7 @@
 ;;;
 
 (with-test-prefix "remainder"
-
-  (expect-fail "documented?"
-    (documented? remainder))
+  (pass-if (documented? remainder))
 
   (with-test-prefix "0 / n"
 
@@ -725,6 +832,12 @@
     (pass-if "n = fixnum-min - 1"
       (eqv? 0 (remainder (- fixnum-min 1) (- fixnum-min 1)))))
 
+  ;; Inexact integers
+
+  (pass-if (eqv? 2.0 (remainder 37.0 7.0)))
+  (pass-if (eqv? 2.0 (remainder 37   7.0)))
+  (pass-if (eqv? 2.0 (remainder 37.0 7  )))
+
   ;; Positive dividend and divisor
 
   (pass-if "35 / 7"
@@ -766,9 +879,7 @@
 ;;;
 
 (with-test-prefix "modulo"
-
-  (expect-fail "documented?"
-    (documented? modulo))
+  (pass-if (documented? modulo))
 
   (with-test-prefix "0 % n"
 
@@ -909,6 +1020,12 @@
 
     (pass-if "n = fixnum-min - 1"
       (eqv? 0 (modulo (- fixnum-min 1) (- fixnum-min 1)))))
+
+  ;; Inexact integers
+
+  (pass-if (eqv? 1.0 (modulo 13.0 4.0)))
+  (pass-if (eqv? 1.0 (modulo 13   4.0)))
+  (pass-if (eqv? 1.0 (modulo 13.0 4  )))
 
   ;; Positive dividend and divisor
 
@@ -1266,6 +1383,43 @@
     (pass-if (= lcm-of-big-n-and-11 (lcm 11 big-n 11)))))
 
 ;;;
+;;; rationalize
+;;;
+(with-test-prefix "rationalize"
+  (pass-if (documented? rationalize))
+  (pass-if (eqv?  2     (rationalize  4   2  )))
+  (pass-if (eqv? -2     (rationalize -4   2  )))
+  (pass-if (eqv?  2.0   (rationalize  4   2.0)))
+  (pass-if (eqv? -2.0   (rationalize -4.0 2  )))
+
+  (pass-if (eqv?  0     (rationalize  4   8  )))
+  (pass-if (eqv?  0     (rationalize -4   8  )))
+  (pass-if (eqv?  0.0   (rationalize  4   8.0)))
+  (pass-if (eqv?  0.0   (rationalize -4.0 8  )))
+
+  (pass-if (eqv?  0.0   (rationalize  3   +inf.0)))
+  (pass-if (eqv?  0.0   (rationalize -3   +inf.0)))
+
+  (pass-if (real-nan?   (rationalize +inf.0 +inf.0)))
+  (pass-if (real-nan?   (rationalize +nan.0 +inf.0)))
+  (pass-if (real-nan?   (rationalize +nan.0 4)))
+  (pass-if (eqv? +inf.0 (rationalize +inf.0 3)))
+
+  (pass-if (eqv?  3/10  (rationalize  3/10 0)))
+  (pass-if (eqv? -3/10  (rationalize -3/10 0)))
+
+  (pass-if (eqv?  1/3   (rationalize  3/10 1/10)))
+  (pass-if (eqv? -1/3   (rationalize -3/10 1/10)))
+
+  (pass-if (eqv?  1/3   (rationalize  3/10 -1/10)))
+  (pass-if (eqv? -1/3   (rationalize -3/10 -1/10)))
+
+  (pass-if (test-eqv? (/  1.0 3) (rationalize  0.3  1/10)))
+  (pass-if (test-eqv? (/ -1.0 3) (rationalize -0.3  1/10)))
+  (pass-if (test-eqv? (/  1.0 3) (rationalize  0.3 -1/10)))
+  (pass-if (test-eqv? (/ -1.0 3) (rationalize -0.3 -1/10))))
+
+;;;
 ;;; number->string
 ;;;
 
@@ -1301,6 +1455,11 @@
     (pass-if (not (string->number "Z" 35)))
     (pass-if (string=? (number->string 35 36) "z"))
     (pass-if (= (num->str->num 35 36) 35))
+
+    ;; Before Guile 2.0.1, even in the presence of a #e forced exactness
+    ;; specifier, negative exponents were applied inexactly and then
+    ;; later coerced to exact, yielding an incorrect fraction.
+    (pass-if (eqv? (string->number "#e1e-10") 1/10000000000))
 
     ;; Numeric conversion from decimal is not precise, in its current
     ;; implementation, so 11.333... and 1.324... can't be expected to
@@ -1387,17 +1546,38 @@
                 ("3.1#e0" 3.1)
                 ;; * <digit 10>+ #+ . #* <suffix>
                 ("3#." 30.0) ("3#.e0" 30.0) ("3#.#" 30.0) ("3#.#e0" 30.0)
-                ;; Complex:
-                ("1@0" 1.0) ("1@+0" 1.0) ("1@-0" 1.0)
-                ("2+3i" ,(+ 2 (* 3 +i))) ("4-5i" ,(- 4 (* 5 +i)))
-                ("1+i" 1+1i) ("1-i" 1-1i) ("+1i" 0+1i) ("-1i" 0-1i)
-                ("+i" +1i) ("-i" -1i)
-		("1.0+.1i" 1.0+0.1i)
-		("1.0-.1i" 1.0-0.1i)
-		(".1+.0i" 0.1)
-		("1.+.0i" 1.0)
-		(".1+.1i" 0.1+0.1i)
-		("1e1+.1i" 10+0.1i)
+		))
+    #t)
+
+  (pass-if "valid complex number strings"
+    (for-each (lambda (triple)
+                (apply
+                 (lambda (str re im)
+                   (let ((z (string->number str)))
+                     (if (or (eq? z #f)
+                             (not (and (eqv? (real-part z) re)
+                                       (eqv? (imag-part z) im))))
+			 (begin 
+			   (pk str re im)
+			   (throw 'fail)))))
+                 triple))
+              `(("1@0" 1 0) ("1@+0" 1 0) ("1@-0" 1 0) ("1/2@0" 1/2 0)
+                ("1.0@0" 1.0 0) ("1.0@-0" 1.0 0)
+                ("#e1@0" 1 0) ("#e1@+0" 1 0) ("#e1@-0" 1 0) ("#e0.5@0.0" 1/2 0)
+                ("#e1.0@0" 1 0) ("#e1.0@-0" 1 0)
+                ("#i1@0" 1.0 0.0) ("#i1@+0" 1.0 0.0) ("#i1@-0" 1.0 -0.0) ("#i1/2@0" 0.5 0.0)
+                ("#i1.0@0" 1.0 0.0) ("#i1.0@-0" 1.0 -0.0)
+                ("1@+0.0" 1.0 0.0) ("1.0@-0.0" 1.0 -0.0)
+                ("2+3i" 2.0 3.0) ("4-5i" 4.0 -5.0)
+                ("1+i" 1.0 1.0) ("1-i" 1.0 -1.0) ("+1i" 0.0 1.0) ("-1i" 0.0 -1.0)
+                ("+i" 0.0 1.0) ("-i" 0.0 -1.0)
+		("1.0+.1i" 1.0 0.1) ("1.0-.1i" 1.0 -0.1)
+		(".1+.0i" 0.1 0.0) ("1.+.0i" 1.0 0.0) (".1+.1i" 0.1 0.1)
+		("1e1+.1i" 10.0 0.1)
+                ("0@+nan.0" 0 0) ("0@+inf.0" 0 0) ("0@-inf.0" 0 0)
+                ("0.0@+nan.0" 0.0 0.0) ("0.0@+inf.0" 0.0 0.0) ("0.0@-inf.0" 0.0 0.0)
+                ("#i0@+nan.0" 0.0 0.0) ("#i0@+inf.0" 0.0 0.0) ("#i0@-inf.0" 0.0 0.0)
+                ("0.0@1" 0.0 0.0) ("0.0@2" -0.0 0.0) ("0.0@4" -0.0 -0.0) ("0.0@5" 0.0 -0.0)
 		))
     #t)
 
@@ -1464,6 +1644,11 @@
   (pass-if (real? (+ 1 fixnum-max)))
   (pass-if (real? (- 1 fixnum-min)))
   (pass-if (real? 1.3))
+  (pass-if (real? +inf.0))
+  (pass-if (real? -inf.0))
+  (pass-if (real? +nan.0))
+  (pass-if (not (real? +inf.0-inf.0i)))
+  (pass-if (not (real? +nan.0+nan.0i)))
   (pass-if (not (real? 3+4i)))
   (pass-if (not (real? #\a)))
   (pass-if (not (real? "a")))
@@ -1474,7 +1659,7 @@
   (pass-if (not (real? (current-input-port)))))
 
 ;;;
-;;; rational? (same as real? right now)
+;;; rational?
 ;;;
 
 (with-test-prefix "rational?"
@@ -1485,6 +1670,11 @@
   (pass-if (rational? (+ 1 fixnum-max)))
   (pass-if (rational? (- 1 fixnum-min)))
   (pass-if (rational? 1.3))
+  (pass-if (not (rational? +inf.0)))
+  (pass-if (not (rational? -inf.0)))
+  (pass-if (not (rational? +nan.0)))
+  (pass-if (not (rational? +inf.0-inf.0i)))
+  (pass-if (not (rational? +nan.0+nan.0i)))
   (pass-if (not (rational? 3+4i)))
   (pass-if (not (rational? #\a)))
   (pass-if (not (rational? "a")))
@@ -1508,9 +1698,11 @@
   (pass-if (and (= 3+0i (round 3+0i)) (integer? 3+0i)))
   (pass-if (and (= 1.0 (round 1.0)) (integer? 1.0)))
   (pass-if (not (integer? 1.3)))
-  (pass-if (integer? +inf.0))
-  (pass-if (integer? -inf.0))
+  (pass-if (not (integer? +inf.0)))
+  (pass-if (not (integer? -inf.0)))
   (pass-if (not (integer? +nan.0)))
+  (pass-if (not (integer? +inf.0-inf.0i)))
+  (pass-if (not (integer? +nan.0+nan.0i)))
   (pass-if (not (integer? 3+4i)))
   (pass-if (not (integer? #\a)))
   (pass-if (not (integer? "a")))
@@ -1533,6 +1725,9 @@
   (pass-if (not (inexact? (- 1 fixnum-min))))
   (pass-if (inexact? 1.3))
   (pass-if (inexact? 3.1+4.2i))
+  (pass-if (inexact? +inf.0))
+  (pass-if (inexact? -inf.0))
+  (pass-if (inexact? +nan.0))
   (pass-if-exception "char"
 		     exception:wrong-type-arg
 		     (not (inexact? #\a)))
@@ -1561,12 +1756,31 @@
 
 (with-test-prefix "equal?"
   (pass-if (documented? equal?))
+
+  ;; The following test will fail on platforms
+  ;; without distinct signed zeroes 0.0 and -0.0.
+  (pass-if (not (equal? 0.0 -0.0)))
+
   (pass-if (equal? 0 0))
   (pass-if (equal? 7 7))
   (pass-if (equal? -7 -7))
   (pass-if (equal? (+ 1 fixnum-max) (+ 1 fixnum-max)))
   (pass-if (equal? (- fixnum-min 1) (- fixnum-min 1)))
+  (pass-if (equal?  0.0  0.0))
+  (pass-if (equal? -0.0 -0.0))
+  (pass-if (equal?  0.0+0.0i  0.0+0.0i))
+  (pass-if (equal?  0.0-0.0i  0.0-0.0i))
+  (pass-if (equal? -0.0+0.0i -0.0+0.0i))
   (pass-if (not (equal? 0 1)))
+  (pass-if (not (equal? 0 0.0)))
+  (pass-if (not (equal? 1 1.0)))
+  (pass-if (not (equal? 0.0 0)))
+  (pass-if (not (equal? 1.0 1)))
+  (pass-if (not (equal? -1.0 -1)))
+  (pass-if (not (equal? 1.0 1.0+0.0i)))
+  (pass-if (not (equal? 0.0 0.0+0.0i)))
+  (pass-if (not (equal? 0.0+0.0i  0.0-0.0i)))
+  (pass-if (not (equal? 0.0+0.0i -0.0+0.0i)))
   (pass-if (not (equal? fixnum-max (+ 1 fixnum-max))))
   (pass-if (not (equal? (+ 1 fixnum-max) fixnum-max)))
   (pass-if (not (equal? (+ 1 fixnum-max) (+ 2 fixnum-max))))
@@ -1587,7 +1801,10 @@
   (pass-if (not (equal? (- (ash 1 1024)) -inf.0)))
   (pass-if (not (equal? -inf.0 (- (ash 1 1024)))))
 
-  (pass-if (not (equal? +nan.0 +nan.0)))
+  (pass-if (equal? +nan.0 +nan.0))
+  (pass-if (equal? +nan.0 +nan.0))
+  (pass-if (not (equal? +nan.0 0.0+nan.0i)))
+
   (pass-if (not (equal? 0 +nan.0)))
   (pass-if (not (equal? +nan.0 0)))
   (pass-if (not (equal? 1 +nan.0)))
@@ -1611,14 +1828,117 @@
   (pass-if (not (equal? +nan.0 (ash 3 1023)))))
 
 ;;;
+;;; eqv?
+;;;
+
+(with-test-prefix "eqv?"
+  (pass-if (documented? eqv?))
+
+  ;; The following test will fail on platforms
+  ;; without distinct signed zeroes 0.0 and -0.0.
+  (pass-if (not (eqv? 0.0 -0.0)))
+
+  (pass-if (eqv? 0 0))
+  (pass-if (eqv? 7 7))
+  (pass-if (eqv? -7 -7))
+  (pass-if (eqv? (+ 1 fixnum-max) (+ 1 fixnum-max)))
+  (pass-if (eqv? (- fixnum-min 1) (- fixnum-min 1)))
+  (pass-if (eqv?  0.0  0.0))
+  (pass-if (eqv? -0.0 -0.0))
+  (pass-if (eqv?  0.0+0.0i  0.0+0.0i))
+  (pass-if (eqv?  0.0-0.0i  0.0-0.0i))
+  (pass-if (eqv? -0.0+0.0i -0.0+0.0i))
+  (pass-if (not (eqv? 0.0 -0.0)))
+  (pass-if (not (eqv? 0.0  0.0+0.0i)))
+  (pass-if (not (eqv? 0.0+0.0i  0.0-0.0i)))
+  (pass-if (not (eqv? 0.0+0.0i -0.0+0.0i)))
+  (pass-if (not (eqv? 0 1)))
+  (pass-if (not (eqv? 0 0.0)))
+  (pass-if (not (eqv? 1 1.0)))
+  (pass-if (not (eqv? 0.0 0)))
+  (pass-if (not (eqv? 1.0 1)))
+  (pass-if (not (eqv? -1.0 -1)))
+  (pass-if (not (eqv? 1.0 1.0+0.0i)))
+  (pass-if (not (eqv? 0.0 0.0+0.0i)))
+  (pass-if (not (eqv? fixnum-max (+ 1 fixnum-max))))
+  (pass-if (not (eqv? (+ 1 fixnum-max) fixnum-max)))
+  (pass-if (not (eqv? (+ 1 fixnum-max) (+ 2 fixnum-max))))
+  (pass-if (not (eqv? fixnum-min (- fixnum-min 1))))
+  (pass-if (not (eqv? (- fixnum-min 1) fixnum-min)))
+  (pass-if (not (eqv? (- fixnum-min 1) (- fixnum-min 2))))
+  (pass-if (not (eqv? (+ fixnum-max 1) (- fixnum-min 1))))
+
+  (pass-if (not (eqv? (ash 1 256) +inf.0)))
+  (pass-if (not (eqv? +inf.0 (ash 1 256))))
+  (pass-if (not (eqv? (ash 1 256) -inf.0)))
+  (pass-if (not (eqv? -inf.0 (ash 1 256))))
+
+  ;; in gmp prior to 4.2, mpz_cmp_d ended up treating Inf as 2^1024, make
+  ;; sure we've avoided that
+  (pass-if (not (eqv? (ash 1 1024) +inf.0)))
+  (pass-if (not (eqv? +inf.0 (ash 1 1024))))
+  (pass-if (not (eqv? (- (ash 1 1024)) -inf.0)))
+  (pass-if (not (eqv? -inf.0 (- (ash 1 1024)))))
+
+  (pass-if (eqv? +nan.0 +nan.0))
+  (pass-if (not (eqv? +nan.0 0.0+nan.0i)))
+
+  (pass-if (not (eqv? 0 +nan.0)))
+  (pass-if (not (eqv? +nan.0 0)))
+  (pass-if (not (eqv? 1 +nan.0)))
+  (pass-if (not (eqv? +nan.0 1)))
+  (pass-if (not (eqv? -1 +nan.0)))
+  (pass-if (not (eqv? +nan.0 -1)))
+
+  (pass-if (not (eqv? (ash 1 256) +nan.0)))
+  (pass-if (not (eqv? +nan.0 (ash 1 256))))
+  (pass-if (not (eqv? (- (ash 1 256)) +nan.0)))
+  (pass-if (not (eqv? +nan.0 (- (ash 1 256)))))
+
+  (pass-if (not (eqv? (ash 1 8192) +nan.0)))
+  (pass-if (not (eqv? +nan.0 (ash 1 8192))))
+  (pass-if (not (eqv? (- (ash 1 8192)) +nan.0)))
+  (pass-if (not (eqv? +nan.0 (- (ash 1 8192)))))
+
+  ;; in gmp prior to 4.2, mpz_cmp_d ended up treating NaN as 3*2^1023, make
+  ;; sure we've avoided that
+  (pass-if (not (eqv? (ash 3 1023) +nan.0)))
+  (pass-if (not (eqv? +nan.0 (ash 3 1023)))))
+
+;;;
 ;;; =
 ;;;
 
 (with-test-prefix "="
   (pass-if (documented? =))
-  (pass-if (= 0 0))
   (pass-if (= 7 7))
   (pass-if (= -7 -7))
+  (pass-if (= 1.0 1))
+  (pass-if (= 1 1.0))
+  (pass-if (= -1 -1.0))
+  (pass-if (= 0.0  0.0))
+  (pass-if (= 0.0 -0.0))
+  (pass-if (= 1 1.0+0.0i))
+
+  (pass-if (= 0  0))
+  (pass-if (= 0  0.0))
+  (pass-if (= 0 -0.0))
+  (pass-if (= 0  0.0+0.0i))
+  (pass-if (= 0  0.0-0.0i))
+  (pass-if (= 0  0.0+0.0i))
+  (pass-if (= 0 -0.0-0.0i))
+
+  (pass-if (=  0        0))
+  (pass-if (=  0.0      0))
+  (pass-if (= -0.0      0))
+  (pass-if (=  0.0+0.0i 0))
+  (pass-if (=  0.0-0.0i 0))
+  (pass-if (=  0.0+0.0i 0))
+  (pass-if (= -0.0-0.0i 0))
+
+  (pass-if (= 0.0+0.0i  0.0-0.0i))
+  (pass-if (= 0.0+0.0i -0.0+0.0i))
+
   (pass-if (= (+ 1 fixnum-max) (+ 1 fixnum-max)))
   (pass-if (= (- fixnum-min 1) (- fixnum-min 1)))
   (pass-if (not (= 0 1)))
@@ -2186,21 +2506,36 @@
 ;;;
 
 (with-test-prefix "zero?"
-  (expect-fail (documented? zero?))
-  (pass-if (zero? 0))
-  (pass-if (not (zero? 7)))
+  (pass-if (documented? zero?))
+
+  (pass-if (zero?  0))
+  (pass-if (zero?  0.0))
+  (pass-if (zero? -0.0))
+
+  (pass-if (zero?  0.0+0.0i))
+  (pass-if (zero?  0.0-0.0i))
+  (pass-if (zero?  0.0+0.0i))
+  (pass-if (zero? -0.0-0.0i))
+
+  (pass-if (not (zero?  7)))
   (pass-if (not (zero? -7)))
+  (pass-if (not (zero? 1/7)))
+  (pass-if (not (zero? -inf.0)))
+  (pass-if (not (zero? +inf.0)))
+  (pass-if (not (zero? +nan.0)))
   (pass-if (not (zero? (+ 1 fixnum-max))))
   (pass-if (not (zero? (- 1 fixnum-min))))
   (pass-if (not (zero? 1.3)))
-  (pass-if (not (zero? 3.1+4.2i))))
+  (pass-if (not (zero? 3.1+4.2i)))
+  (pass-if (not (zero? 1.0+0.0i)))
+  (pass-if (not (zero? 0.0-1.0i))))
 
 ;;;
 ;;; positive?
 ;;;
 
 (with-test-prefix "positive?"
-  (expect-fail (documented? positive?))
+  (pass-if (documented? positive?))
   (pass-if (positive? 1))
   (pass-if (positive? (+ fixnum-max 1)))
   (pass-if (positive? 1.3))
@@ -2214,7 +2549,7 @@
 ;;;
 
 (with-test-prefix "negative?"
-  (expect-fail (documented? negative?))
+  (pass-if (documented? negative?))
   (pass-if (not (negative? 1)))
   (pass-if (not (negative? (+ fixnum-max 1))))
   (pass-if (not (negative? 1.3)))
@@ -2258,65 +2593,118 @@
         (big*5 (* fixnum-max 5)))
 
     (with-test-prefix "inum / frac"
-      (pass-if (= 3 (max 3 5/2)))
-      (pass-if (= 5/2 (max 2 5/2))))
+      (pass-if (eqv? 3 (max 3 5/2)))
+      (pass-if (eqv? 5/2 (max 2 5/2))))
 
     (with-test-prefix "frac / inum"
-      (pass-if (= 3 (max 5/2 3)))
-      (pass-if (= 5/2 (max 5/2 2))))
+      (pass-if (eqv? 3 (max 5/2 3)))
+      (pass-if (eqv? 5/2 (max 5/2 2))))
 
-    (with-test-prefix "inum / real"
-      (pass-if (nan? (max 123 +nan.0))))
+    (with-test-prefix "infinities and NaNs"
+      ;; +inf.0 beats everything else, including NaNs
+      (pass-if (eqv?  +inf.0   (max   +inf.0    123   )))
+      (pass-if (eqv?  +inf.0   (max    123     +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   -123.3 )))
+      (pass-if (eqv?  +inf.0   (max   -123.3   +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   -7/2   )))
+      (pass-if (eqv?  +inf.0   (max   -7/2     +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0  -1e20   )))
+      (pass-if (eqv?  +inf.0   (max  -1e20     +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0 (- big*2))))
+      (pass-if (eqv?  +inf.0   (max (- big*2)  +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   +nan.0 )))
+      (pass-if (eqv?  +inf.0   (max   +nan.0   +inf.0 )))
+      (pass-if (eqv?  +inf.0   (max   +inf.0   +inf.0 )))
 
-    (with-test-prefix "real / inum"
-      (pass-if (nan? (max +nan.0 123))))
+      ;; NaNs beat everything except +inf.0
+      (pass-if (real-nan?      (max   +nan.0    123   )))
+      (pass-if (real-nan?      (max    123     +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0    123.3 )))
+      (pass-if (real-nan?      (max    123.3   +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0   -7/2   )))
+      (pass-if (real-nan?      (max   -7/2     +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0  -1e20   )))
+      (pass-if (real-nan?      (max  -1e20     +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0 (- big*2))))
+      (pass-if (real-nan?      (max (- big*2)  +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0   -inf.0 )))
+      (pass-if (real-nan?      (max   -inf.0   +nan.0 )))
+      (pass-if (real-nan?      (max   +nan.0   +nan.0 )))
+
+      ;; -inf.0 always loses, except against itself
+      (pass-if (eqv?   -inf.0  (max   -inf.0   -inf.0 )))
+      (pass-if (eqv?   -123.0  (max   -inf.0   -123   )))
+      (pass-if (eqv?   -123.0  (max   -123     -inf.0 )))
+      (pass-if (eqv?   -123.3  (max   -inf.0   -123.3 )))
+      (pass-if (eqv?   -123.3  (max   -123.3   -inf.0 )))
+      (pass-if (eqv?     -3.5  (max   -inf.0   -7/2   )))
+      (pass-if (eqv?     -3.5  (max   -7/2     -inf.0 )))
+      (pass-if (eqv?  -1.0e20  (max   -inf.0  -1e20   )))
+      (pass-if (eqv?  -1.0e20  (max  -1e20     -inf.0 )))
+      (pass-if (eqv? (exact->inexact (- big*2))
+                     (max   -inf.0 (- big*2))))
+      (pass-if (eqv? (exact->inexact (- big*2))
+                     (max (- big*2)  -inf.0 ))))
+
+    (with-test-prefix "signed zeroes"
+      (pass-if (eqv?  0.0  (max  0.0  0.0)))
+      (pass-if (eqv?  0.0  (max  0.0 -0.0)))
+      (pass-if (eqv?  0.0  (max -0.0  0.0)))
+      (pass-if (eqv? -0.0  (max -0.0 -0.0)))
+      (pass-if (eqv?  0.0  (max -0.0  0  )))
+      (pass-if (eqv?  0.0  (max  0.0  0  )))
+      (pass-if (eqv?  0.0  (max  0   -0.0)))
+      (pass-if (eqv?  0.0  (max  0    0.0)))
+      (pass-if (eqv?  0    (min  0    0  ))))
 
     (with-test-prefix "big / frac"
-      (pass-if (= big*2 (max big*2 5/2)))
-      (pass-if (= 5/2 (max (- big*2) 5/2))))
+      (pass-if (eqv? big*2 (max big*2 5/2)))
+      (pass-if (eqv? 5/2 (max (- big*2) 5/2))))
 
     (with-test-prefix "frac / big"
-      (pass-if (= big*2 (max 5/2 big*2)))
-      (pass-if (= 5/2 (max 5/2 (- big*2)))))
+      (pass-if (eqv? big*2 (max 5/2 big*2)))
+      (pass-if (eqv? 5/2 (max 5/2 (- big*2)))))
 
     (with-test-prefix "big / real"
-      (pass-if (nan? (max big*5 +nan.0)))
+      (pass-if (real-nan? (max big*5 +nan.0)))
       (pass-if (eqv? (exact->inexact big*5)  (max big*5 -inf.0)))
       (pass-if (eqv? (exact->inexact big*5)  (max big*5 1.0)))
       (pass-if (eqv? +inf.0                  (max big*5 +inf.0)))
       (pass-if (eqv? 1.0                     (max (- big*5) 1.0))))
 
     (with-test-prefix "real / big"
-      (pass-if (nan? (max +nan.0 big*5)))
+      (pass-if (real-nan? (max +nan.0 big*5)))
       (pass-if (eqv? (exact->inexact big*5)  (max -inf.0 big*5)))
       (pass-if (eqv? (exact->inexact big*5)  (max 1.0 big*5)))
       (pass-if (eqv? +inf.0                  (max +inf.0 big*5)))
       (pass-if (eqv? 1.0                     (max 1.0 (- big*5)))))
 
     (with-test-prefix "frac / frac"
-      (pass-if (= 2/3 (max 1/2 2/3)))
-      (pass-if (= 2/3 (max 2/3 1/2)))
-      (pass-if (= -1/2 (max -1/2 -2/3)))
-      (pass-if (= -1/2 (max -2/3 -1/2))))
+      (pass-if (eqv? 2/3 (max 1/2 2/3)))
+      (pass-if (eqv? 2/3 (max 2/3 1/2)))
+      (pass-if (eqv? -1/2 (max -1/2 -2/3)))
+      (pass-if (eqv? -1/2 (max -2/3 -1/2))))
 
     (with-test-prefix "real / real"
-      (pass-if (nan? (max 123.0 +nan.0)))
-      (pass-if (nan? (max +nan.0 123.0)))
-      (pass-if (nan? (max +nan.0 +nan.0)))
-      (pass-if (= 456.0 (max 123.0 456.0)))
-      (pass-if (= 456.0 (max 456.0 123.0)))))
+      (pass-if (real-nan? (max 123.0 +nan.0)))
+      (pass-if (real-nan? (max +nan.0 123.0)))
+      (pass-if (real-nan? (max +nan.0 +nan.0)))
+      (pass-if (eqv? 456.0 (max 123.0 456.0)))
+      (pass-if (eqv? 456.0 (max 456.0 123.0)))))
 
   ;; in gmp prior to 4.2, mpz_cmp_d ended up treating Inf as 2^1024, make
   ;; sure we've avoided that
   (for-each (lambda (b)
 	      (pass-if (list b +inf.0)
-		(= +inf.0 (max b +inf.0)))
+		(eqv? +inf.0 (max b +inf.0)))
 	      (pass-if (list +inf.0 b)
-		(= +inf.0 (max b +inf.0)))
+		(eqv? +inf.0 (max b +inf.0)))
 	      (pass-if (list b -inf.0)
-		(= (exact->inexact b) (max b -inf.0)))
+		(eqv? (exact->inexact b) (max b -inf.0)))
 	      (pass-if (list -inf.0 b)
-		(= (exact->inexact b) (max b -inf.0))))
+		(eqv? (exact->inexact b) (max b -inf.0))))
 	    (list (1- (ash 1 1024))
 		  (ash 1 1024)
 		  (1+ (ash 1 1024))
@@ -2326,8 +2714,8 @@
 
   ;; in gmp prior to 4.2, mpz_cmp_d ended up treating NaN as 3*2^1023, make
   ;; sure we've avoided that
-  (pass-if (nan? (max (ash 1 2048) +nan.0)))
-  (pass-if (nan? (max +nan.0 (ash 1 2048)))))
+  (pass-if (real-nan? (max (ash 1 2048) +nan.0)))
+  (pass-if (real-nan? (max +nan.0 (ash 1 2048)))))
 
 ;;;
 ;;; min
@@ -2366,83 +2754,136 @@
         (big*5 (* fixnum-max 5)))
 
     (pass-if (documented? min))
-    (pass-if (= 1 (min 7 3 1 5)))
-    (pass-if (= 1 (min 1 7 3 5)))
-    (pass-if (= 1 (min 7 3 5 1)))
-    (pass-if (= -7 (min 2 3 4 -2 5 -7 1 -1 4 2)))
-    (pass-if (= -7 (min -7 2 3 4 -2 5 1 -1 4 2)))
-    (pass-if (= -7 (min 2 3 4 -2 5 1 -1 4 2 -7)))
-    (pass-if (= big*2 (min big*3 big*5 big*2 big*4)))
-    (pass-if (= big*2 (min big*2 big*3 big*5 big*4)))
-    (pass-if (= big*2 (min big*3 big*5 big*4 big*2)))
+    (pass-if (eqv? 1 (min 7 3 1 5)))
+    (pass-if (eqv? 1 (min 1 7 3 5)))
+    (pass-if (eqv? 1 (min 7 3 5 1)))
+    (pass-if (eqv? -7 (min 2 3 4 -2 5 -7 1 -1 4 2)))
+    (pass-if (eqv? -7 (min -7 2 3 4 -2 5 1 -1 4 2)))
+    (pass-if (eqv? -7 (min 2 3 4 -2 5 1 -1 4 2 -7)))
+    (pass-if (eqv? big*2 (min big*3 big*5 big*2 big*4)))
+    (pass-if (eqv? big*2 (min big*2 big*3 big*5 big*4)))
+    (pass-if (eqv? big*2 (min big*3 big*5 big*4 big*2)))
     (pass-if
-        (= (- fixnum-min 1) (min 2 4 (- fixnum-min 1) 3 (* 2 fixnum-max))))
+        (eqv? (- fixnum-min 1) (min 2 4 (- fixnum-min 1) 3 (* 2 fixnum-max))))
     (pass-if
-        (= (- fixnum-min 1) (min (- fixnum-min 1) 2 4 3 (* 2 fixnum-max))))
+        (eqv? (- fixnum-min 1) (min (- fixnum-min 1) 2 4 3 (* 2 fixnum-max))))
     (pass-if
-        (= (- fixnum-min 1) (min 2 4 3 (* 2 fixnum-max) (- fixnum-min 1))))
+        (eqv? (- fixnum-min 1) (min 2 4 3 (* 2 fixnum-max) (- fixnum-min 1))))
 
     (with-test-prefix "inum / frac"
-      (pass-if (= 5/2 (min 3 5/2)))
-      (pass-if (= 2   (min 2 5/2))))
+      (pass-if (eqv? 5/2 (min 3 5/2)))
+      (pass-if (eqv? 2   (min 2 5/2))))
 
     (with-test-prefix "frac / inum"
-      (pass-if (= 5/2 (min 5/2 3)))
-      (pass-if (= 2   (min 5/2 2))))
+      (pass-if (eqv? 5/2 (min 5/2 3)))
+      (pass-if (eqv? 2   (min 5/2 2))))
 
-    (with-test-prefix "inum / real"
-      (pass-if (nan? (min 123 +nan.0))))
+    (with-test-prefix "infinities and NaNs"
+      ;; -inf.0 beats everything else, including NaNs
+      (pass-if (eqv?  -inf.0   (min   -inf.0    123   )))
+      (pass-if (eqv?  -inf.0   (min    123     -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0   -123.3 )))
+      (pass-if (eqv?  -inf.0   (min   -123.3   -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0   -7/2   )))
+      (pass-if (eqv?  -inf.0   (min   -7/2     -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0  -1e20   )))
+      (pass-if (eqv?  -inf.0   (min  -1e20     -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0 (- big*2))))
+      (pass-if (eqv?  -inf.0   (min (- big*2)  -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0   +inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   +inf.0   -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0   +nan.0 )))
+      (pass-if (eqv?  -inf.0   (min   +nan.0   -inf.0 )))
+      (pass-if (eqv?  -inf.0   (min   -inf.0   -inf.0 )))
 
-    (with-test-prefix "real / inum"
-      (pass-if (nan? (min +nan.0 123))))
+      ;; NaNs beat everything except -inf.0
+      (pass-if (real-nan?      (min   +nan.0    123   )))
+      (pass-if (real-nan?      (min    123     +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0    123.3 )))
+      (pass-if (real-nan?      (min    123.3   +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0   -7/2   )))
+      (pass-if (real-nan?      (min   -7/2     +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0  -1e20   )))
+      (pass-if (real-nan?      (min  -1e20     +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0 (- big*2))))
+      (pass-if (real-nan?      (min (- big*2)  +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0   +inf.0 )))
+      (pass-if (real-nan?      (min   +inf.0   +nan.0 )))
+      (pass-if (real-nan?      (min   +nan.0   +nan.0 )))
+
+      ;; +inf.0 always loses, except against itself
+      (pass-if (eqv?   +inf.0  (min   +inf.0   +inf.0 )))
+      (pass-if (eqv?   -123.0  (min   +inf.0   -123   )))
+      (pass-if (eqv?   -123.0  (min   -123     +inf.0 )))
+      (pass-if (eqv?   -123.3  (min   +inf.0   -123.3 )))
+      (pass-if (eqv?   -123.3  (min   -123.3   +inf.0 )))
+      (pass-if (eqv?     -3.5  (min   +inf.0   -7/2   )))
+      (pass-if (eqv?     -3.5  (min   -7/2     +inf.0 )))
+      (pass-if (eqv?  -1.0e20  (min   +inf.0  -1e20   )))
+      (pass-if (eqv?  -1.0e20  (min  -1e20     +inf.0 )))
+      (pass-if (eqv? (exact->inexact (- big*2))
+                     (min   +inf.0 (- big*2))))
+      (pass-if (eqv? (exact->inexact (- big*2))
+                     (min (- big*2)  +inf.0 ))))
+
+    (with-test-prefix "signed zeroes"
+      (pass-if (eqv?  0.0  (min  0.0  0.0)))
+      (pass-if (eqv? -0.0  (min  0.0 -0.0)))
+      (pass-if (eqv? -0.0  (min -0.0  0.0)))
+      (pass-if (eqv? -0.0  (min -0.0 -0.0)))
+      (pass-if (eqv? -0.0  (min -0.0  0  )))
+      (pass-if (eqv?  0.0  (min  0.0  0  )))
+      (pass-if (eqv? -0.0  (min  0   -0.0)))
+      (pass-if (eqv?  0.0  (min  0    0.0)))
+      (pass-if (eqv?  0    (min  0    0  ))))
 
     (with-test-prefix "big / frac"
-      (pass-if (= 5/2       (min big*2 5/2)))
-      (pass-if (= (- big*2) (min (- big*2) 5/2))))
+      (pass-if (eqv? 5/2       (min big*2 5/2)))
+      (pass-if (eqv? (- big*2) (min (- big*2) 5/2))))
 
     (with-test-prefix "frac / big"
-      (pass-if (= 5/2       (min 5/2 big*2)))
-      (pass-if (= (- big*2) (min 5/2 (- big*2)))))
+      (pass-if (eqv? 5/2       (min 5/2 big*2)))
+      (pass-if (eqv? (- big*2) (min 5/2 (- big*2)))))
 
     (with-test-prefix "big / real"
-      (pass-if (nan? (min big*5 +nan.0)))
+      (pass-if (real-nan? (min big*5 +nan.0)))
       (pass-if (eqv? (exact->inexact big*5)      (min big*5  +inf.0)))
       (pass-if (eqv? -inf.0                      (min big*5  -inf.0)))
       (pass-if (eqv? 1.0                         (min big*5 1.0)))
       (pass-if (eqv? (exact->inexact (- big*5))  (min (- big*5) 1.0))))
 
     (with-test-prefix "real / big"
-      (pass-if (nan? (min +nan.0 big*5)))
+      (pass-if (real-nan? (min +nan.0 big*5)))
       (pass-if (eqv? (exact->inexact big*5)      (min +inf.0 big*5)))
       (pass-if (eqv? -inf.0                      (min -inf.0 big*5)))
       (pass-if (eqv? 1.0                         (min 1.0 big*5)))
       (pass-if (eqv? (exact->inexact (- big*5))  (min 1.0 (- big*5)))))
 
     (with-test-prefix "frac / frac"
-      (pass-if (= 1/2 (min 1/2 2/3)))
-      (pass-if (= 1/2 (min 2/3 1/2)))
-      (pass-if (= -2/3 (min -1/2 -2/3)))
-      (pass-if (= -2/3 (min -2/3 -1/2))))
+      (pass-if (eqv? 1/2 (min 1/2 2/3)))
+      (pass-if (eqv? 1/2 (min 2/3 1/2)))
+      (pass-if (eqv? -2/3 (min -1/2 -2/3)))
+      (pass-if (eqv? -2/3 (min -2/3 -1/2))))
 
     (with-test-prefix "real / real"
-      (pass-if (nan? (min 123.0 +nan.0)))
-      (pass-if (nan? (min +nan.0 123.0)))
-      (pass-if (nan? (min +nan.0 +nan.0)))
-      (pass-if (= 123.0 (min 123.0 456.0)))
-      (pass-if (= 123.0 (min 456.0 123.0)))))
+      (pass-if (real-nan? (min 123.0 +nan.0)))
+      (pass-if (real-nan? (min +nan.0 123.0)))
+      (pass-if (real-nan? (min +nan.0 +nan.0)))
+      (pass-if (eqv? 123.0 (min 123.0 456.0)))
+      (pass-if (eqv? 123.0 (min 456.0 123.0)))))
 
 
   ;; in gmp prior to 4.2, mpz_cmp_d ended up treating Inf as 2^1024, make
   ;; sure we've avoided that
   (for-each (lambda (b)
 	      (pass-if (list b +inf.0)
-		(= (exact->inexact b) (min b +inf.0)))
+		(eqv? (exact->inexact b) (min b +inf.0)))
 	      (pass-if (list +inf.0 b)
-		(= (exact->inexact b) (min b +inf.0)))
+		(eqv? (exact->inexact b) (min b +inf.0)))
 	      (pass-if (list b -inf.0)
-		(= -inf.0 (min b -inf.0)))
+		(eqv? -inf.0 (min b -inf.0)))
 	      (pass-if (list -inf.0 b)
-		(= -inf.0 (min b -inf.0))))
+		(eqv? -inf.0 (min b -inf.0))))
 	    (list (1- (ash 1 1024))
 		  (ash 1 1024)
 		  (1+ (ash 1 1024))
@@ -2452,8 +2893,8 @@
 
   ;; in gmp prior to 4.2, mpz_cmp_d ended up treating NaN as 3*2^1023, make
   ;; sure we've avoided that
-  (pass-if (nan? (min (- (ash 1 2048)) (- +nan.0))))
-  (pass-if (nan? (min (- +nan.0) (- (ash 1 2048))))))
+  (pass-if (real-nan? (min (- (ash 1 2048)) (- +nan.0))))
+  (pass-if (real-nan? (min (- +nan.0) (- (ash 1 2048))))))
 
 ;;;
 ;;; +
@@ -2463,6 +2904,54 @@
 
   (pass-if "documented?"
     (documented? +))
+
+  (pass-if "simple"
+    (and (eqv?  7 (+ 3 4))
+         (eqv?  3 (+ 3))
+         (eqv?  0 (+))))
+
+  (pass-if "exactness propagation"
+    (and (eqv?  8   (+ 3 5))
+         (eqv?  8.0 (+ 3 5.0))
+         (eqv?  8.0 (+ 3.0 5))
+         (eqv?  8.0 (+ 3.0 5.0))
+
+         (eqv?  5/6  (+ 1/2 1/3))
+         (eqv?  5.5  (+ 1/2 5.0))
+         (eqv?  3.25 (+ 3.0 1/4))))
+
+  (pass-if "signed zeroes"
+    (and (eqv?  0.0 (+  0.0))
+         (eqv? -0.0 (+ -0.0))
+         (eqv?  0.0 (+  0.0  0.0))
+         (eqv?  0.0 (+  0.0 -0.0))
+         (eqv?  0.0 (+ -0.0  0.0))
+         (eqv? -0.0 (+ -0.0 -0.0))))
+
+  (pass-if "NaNs"
+    (and (real-nan?  (+ +nan.0 +nan.0))
+         (real-nan?  (+ 0 +nan.0))
+         (real-nan?  (+ +nan.0 0))
+         (real-nan?  (+ 1 +nan.0))
+         (real-nan?  (+ +nan.0 1))
+         (real-nan?  (+ -1 +nan.0))
+         (real-nan?  (+ +nan.0 -1))
+         (real-nan?  (+ -7/2 +nan.0))
+         (real-nan?  (+ +nan.0 -7/2))
+         (real-nan?  (+ 1e20 +nan.0))
+         (real-nan?  (+ +nan.0 1e20))
+         (real-nan?  (+ +inf.0 +nan.0))
+         (real-nan?  (+ +nan.0 +inf.0))
+         (real-nan?  (+ -inf.0 +nan.0))
+         (real-nan?  (+ +nan.0 -inf.0))
+         (real-nan?  (+ (* fixnum-max 2) +nan.0))
+         (real-nan?  (+ +nan.0 (* fixnum-max 2)))))
+
+  (pass-if "infinities"
+    (and (eqv? +inf.0 (+ +inf.0 +inf.0))
+         (eqv? -inf.0 (+ -inf.0 -inf.0))
+         (real-nan?   (+ +inf.0 -inf.0))
+         (real-nan?   (+ -inf.0 +inf.0))))
 
   ;; The maximum fixnum on a 32-bit architecture: 2^29 - 1.
   (pass-if "fixnum + fixnum = bignum (32-bit)"
@@ -2480,6 +2969,69 @@
 ;;;
 
 (with-test-prefix/c&e "-"
+
+  (pass-if "double-negation of fixnum-min: ="
+    (=      fixnum-min (- (- fixnum-min))))
+  (pass-if "double-negation of fixnum-min: eqv?"
+    (eqv?   fixnum-min (- (- fixnum-min))))
+  (pass-if "double-negation of fixnum-min: equal?"
+    (equal? fixnum-min (- (- fixnum-min))))
+
+  (pass-if "binary double-negation of fixnum-min: ="
+    (=      fixnum-min (- 0 (- 0 fixnum-min))))
+  (pass-if "binary double-negation of fixnum-min: eqv?"
+    (eqv?   fixnum-min (- 0 (- 0 fixnum-min))))
+  (pass-if "binary double-negation of fixnum-min: equal?"
+    (equal? fixnum-min (- 0 (- 0 fixnum-min))))
+
+  (pass-if "signed zeroes"
+    (and (eqv? +0.0 (- -0.0))
+         (eqv? -0.0 (- +0.0))
+         (eqv?  0.0 (-  0.0  0.0))
+         (eqv?  0.0 (-  0.0 -0.0))
+         (eqv?  0.0 (- -0.0 -0.0))
+         (eqv? -0.0 (- -0.0  0.0))))
+
+  (pass-if "exactness propagation"
+    (and (eqv?  3   (- 8 5))
+         (eqv?  3.0 (- 8 5.0))
+         (eqv?  3.0 (- 8.0 5))
+         (eqv?  3.0 (- 8.0 5.0))
+         (eqv? -1/6  (- 1/3 1/2))
+         (eqv? -4.5  (- 1/2 5.0))
+         (eqv?  2.75 (- 3.0 1/4))))
+
+  (pass-if "infinities"
+    (and (eqv? +inf.0 (- +inf.0 -inf.0))
+         (eqv? -inf.0 (- -inf.0 +inf.0))
+         (real-nan?   (- +inf.0 +inf.0))
+         (real-nan?   (- -inf.0 -inf.0))))
+
+  (pass-if "NaNs"
+    (and (real-nan?  (- +nan.0 +nan.0))
+         (real-nan?  (- 0 +nan.0))
+         (real-nan?  (- +nan.0 0))
+         (real-nan?  (- 1 +nan.0))
+         (real-nan?  (- +nan.0 1))
+         (real-nan?  (- -1 +nan.0))
+         (real-nan?  (- +nan.0 -1))
+         (real-nan?  (- -7/2 +nan.0))
+         (real-nan?  (- +nan.0 -7/2))
+         (real-nan?  (- 1e20 +nan.0))
+         (real-nan?  (- +nan.0 1e20))
+         (real-nan?  (- +inf.0 +nan.0))
+         (real-nan?  (- +nan.0 +inf.0))
+         (real-nan?  (- -inf.0 +nan.0))
+         (real-nan?  (- +nan.0 -inf.0))
+         (real-nan?  (- (* fixnum-max 2) +nan.0))
+         (real-nan?  (- +nan.0 (* fixnum-max 2)))))
+
+  (pass-if "(eqv? fixnum-min (- (- fixnum-min)))"
+    (eqv? fixnum-min (- (- fixnum-min))))
+  (pass-if "(eqv? fixnum-min (- 0 (- 0 fixnum-min)))"
+    (eqv? fixnum-min (- 0 (- 0 fixnum-min))))
+  (pass-if "(eqv? fixnum-num (apply - (list (apply - (list fixnum-min)))))"
+    (eqv? fixnum-min (apply - (list (apply - (list fixnum-min))))))
 
   (pass-if "-inum - +bignum"
     (= #x-100000000000000000000000000000001
@@ -2510,6 +3062,133 @@
 
 (with-test-prefix "*"
 
+  (with-test-prefix "double-negation of fixnum-min"
+    (pass-if (=      fixnum-min (* -1 (* -1 fixnum-min))))
+    (pass-if (eqv?   fixnum-min (* -1 (* -1 fixnum-min))))
+    (pass-if (equal? fixnum-min (* -1 (* -1 fixnum-min))))
+    (pass-if (=      fixnum-min (* (* fixnum-min -1) -1)))
+    (pass-if (eqv?   fixnum-min (* (* fixnum-min -1) -1)))
+    (pass-if (equal? fixnum-min (* (* fixnum-min -1) -1))))
+
+  (with-test-prefix "signed zeroes"
+    (pass-if (eqv? +0.0 (* +0.0 +0.0)))
+    (pass-if (eqv? -0.0 (* -0.0 +0.0)))
+    (pass-if (eqv? +0.0 (* -0.0 -0.0)))
+    (pass-if (eqv? -0.0 (* +0.0 -0.0)))
+    (pass-if (eqv? +0.0+0.0i (* +i +0.0)))
+    (pass-if (eqv? +0.0-0.0i (* -i +0.0)))
+    (pass-if (eqv? -0.0-0.0i (* +i -0.0)))
+    (pass-if (eqv? -0.0+0.0i (* -i -0.0))))
+
+  (with-test-prefix "exactness propagation"
+    (pass-if (eqv? -0.0 (*  0 -1.0 )))
+    (pass-if (eqv?  0.0 (*  0  1.0 )))
+    (pass-if (eqv? -0.0 (* -1.0  0 )))
+    (pass-if (eqv?  0.0 (*  1.0  0 )))
+    (pass-if (eqv?  0   (*  0  1/2 )))
+    (pass-if (eqv?  0   (*  1/2  0 )))
+    (pass-if (eqv?  0.0+0.0i (*  0  1+i )))
+    (pass-if (eqv?  0.0+0.0i (*  1+i  0 )))
+    (pass-if (eqv? -1.0 (*  1 -1.0 )))
+    (pass-if (eqv?  1.0 (*  1  1.0 )))
+    (pass-if (eqv? -1.0 (* -1.0  1 )))
+    (pass-if (eqv?  1.0 (*  1.0  1 )))
+    (pass-if (eqv?  1/2 (*  1  1/2 )))
+    (pass-if (eqv?  1/2 (*  1/2  1 )))
+    (pass-if (eqv?  1+i (*  1  1+i )))
+    (pass-if (eqv?  1+i (*  1+i  1 ))))
+
+  (with-test-prefix "propagation of NaNs"
+    (pass-if (real-nan?      (* +nan.0 +nan.0)))
+    (pass-if (real-nan?      (* +nan.0    1  )))
+    (pass-if (real-nan?      (* +nan.0   -1  )))
+    (pass-if (real-nan?      (* +nan.0 -7/2  )))
+    (pass-if (real-nan?      (* +nan.0 1e20  )))
+    (pass-if (real-nan?      (*  1     +nan.0)))
+    (pass-if (real-nan?      (* -1     +nan.0)))
+    (pass-if (real-nan?      (* -7/2   +nan.0)))
+    (pass-if (real-nan?      (* 1e20   +nan.0)))
+    (pass-if (real-nan?      (* +inf.0 +nan.0)))
+    (pass-if (real-nan?      (* +nan.0 +inf.0)))
+    (pass-if (real-nan?      (* -inf.0 +nan.0)))
+    (pass-if (real-nan?      (* +nan.0 -inf.0)))
+    (pass-if (real-nan?      (* (* fixnum-max 2) +nan.0)))
+    (pass-if (real-nan?      (* +nan.0 (* fixnum-max 2))))
+
+    (pass-if (real-nan?        (*     0     +nan.0  )))
+    (pass-if (real-nan?        (*  +nan.0      0    )))
+    (pass-if (almost-real-nan? (*     0     +nan.0+i)))
+    (pass-if (almost-real-nan? (*  +nan.0+i    0    )))
+
+    (pass-if (imaginary-nan? (*     0     +nan.0i )))
+    (pass-if (imaginary-nan? (*  +nan.0i     0    )))
+    (pass-if (imaginary-nan? (*     0    1+nan.0i )))
+    (pass-if (imaginary-nan? (* 1+nan.0i     0    )))
+
+    (pass-if (complex-nan?   (* 0   +nan.0+nan.0i )))
+    (pass-if (complex-nan?   (* +nan.0+nan.0i   0 ))))
+
+  (with-test-prefix "infinities"
+    (pass-if (eqv?   +inf.0  (* +inf.0  5  )))
+    (pass-if (eqv?   -inf.0  (* +inf.0 -5  )))
+    (pass-if (eqv?   +inf.0  (* +inf.0 73.1)))
+    (pass-if (eqv?   -inf.0  (* +inf.0 -9.2)))
+    (pass-if (eqv?   +inf.0  (* +inf.0  5/2)))
+    (pass-if (eqv?   -inf.0  (* +inf.0 -5/2)))
+    (pass-if (eqv?   -inf.0  (* -5   +inf.0)))
+    (pass-if (eqv?   +inf.0  (* 73.1 +inf.0)))
+    (pass-if (eqv?   -inf.0  (* -9.2 +inf.0)))
+    (pass-if (eqv?   +inf.0  (*  5/2 +inf.0)))
+    (pass-if (eqv?   -inf.0  (* -5/2 +inf.0)))
+
+    (pass-if (eqv?   -inf.0  (* -inf.0  5  )))
+    (pass-if (eqv?   +inf.0  (* -inf.0 -5  )))
+    (pass-if (eqv?   -inf.0  (* -inf.0 73.1)))
+    (pass-if (eqv?   +inf.0  (* -inf.0 -9.2)))
+    (pass-if (eqv?   -inf.0  (* -inf.0  5/2)))
+    (pass-if (eqv?   +inf.0  (* -inf.0 -5/2)))
+    (pass-if (eqv?   +inf.0  (* -5   -inf.0)))
+    (pass-if (eqv?   -inf.0  (* 73.1 -inf.0)))
+    (pass-if (eqv?   +inf.0  (* -9.2 -inf.0)))
+    (pass-if (eqv?   -inf.0  (* 5/2  -inf.0)))
+    (pass-if (eqv?   +inf.0  (* -5/2 -inf.0)))
+
+    (pass-if (real-nan?      (*    0.0 +inf.0)))
+    (pass-if (real-nan?      (*   -0.0 +inf.0)))
+    (pass-if (real-nan?      (* +inf.0    0.0)))
+    (pass-if (real-nan?      (* +inf.0   -0.0)))
+
+    (pass-if (real-nan?      (*    0.0 -inf.0)))
+    (pass-if (real-nan?      (*   -0.0 -inf.0)))
+    (pass-if (real-nan?      (* -inf.0    0.0)))
+    (pass-if (real-nan?      (* -inf.0   -0.0)))
+
+    (pass-if (real-nan?      (*     0     +inf.0  )))
+    (pass-if (real-nan?      (*  +inf.0      0    )))
+    (pass-if (real-nan?      (*     0     -inf.0  )))
+    (pass-if (real-nan?      (*  -inf.0      0    )))
+
+    (pass-if (almost-real-nan? (*     0     +inf.0+i)))
+    (pass-if (almost-real-nan? (*  +inf.0+i    0    )))
+    (pass-if (almost-real-nan? (*     0     -inf.0+i)))
+    (pass-if (almost-real-nan? (*  -inf.0+i    0    )))
+
+    (pass-if (imaginary-nan? (*     0     +inf.0i )))
+    (pass-if (imaginary-nan? (*  +inf.0i     0    )))
+    (pass-if (imaginary-nan? (*     0    1+inf.0i )))
+    (pass-if (imaginary-nan? (* 1+inf.0i     0    )))
+
+    (pass-if (imaginary-nan? (*     0     -inf.0i )))
+    (pass-if (imaginary-nan? (*  -inf.0i     0    )))
+    (pass-if (imaginary-nan? (*     0    1-inf.0i )))
+    (pass-if (imaginary-nan? (* 1-inf.0i     0    )))
+
+    (pass-if (complex-nan?   (* 0   +inf.0+inf.0i )))
+    (pass-if (complex-nan?   (* +inf.0+inf.0i   0 )))
+
+    (pass-if (complex-nan?   (* 0   +inf.0-inf.0i )))
+    (pass-if (complex-nan?   (* -inf.0+inf.0i   0 ))))
+
   (with-test-prefix "inum * bignum"
 
     (pass-if "0 * 2^256 = 0"
@@ -2517,13 +3196,13 @@
 
   (with-test-prefix "inum * flonum"
 
-    (pass-if "0 * 1.0 = 0"
-      (eqv? 0 (* 0 1.0))))
+    (pass-if "0 * 1.0 = 0.0"
+      (eqv? 0.0 (* 0 1.0))))
 
   (with-test-prefix "inum * complex"
 
-    (pass-if "0 * 1+1i = 0"
-      (eqv? 0 (* 0 1+1i))))
+    (pass-if "0 * 1+1i = 0.0+0.0i"
+      (eqv? 0.0+0.0i (* 0 1+1i))))
 
   (with-test-prefix "inum * frac"
 
@@ -2536,16 +3215,12 @@
       (eqv? 0 (* (ash 1 256) 0))))
 
   (with-test-prefix "flonum * inum"
-
-    ;; in guile 1.6.8 and 1.8.1 and earlier this returned inexact 0.0
-    (pass-if "1.0 * 0 = 0"
-      (eqv? 0 (* 1.0 0))))
+    (pass-if "1.0 * 0 = 0.0"
+      (eqv? 0.0 (* 1.0 0))))
 
   (with-test-prefix "complex * inum"
-
-    ;; in guile 1.6.8 and 1.8.1 and earlier this returned inexact 0.0
-    (pass-if "1+1i * 0 = 0"
-      (eqv? 0 (* 1+1i 0))))
+    (pass-if "1+1i * 0 = 0.0+0.0i"
+      (eqv? 0.0+0.0i (* 1+1i 0))))
 
   (pass-if "complex * bignum"
     (let ((big (ash 1 90)))
@@ -2562,6 +3237,11 @@
 ;;;
 
 (with-test-prefix "/"
+
+  (with-test-prefix "double-negation of fixnum-min"
+    (pass-if (=      fixnum-min (/ (/ fixnum-min -1) -1)))
+    (pass-if (eqv?   fixnum-min (/ (/ fixnum-min -1) -1)))
+    (pass-if (equal? fixnum-min (/ (/ fixnum-min -1) -1))))
 
   (pass-if "documented?"
     (documented? /))
@@ -2650,6 +3330,284 @@
       (= (/ 25+125i 4+3i) 19.0+17.0i))))
 
 ;;;
+;;; floor
+;;;
+
+(with-test-prefix "floor"
+  (pass-if (=  1 (floor  1.75)))
+  (pass-if (=  1 (floor  1.5)))
+  (pass-if (=  1 (floor  1.25)))
+  (pass-if (=  0 (floor  0.75)))
+  (pass-if (=  0 (floor  0.5)))
+  (pass-if (=  0 (floor  0.0)))
+  (pass-if (= -1 (floor -0.5)))
+  (pass-if (= -2 (floor -1.25)))
+  (pass-if (= -2 (floor -1.5)))
+
+  (with-test-prefix "inum"
+    (pass-if "0"
+      (and (= 0    (floor 0))
+	   (exact? (floor 0))))
+
+    (pass-if "1"
+      (and (= 1    (floor 1))
+	   (exact? (floor 1))))
+
+    (pass-if "-1"
+      (and (= -1   (floor -1))
+	   (exact? (floor -1)))))
+
+  (with-test-prefix "bignum"
+    (let ((x (1+ most-positive-fixnum)))
+      (pass-if "(1+ most-positive-fixnum)"
+	(and (= x    (floor x))
+	     (exact? (floor x)))))
+
+    (let ((x (1- most-negative-fixnum)))
+      (pass-if "(1- most-negative-fixnum)"
+	(and (= x    (floor x))
+	     (exact? (floor x))))))
+
+  (with-test-prefix "frac"
+    (define (=exact x y)
+      (and (= x y)
+	   (exact? y)))
+
+    (pass-if (=exact -3 (floor -7/3)))
+    (pass-if (=exact -2 (floor -5/3)))
+    (pass-if (=exact -2 (floor -4/3)))
+    (pass-if (=exact -1 (floor -2/3)))
+    (pass-if (=exact -1 (floor -1/3)))
+    (pass-if (=exact  0 (floor  1/3)))
+    (pass-if (=exact  0 (floor  2/3)))
+    (pass-if (=exact  1 (floor  4/3)))
+    (pass-if (=exact  1 (floor  5/3)))
+    (pass-if (=exact  2 (floor  7/3)))
+
+    (pass-if (=exact -3 (floor -17/6)))
+    (pass-if (=exact -3 (floor -16/6)))
+    (pass-if (=exact -3 (floor -15/6)))
+    (pass-if (=exact -3 (floor -14/6)))
+    (pass-if (=exact -3 (floor -13/6)))
+    (pass-if (=exact -2 (floor -11/6)))
+    (pass-if (=exact -2 (floor -10/6)))
+    (pass-if (=exact -2 (floor  -9/6)))
+    (pass-if (=exact -2 (floor  -8/6)))
+    (pass-if (=exact -2 (floor  -7/6)))
+    (pass-if (=exact -1 (floor  -5/6)))
+    (pass-if (=exact -1 (floor  -4/6)))
+    (pass-if (=exact -1 (floor  -3/6)))
+    (pass-if (=exact -1 (floor  -2/6)))
+    (pass-if (=exact -1 (floor  -1/6)))
+    (pass-if (=exact  0 (floor   1/6)))
+    (pass-if (=exact  0 (floor   2/6)))
+    (pass-if (=exact  0 (floor   3/6)))
+    (pass-if (=exact  0 (floor   4/6)))
+    (pass-if (=exact  0 (floor   5/6)))
+    (pass-if (=exact  1 (floor   7/6)))
+    (pass-if (=exact  1 (floor   8/6)))
+    (pass-if (=exact  1 (floor   9/6)))
+    (pass-if (=exact  1 (floor  10/6)))
+    (pass-if (=exact  1 (floor  11/6)))
+    (pass-if (=exact  2 (floor  13/6)))
+    (pass-if (=exact  2 (floor  14/6)))
+    (pass-if (=exact  2 (floor  15/6)))
+    (pass-if (=exact  2 (floor  16/6)))
+    (pass-if (=exact  2 (floor  17/6))))
+
+  (with-test-prefix "real"
+    (pass-if "0.0"
+      (and (= 0.0    (floor 0.0))
+	   (inexact? (floor 0.0))))
+
+    (pass-if "1.0"
+      (and (= 1.0    (floor 1.0))
+	   (inexact? (floor 1.0))))
+
+    (pass-if "-1.0"
+      (and (= -1.0   (floor -1.0))
+	   (inexact? (floor -1.0))))
+
+    (pass-if "-3.1"
+      (and (= -4.0   (floor -3.1))
+	   (inexact? (floor -3.1))))
+
+    (pass-if "3.1"
+      (and (= 3.0    (floor 3.1))
+	   (inexact? (floor 3.1))))
+
+    (pass-if "3.9"
+      (and (= 3.0    (floor 3.9))
+	   (inexact? (floor 3.9))))
+
+    (pass-if "-3.9"
+      (and (= -4.0   (floor -3.9))
+	   (inexact? (floor -3.9))))
+
+    (pass-if "1.5"
+      (and (= 1.0    (floor 1.5))
+	   (inexact? (floor 1.5))))
+
+    (pass-if "2.5"
+      (and (= 2.0    (floor 2.5))
+	   (inexact? (floor 2.5))))
+
+    (pass-if "3.5"
+      (and (= 3.0    (floor 3.5))
+	   (inexact? (floor 3.5))))
+
+    (pass-if "-1.5"
+      (and (= -2.0   (floor -1.5))
+	   (inexact? (floor -1.5))))
+
+    (pass-if "-2.5"
+      (and (= -3.0   (floor -2.5))
+	   (inexact? (floor -2.5))))
+
+    (pass-if "-3.5"
+      (and (= -4.0   (floor -3.5))
+	   (inexact? (floor -3.5))))))
+
+;;;
+;;; ceiling
+;;;
+
+(with-test-prefix "ceiling"
+  (pass-if (=  2 (ceiling  1.75)))
+  (pass-if (=  2 (ceiling  1.5)))
+  (pass-if (=  2 (ceiling  1.25)))
+  (pass-if (=  1 (ceiling  0.75)))
+  (pass-if (=  1 (ceiling  0.5)))
+  (pass-if (=  0 (ceiling  0.0)))
+  (pass-if (=  0 (ceiling -0.5)))
+  (pass-if (= -1 (ceiling -1.25)))
+  (pass-if (= -1 (ceiling -1.5)))
+
+  (with-test-prefix "inum"
+    (pass-if "0"
+      (and (= 0    (ceiling 0))
+	   (exact? (ceiling 0))))
+
+    (pass-if "1"
+      (and (= 1    (ceiling 1))
+	   (exact? (ceiling 1))))
+
+    (pass-if "-1"
+      (and (= -1   (ceiling -1))
+	   (exact? (ceiling -1)))))
+
+  (with-test-prefix "bignum"
+    (let ((x (1+ most-positive-fixnum)))
+      (pass-if "(1+ most-positive-fixnum)"
+	(and (= x    (ceiling x))
+	     (exact? (ceiling x)))))
+
+    (let ((x (1- most-negative-fixnum)))
+      (pass-if "(1- most-negative-fixnum)"
+	(and (= x    (ceiling x))
+	     (exact? (ceiling x))))))
+
+  (with-test-prefix "frac"
+    (define (=exact x y)
+      (and (= x y)
+	   (exact? y)))
+
+    (pass-if (=exact -2 (ceiling -7/3)))
+    (pass-if (=exact -1 (ceiling -5/3)))
+    (pass-if (=exact -1 (ceiling -4/3)))
+    (pass-if (=exact  0 (ceiling -2/3)))
+    (pass-if (=exact  0 (ceiling -1/3)))
+    (pass-if (=exact  1 (ceiling  1/3)))
+    (pass-if (=exact  1 (ceiling  2/3)))
+    (pass-if (=exact  2 (ceiling  4/3)))
+    (pass-if (=exact  2 (ceiling  5/3)))
+    (pass-if (=exact  3 (ceiling  7/3)))
+
+    (pass-if (=exact -2 (ceiling -17/6)))
+    (pass-if (=exact -2 (ceiling -16/6)))
+    (pass-if (=exact -2 (ceiling -15/6)))
+    (pass-if (=exact -2 (ceiling -14/6)))
+    (pass-if (=exact -2 (ceiling -13/6)))
+    (pass-if (=exact -1 (ceiling -11/6)))
+    (pass-if (=exact -1 (ceiling -10/6)))
+    (pass-if (=exact -1 (ceiling  -9/6)))
+    (pass-if (=exact -1 (ceiling  -8/6)))
+    (pass-if (=exact -1 (ceiling  -7/6)))
+    (pass-if (=exact  0 (ceiling  -5/6)))
+    (pass-if (=exact  0 (ceiling  -4/6)))
+    (pass-if (=exact  0 (ceiling  -3/6)))
+    (pass-if (=exact  0 (ceiling  -2/6)))
+    (pass-if (=exact  0 (ceiling  -1/6)))
+    (pass-if (=exact  1 (ceiling   1/6)))
+    (pass-if (=exact  1 (ceiling   2/6)))
+    (pass-if (=exact  1 (ceiling   3/6)))
+    (pass-if (=exact  1 (ceiling   4/6)))
+    (pass-if (=exact  1 (ceiling   5/6)))
+    (pass-if (=exact  2 (ceiling   7/6)))
+    (pass-if (=exact  2 (ceiling   8/6)))
+    (pass-if (=exact  2 (ceiling   9/6)))
+    (pass-if (=exact  2 (ceiling  10/6)))
+    (pass-if (=exact  2 (ceiling  11/6)))
+    (pass-if (=exact  3 (ceiling  13/6)))
+    (pass-if (=exact  3 (ceiling  14/6)))
+    (pass-if (=exact  3 (ceiling  15/6)))
+    (pass-if (=exact  3 (ceiling  16/6)))
+    (pass-if (=exact  3 (ceiling  17/6))))
+
+  (with-test-prefix "real"
+    (pass-if "0.0"
+      (and (= 0.0    (ceiling 0.0))
+	   (inexact? (ceiling 0.0))))
+
+    (pass-if "1.0"
+      (and (= 1.0    (ceiling 1.0))
+	   (inexact? (ceiling 1.0))))
+
+    (pass-if "-1.0"
+      (and (= -1.0   (ceiling -1.0))
+	   (inexact? (ceiling -1.0))))
+
+    (pass-if "-3.1"
+      (and (= -3.0   (ceiling -3.1))
+	   (inexact? (ceiling -3.1))))
+
+    (pass-if "3.1"
+      (and (= 4.0    (ceiling 3.1))
+	   (inexact? (ceiling 3.1))))
+
+    (pass-if "3.9"
+      (and (= 4.0    (ceiling 3.9))
+	   (inexact? (ceiling 3.9))))
+
+    (pass-if "-3.9"
+      (and (= -3.0   (ceiling -3.9))
+	   (inexact? (ceiling -3.9))))
+
+    (pass-if "1.5"
+      (and (= 2.0    (ceiling 1.5))
+	   (inexact? (ceiling 1.5))))
+
+    (pass-if "2.5"
+      (and (= 3.0    (ceiling 2.5))
+	   (inexact? (ceiling 2.5))))
+
+    (pass-if "3.5"
+      (and (= 4.0    (ceiling 3.5))
+	   (inexact? (ceiling 3.5))))
+
+    (pass-if "-1.5"
+      (and (= -1.0   (ceiling -1.5))
+	   (inexact? (ceiling -1.5))))
+
+    (pass-if "-2.5"
+      (and (= -2.0   (ceiling -2.5))
+	   (inexact? (ceiling -2.5))))
+
+    (pass-if "-3.5"
+      (and (= -3.0   (ceiling -3.5))
+	   (inexact? (ceiling -3.5))))))
+
+;;;
 ;;; truncate
 ;;;
 
@@ -2662,7 +3620,131 @@
   (pass-if (=  0 (truncate  0.0)))
   (pass-if (=  0 (truncate -0.5)))
   (pass-if (= -1 (truncate -1.25)))
-  (pass-if (= -1 (truncate -1.5))))
+  (pass-if (= -1 (truncate -1.5)))
+
+  (with-test-prefix "inum"
+    (pass-if "0"
+      (and (= 0    (truncate 0))
+	   (exact? (truncate 0))))
+
+    (pass-if "1"
+      (and (= 1    (truncate 1))
+	   (exact? (truncate 1))))
+
+    (pass-if "-1"
+      (and (= -1   (truncate -1))
+	   (exact? (truncate -1)))))
+
+  (with-test-prefix "bignum"
+    (let ((x (1+ most-positive-fixnum)))
+      (pass-if "(1+ most-positive-fixnum)"
+	(and (= x    (truncate x))
+	     (exact? (truncate x)))))
+
+    (let ((x (1- most-negative-fixnum)))
+      (pass-if "(1- most-negative-fixnum)"
+	(and (= x    (truncate x))
+	     (exact? (truncate x))))))
+
+  (with-test-prefix "frac"
+    (define (=exact x y)
+      (and (= x y)
+	   (exact? y)))
+
+    (pass-if (=exact -2 (truncate -7/3)))
+    (pass-if (=exact -1 (truncate -5/3)))
+    (pass-if (=exact -1 (truncate -4/3)))
+    (pass-if (=exact  0 (truncate -2/3)))
+    (pass-if (=exact  0 (truncate -1/3)))
+    (pass-if (=exact  0 (truncate  1/3)))
+    (pass-if (=exact  0 (truncate  2/3)))
+    (pass-if (=exact  1 (truncate  4/3)))
+    (pass-if (=exact  1 (truncate  5/3)))
+    (pass-if (=exact  2 (truncate  7/3)))
+
+    (pass-if (=exact -2 (truncate -17/6)))
+    (pass-if (=exact -2 (truncate -16/6)))
+    (pass-if (=exact -2 (truncate -15/6)))
+    (pass-if (=exact -2 (truncate -14/6)))
+    (pass-if (=exact -2 (truncate -13/6)))
+    (pass-if (=exact -1 (truncate -11/6)))
+    (pass-if (=exact -1 (truncate -10/6)))
+    (pass-if (=exact -1 (truncate  -9/6)))
+    (pass-if (=exact -1 (truncate  -8/6)))
+    (pass-if (=exact -1 (truncate  -7/6)))
+    (pass-if (=exact  0 (truncate  -5/6)))
+    (pass-if (=exact  0 (truncate  -4/6)))
+    (pass-if (=exact  0 (truncate  -3/6)))
+    (pass-if (=exact  0 (truncate  -2/6)))
+    (pass-if (=exact  0 (truncate  -1/6)))
+    (pass-if (=exact  0 (truncate   1/6)))
+    (pass-if (=exact  0 (truncate   2/6)))
+    (pass-if (=exact  0 (truncate   3/6)))
+    (pass-if (=exact  0 (truncate   4/6)))
+    (pass-if (=exact  0 (truncate   5/6)))
+    (pass-if (=exact  1 (truncate   7/6)))
+    (pass-if (=exact  1 (truncate   8/6)))
+    (pass-if (=exact  1 (truncate   9/6)))
+    (pass-if (=exact  1 (truncate  10/6)))
+    (pass-if (=exact  1 (truncate  11/6)))
+    (pass-if (=exact  2 (truncate  13/6)))
+    (pass-if (=exact  2 (truncate  14/6)))
+    (pass-if (=exact  2 (truncate  15/6)))
+    (pass-if (=exact  2 (truncate  16/6)))
+    (pass-if (=exact  2 (truncate  17/6))))
+
+  (with-test-prefix "real"
+    (pass-if "0.0"
+      (and (= 0.0    (truncate 0.0))
+	   (inexact? (truncate 0.0))))
+
+    (pass-if "1.0"
+      (and (= 1.0    (truncate 1.0))
+	   (inexact? (truncate 1.0))))
+
+    (pass-if "-1.0"
+      (and (= -1.0   (truncate -1.0))
+	   (inexact? (truncate -1.0))))
+
+    (pass-if "-3.1"
+      (and (= -3.0   (truncate -3.1))
+	   (inexact? (truncate -3.1))))
+
+    (pass-if "3.1"
+      (and (= 3.0    (truncate 3.1))
+	   (inexact? (truncate 3.1))))
+
+    (pass-if "3.9"
+      (and (= 3.0    (truncate 3.9))
+	   (inexact? (truncate 3.9))))
+
+    (pass-if "-3.9"
+      (and (= -3.0   (truncate -3.9))
+	   (inexact? (truncate -3.9))))
+
+    (pass-if "1.5"
+      (and (= 1.0    (truncate 1.5))
+	   (inexact? (truncate 1.5))))
+
+    (pass-if "2.5"
+      (and (= 2.0    (truncate 2.5))
+	   (inexact? (truncate 2.5))))
+
+    (pass-if "3.5"
+      (and (= 3.0    (truncate 3.5))
+	   (inexact? (truncate 3.5))))
+
+    (pass-if "-1.5"
+      (and (= -1.0   (truncate -1.5))
+	   (inexact? (truncate -1.5))))
+
+    (pass-if "-2.5"
+      (and (= -2.0   (truncate -2.5))
+	   (inexact? (truncate -2.5))))
+
+    (pass-if "-3.5"
+      (and (= -3.0   (truncate -3.5))
+	   (inexact? (truncate -3.5))))))
 
 ;;;
 ;;; round
@@ -2911,49 +3993,182 @@
       (= 1.0 (exact->inexact (/ (1+ big) big))))))
 
 ;;;
-;;; floor
-;;;
-
-;;;
-;;; ceiling
-;;;
-
-;;;
 ;;; expt
 ;;;
 
 (with-test-prefix "expt"
-  (pass-if-exception "non-numeric base" exception:wrong-type-arg
-                     (expt #t 0))
-  (pass-if "(= 1 (expt 0 0))" (= 1 (expt 0 0)))
-  (pass-if "(= 1 (expt 0 0.0))" (= 1 (expt 0 0.0)))
-  (pass-if "(= 1 (expt 0.0 0))" (= 1 (expt 0.0 0)))
-  (pass-if "(= 1 (expt 0.0 0.0))" (= 1 (expt 0.0 0.0))))
+  (pass-if (documented? expt))
+
+  ;;
+  ;; expt no longer requires its first argument to be a scheme number,
+  ;; for the sake of extensibility, and expt calls integer-expt for
+  ;; integer powers.  To raise to a positive power, all that is required
+  ;; is that it can be multiplied using `*'.  For negative powers we
+  ;; must also be able to find the reciprocal.  If we try to raise #t to
+  ;; any power other than 0 or 1 it may throw an exception, depending on
+  ;; whether * has been defined for #t.  However, when raising to the 0
+  ;; or 1 power, the first argument is not manipulated at all.
+  ;;
+  ;; (pass-if-exception "non-numeric base" exception:wrong-type-arg
+  ;;                    (expt #t 0))
+  ;;
+
+  (pass-if (eqv? 1 (expt 0 0)))
+  (pass-if (eqv? 1 (expt 0.0 0)))
+  (pass-if (eqv? 1.0 (expt 0 0.0)))
+  (pass-if (eqv? 1.0 (expt 0.0 0.0)))
+  (pass-if (real-nan? (expt 0 -1)))
+  (pass-if (real-nan? (expt 0 -1.0)))
+  (pass-if (real-nan? (expt 0.0 -1)))
+  (pass-if (real-nan? (expt 0.0 -1.0)))
+  (pass-if (eqv? 0 (expt 0 3)))
+  (pass-if (= 0 (expt 0 4.0)))
+  (pass-if (eqv? 0.0 (expt 0.0 5)))
+  (pass-if (eqv? 0.0 (expt 0.0 6.0)))
+  (pass-if (eqv? -2742638075.5 (expt -2742638075.5 1)))
+  (pass-if (eqv? (* -2742638075.5 -2742638075.5)
+                 (expt -2742638075.5 2)))
+  (pass-if (eqv? 4.0 (expt -2.0 2.0)))
+  (pass-if (eqv? -1/8 (expt -2 -3)))
+  (pass-if (eqv? -0.125 (expt -2.0 -3)))
+  (pass-if (eqv? -0.125 (expt -2 -3.0)))
+  (pass-if (eqv? -0.125 (expt -2.0 -3.0)))
+  (pass-if (eqv? 0.25 (expt 2.0 -2.0)))
+  (pass-if (test-eqv? (* -1.0+0.0i 12398 12398) (expt +12398i 2.0)))
+  (pass-if (eqv-loosely? +i (expt -1 0.5)))
+  (pass-if (eqv-loosely? +i (expt -1 1/2)))
+  (pass-if (eqv-loosely? 1.0+1.7320508075688i (expt -8 1/3)))
+  (pass-if (eqv? +inf.0 (expt 2 +inf.0)))
+  (pass-if (eqv? +inf.0 (expt 2.0 +inf.0)))
+  (pass-if (eqv? 0.0 (expt 2 -inf.0)))
+  (pass-if (eqv? 0.0 (expt 2.0 -inf.0))))
+
+
+;;;
+;;; sin
+;;;
+
+(with-test-prefix "sin"
+  (pass-if (eqv? 0   (sin 0)))
+  (pass-if (eqv? 0.0 (sin 0.0)))
+  (pass-if (eqv-loosely? 1.0 (sin 1.57)))
+  (pass-if (eqv-loosely? +1.175i (sin +i)))
+  (pass-if (real-nan? (sin +nan.0)))
+  (pass-if (real-nan? (sin +inf.0)))
+  (pass-if (real-nan? (sin -inf.0))))
+
+;;;
+;;; cos
+;;;
+
+(with-test-prefix "cos"
+  (pass-if (eqv? 1   (cos 0)))
+  (pass-if (eqv? 1.0 (cos 0.0)))
+  (pass-if (eqv-loosely? 0.0 (cos 1.57)))
+  (pass-if (eqv-loosely? 1.543 (cos +i)))
+  (pass-if (real-nan? (cos +nan.0)))
+  (pass-if (real-nan? (cos +inf.0)))
+  (pass-if (real-nan? (cos -inf.0))))
+
+;;;
+;;; tan
+;;;
+
+(with-test-prefix "tan"
+  (pass-if (eqv? 0   (tan 0)))
+  (pass-if (eqv? 0.0 (tan 0.0)))
+  (pass-if (eqv-loosely? 1.0 (tan 0.785)))
+  (pass-if (eqv-loosely? +0.76i (tan +i)))
+  (pass-if (real-nan? (tan +nan.0)))
+  (pass-if (real-nan? (tan +inf.0)))
+  (pass-if (real-nan? (tan -inf.0))))
+
+;;;
+;;; asin
+;;;
+
+(with-test-prefix "asin"
+  (pass-if (complex-nan? (asin +nan.0)))
+  (pass-if (eqv? 0 (asin 0)))
+  (pass-if (eqv? 0.0 (asin 0.0))))
+
+;;;
+;;; acos
+;;;
+
+(with-test-prefix "acos"
+  (pass-if (complex-nan? (acos +nan.0)))
+  (pass-if (eqv? 0 (acos 1)))
+  (pass-if (eqv? 0.0 (acos 1.0))))
+
+;;;
+;;; atan
+;;;
+;;; FIXME: add tests for two-argument atan
+;;;
+(with-test-prefix "atan"
+  (pass-if (real-nan? (atan +nan.0)))
+  (pass-if (eqv? 0 (atan 0)))
+  (pass-if (eqv? 0.0 (atan 0.0)))
+  (pass-if (eqv-loosely?  1.57 (atan +inf.0)))
+  (pass-if (eqv-loosely? -1.57 (atan -inf.0))))
+
+;;;
+;;; sinh
+;;;
+
+(with-test-prefix "sinh"
+  (pass-if (= 0 (sinh 0)))
+  (pass-if (= 0.0 (sinh 0.0))))
+
+;;;
+;;; cosh
+;;;
+
+(with-test-prefix "cosh"
+  (pass-if (= 1 (cosh 0)))
+  (pass-if (= 1.0 (cosh 0.0))))
+
+;;;
+;;; tanh
+;;;
+
+(with-test-prefix "tanh"
+  (pass-if (= 0 (tanh 0)))
+  (pass-if (= 0.0 (tanh 0.0))))
 
 ;;;
 ;;; asinh
 ;;;
 
 (with-test-prefix "asinh"
-  (pass-if (= 0 (asinh 0))))
+  (pass-if (= 0 (asinh 0)))
+  (pass-if (= 0.0 (asinh 0.0))))
 
 ;;;
 ;;; acosh
 ;;;
 
 (with-test-prefix "acosh"
-  (pass-if (= 0 (acosh 1))))
+  (pass-if (= 0 (acosh 1)))
+  (pass-if (= 0.0 (acosh 1.0))))
 
 ;;;
 ;;; atanh
 ;;;
 
 (with-test-prefix "atanh"
-  (pass-if (= 0 (atanh 0))))
+  (pass-if (= 0 (atanh 0)))
+  (pass-if (= 0.0 (atanh 0.0))))
 
 ;;;
 ;;; make-rectangular
 ;;;
+  
+(with-test-prefix "make-rectangular"
+  (pass-if (real?      (make-rectangular 5.0  0  )))
+  (pass-if (not (real? (make-rectangular 5.0  0.0))))
+  (pass-if (not (real? (make-rectangular 5.0 -0.0)))))
 
 ;;;
 ;;; make-polar
@@ -2964,10 +4179,15 @@
   (define (almost= x y)
     (> 0.01 (magnitude (- x y))))
   
-  (pass-if (= 0 (make-polar 0 0)))
-  (pass-if (= 0 (make-polar 0 123.456)))
-  (pass-if (= 1 (make-polar 1 0)))
-  (pass-if (= -1 (make-polar -1 0)))
+  (pass-if (real?      (make-polar 0    1.0)))
+  (pass-if (real?      (make-polar 5.0  0  )))
+  (pass-if (not (real? (make-polar 5.0  0.0))))
+  (pass-if (not (real? (make-polar 5.0 -0.0))))
+
+  (pass-if (eqv?  0 (make-polar  0 0)))
+  (pass-if (eqv?  0 (make-polar  0 123.456)))
+  (pass-if (eqv?  1 (make-polar  1 0)))
+  (pass-if (eqv? -1 (make-polar -1 0)))
   
   (pass-if (almost= 0+i (make-polar 1 (* 0.5 pi))))
   (pass-if (almost= -1  (make-polar 1 (* 1.0 pi))))
@@ -2978,15 +4198,32 @@
 ;;; real-part
 ;;;
 
+(with-test-prefix "real-part"
+  (pass-if (documented? real-part))
+  (pass-if (eqv? 5.0 (real-part  5.0)))
+  (pass-if (eqv? 0.0 (real-part +5.0i)))
+  (pass-if (eqv? 5   (real-part  5)))
+  (pass-if (eqv? 1/5 (real-part  1/5)))
+  (pass-if (eqv? (1+ fixnum-max) (real-part (1+ fixnum-max)))))
+
 ;;;
 ;;; imag-part
 ;;;
+
+(with-test-prefix "imag-part"
+  (pass-if (documented? imag-part))
+  (pass-if (eqv? 0   (imag-part  5.0)))
+  (pass-if (eqv? 5.0 (imag-part +5.0i)))
+  (pass-if (eqv? 0   (imag-part  5)))
+  (pass-if (eqv? 0   (imag-part  1/5)))
+  (pass-if (eqv? 0   (imag-part (1+ fixnum-max)))))
 
 ;;;
 ;;; magnitude
 ;;;
 
 (with-test-prefix "magnitude"
+  (pass-if (documented? magnitude))
   (pass-if (= 0 (magnitude 0)))
   (pass-if (= 1 (magnitude 1)))
   (pass-if (= 1 (magnitude -1)))
@@ -3006,6 +4243,8 @@
   (define (almost= x y)
     (> 0.01 (magnitude (- x y))))
   
+  (pass-if (documented? angle))
+
   (pass-if "inum +ve"   (=        0 (angle 1)))
   (pass-if "inum -ve"   (almost= pi (angle -1)))
 
@@ -3020,7 +4259,8 @@
 ;;;
 
 (with-test-prefix "inexact->exact"
-  
+  (pass-if (documented? inexact->exact))
+
   (pass-if-exception "+inf" exception:out-of-range
     (inexact->exact +inf.0))
   
@@ -3042,21 +4282,37 @@
 ;;;
 
 (with-test-prefix "integer-expt"
+  (pass-if (documented? integer-expt))
 
-  (pass-if-exception "non-numeric base" exception:wrong-type-arg
-                     (integer-expt #t 0))
   (pass-if-exception "2^+inf" exception:wrong-type-arg
     (integer-expt 2 +inf.0))
   (pass-if-exception "2^-inf" exception:wrong-type-arg
     (integer-expt 2 -inf.0))
   (pass-if-exception "2^nan" exception:wrong-type-arg
-    (integer-expt 2 +nan.0)))
+    (integer-expt 2 +nan.0))
+
+  (pass-if (eqv? 1 (integer-expt 0 0)))
+  (pass-if (eqv? 1 (integer-expt 0.0 0)))
+  (pass-if (real-nan? (integer-expt 0 -1)))
+  (pass-if (real-nan? (integer-expt 0.0 -1)))
+  (pass-if (eqv? 0 (integer-expt 0 3)))
+  (pass-if (eqv? 0.0 (integer-expt 0.0 5)))
+  (pass-if (eqv? -2742638075.5 (integer-expt -2742638075.5 1)))
+  (pass-if (eqv? (* -2742638075.5 -2742638075.5)
+                 (integer-expt -2742638075.5 2)))
+  (pass-if (eqv? 4.0 (integer-expt -2.0 2)))
+  (pass-if (eqv? -1/8 (integer-expt -2 -3)))
+  (pass-if (eqv? -0.125 (integer-expt -2.0 -3)))
+  (pass-if (eqv? 0.25 (integer-expt 2.0 -2)))
+  (pass-if (test-eqv? (* -1.0+0.0i 12398 12398) (integer-expt +12398.0i 2))))
+
 
 ;;;
 ;;; integer-length
 ;;;
 
 (with-test-prefix "integer-length"
+  (pass-if (documented? integer-length))
   
   (with-test-prefix "-2^i, ...11100..00"
     (do ((n -1 (ash n 1))
@@ -3084,21 +4340,42 @@
 ;;;
 
 (with-test-prefix "log"
-  (pass-if "documented?"
-    (documented? log))
+  (pass-if (documented? log))
 
   (pass-if-exception "no args" exception:wrong-num-args
     (log))
   (pass-if-exception "two args" exception:wrong-num-args
     (log 123 456))
+  (pass-if-exception "(log 0)" exception:numerical-overflow
+    (log 0))
 
-  (pass-if (negative-infinity? (log 0)))
-  (pass-if (negative-infinity? (log 0.0)))
-  (pass-if (eqv? 0.0 (log 1)))
-  (pass-if (eqv? 0.0 (log 1.0)))
-  (pass-if (eqv-loosely? 1.0  (log const-e)))
-  (pass-if (eqv-loosely? 2.0  (log const-e^2)))
-  (pass-if (eqv-loosely? -1.0 (log const-1/e)))
+  (pass-if (test-eqv? -inf.0 (log 0.0)))
+  (pass-if (test-eqv? +inf.0 (log +inf.0)))
+  (pass-if (test-eqv? -inf.0+3.14159265358979i (log -0.0)))
+  (pass-if (test-eqv? +inf.0+3.14159265358979i (log -inf.0)))
+  (pass-if (test-eqv?  0.0 (log 1  )))
+  (pass-if (test-eqv?  0.0 (log 1.0)))
+  (pass-if (test-eqv?  1.0 (log const-e)))
+  (pass-if (test-eqv?  2.0 (log const-e^2)))
+  (pass-if (test-eqv? -1.0 (log const-1/e)))
+  (pass-if (test-eqv? -1.0+3.14159265358979i (log (- const-1/e))))
+  (pass-if (test-eqv?  2.30258509299405 (log 10)))
+  (pass-if (test-eqv?  2.30258509299405+3.14159265358979i (log -10)))
+
+  (pass-if (test-eqv?  1.0+0.0i (log (+ const-e +0.0i))))
+  (pass-if (test-eqv?  1.0-0.0i (log (+ const-e -0.0i))))
+
+  (pass-if (eqv-loosely?  230258.509299405 (log (expt 10  100000))))
+  (pass-if (eqv-loosely? -230258.509299405 (log (expt 10 -100000))))
+  (pass-if (eqv-loosely?  230257.410687116 (log (/ (expt 10 100000) 3))))
+  (pass-if (eqv-loosely?  230258.509299405+3.14159265358979i
+                          (log (- (expt 10 100000)))))
+  (pass-if (eqv-loosely? -230258.509299405+3.14159265358979i
+                          (log (- (expt 10 -100000)))))
+  (pass-if (eqv-loosely?  230257.410687116+3.14159265358979i
+                          (log (- (/ (expt 10 100000) 3)))))
+  (pass-if (test-eqv?  3.05493636349961e-151
+                       (log (/ (1+ (expt 2 500)) (expt 2 500)))))
 
   (pass-if (eqv-loosely? 1.0+1.57079i (log 0+2.71828i)))
   (pass-if (eqv-loosely? 1.0-1.57079i (log 0-2.71828i)))
@@ -3112,27 +4389,48 @@
 ;;;
 
 (with-test-prefix "log10"
-  (pass-if "documented?"
-    (documented? log10))
+  (pass-if (documented? log10))
 
   (pass-if-exception "no args" exception:wrong-num-args
     (log10))
   (pass-if-exception "two args" exception:wrong-num-args
     (log10 123 456))
+  (pass-if-exception "(log10 0)" exception:numerical-overflow
+    (log10 0))
 
-  (pass-if (negative-infinity? (log10 0)))
-  (pass-if (negative-infinity? (log10 0.0)))
-  (pass-if (eqv? 0.0 (log10 1)))
-  (pass-if (eqv? 0.0 (log10 1.0)))
-  (pass-if (eqv-loosely? 1.0  (log10 10.0)))
-  (pass-if (eqv-loosely? 2.0  (log10 100.0)))
-  (pass-if (eqv-loosely? -1.0 (log10 0.1)))
+  (pass-if (test-eqv? -inf.0 (log10 0.0)))
+  (pass-if (test-eqv? +inf.0 (log10 +inf.0)))
+  (pass-if (test-eqv? -inf.0+1.36437635384184i (log10 -0.0)))
+  (pass-if (test-eqv? +inf.0+1.36437635384184i (log10 -inf.0)))
+  (pass-if (test-eqv?  0.0 (log10   1  )))
+  (pass-if (test-eqv?  0.0 (log10   1.0)))
+  (pass-if (test-eqv?  1.0 (log10  10  )))
+  (pass-if (test-eqv?  1.0 (log10  10.0)))
+  (pass-if (test-eqv?  2.0 (log10 100.0)))
+  (pass-if (test-eqv? -1.0 (log10   0.1)))
+  (pass-if (test-eqv? -1.0+1.36437635384184i (log10  -0.1)))
+  (pass-if (test-eqv?  1.0+1.36437635384184i (log10 -10  )))
+
+  (pass-if (test-eqv?  1.0+0.0i (log10  10.0+0.0i)))
+  (pass-if (test-eqv?  1.0-0.0i (log10  10.0-0.0i)))
+
+  (pass-if (eqv-loosely?  100000.0 (log10 (expt 10  100000))))
+  (pass-if (eqv-loosely? -100000.0 (log10 (expt 10 -100000))))
+  (pass-if (eqv-loosely?   99999.5228787453 (log10 (/ (expt 10 100000) 3))))
+  (pass-if (eqv-loosely?  100000.0+1.36437635384184i
+                          (log10 (- (expt 10 100000)))))
+  (pass-if (eqv-loosely? -100000.0+1.36437635384184i
+                          (log10 (- (expt 10 -100000)))))
+  (pass-if (eqv-loosely?   99999.5228787453+1.36437635384184i
+                          (log10 (- (/ (expt 10 100000) 3)))))
+  (pass-if (test-eqv?  1.32674200523347e-151
+                       (log10 (/ (1+ (expt 2 500)) (expt 2 500)))))
 
   (pass-if (eqv-loosely? 1.0+0.68218i (log10 0+10.0i)))
   (pass-if (eqv-loosely? 1.0-0.68218i (log10 0-10.0i)))
 
-  (pass-if (eqv-loosely? 0.0+1.36437i (log10 -1)))
-  (pass-if (eqv-loosely? 1.0+1.36437i (log10 -10)))
+  (pass-if (eqv-loosely? 0.0+1.36437i (log10   -1)))
+  (pass-if (eqv-loosely? 1.0+1.36437i (log10  -10)))
   (pass-if (eqv-loosely? 2.0+1.36437i (log10 -100))))
 
 ;;;
@@ -3140,6 +4438,8 @@
 ;;;
 
 (with-test-prefix "logbit?"
+  (pass-if (documented? logbit?))
+
   (pass-if (eq? #f (logbit?  0 0)))
   (pass-if (eq? #f (logbit?  1 0)))
   (pass-if (eq? #f (logbit? 31 0)))
@@ -3175,6 +4475,7 @@
 ;;;
 
 (with-test-prefix "logcount"
+  (pass-if (documented? logcount))
   
   (with-test-prefix "-2^i, meaning ...11100..00"
     (do ((n -1 (ash n 1))
@@ -3202,6 +4503,8 @@
 ;;;
 
 (with-test-prefix "logior"
+  (pass-if (documented? logior))
+
   (pass-if (eqv? -1 (logior (ash -1 1) 1)))
 
   ;; check that bignum or bignum+inum args will reduce to an inum
@@ -3231,6 +4534,8 @@
 ;;;
 
 (with-test-prefix "lognot"
+  (pass-if (documented? lognot))
+
   (pass-if (= -1 (lognot 0)))
   (pass-if (= 0  (lognot -1)))
   (pass-if (= -2 (lognot 1)))
@@ -3242,12 +4547,59 @@
 	      (lognot #x-100000000000000000000000000000000))))
 
 ;;;
+;;; exact-integer-sqrt
+;;;
+
+(with-test-prefix "exact-integer-sqrt"
+  (define (non-negative-exact-integer? k)
+    (and (integer? k) (exact? k) (>= k 0)))
+
+  (define (test k)
+    (pass-if k (let-values (((s r) (exact-integer-sqrt k)))
+                 (and (non-negative-exact-integer? s)
+                      (non-negative-exact-integer? r)
+                      (= k (+ r (* s s)))
+                      (< k (* (1+ s) (1+ s)))))))
+
+  (define (test-wrong-type-arg k)
+    (pass-if-exception k exception:wrong-type-arg
+                       (let-values (((s r) (exact-integer-sqrt k)))
+                         #t)))
+
+  (pass-if (documented? exact-integer-sqrt))
+
+  (pass-if-exception "no args" exception:wrong-num-args
+    (exact-integer-sqrt))
+  (pass-if-exception "two args" exception:wrong-num-args
+    (exact-integer-sqrt 123 456))
+
+  (test 0)
+  (test 1)
+  (test 9)
+  (test 10)
+  (test fixnum-max)
+  (test (1+ fixnum-max))
+  (test (* fixnum-max fixnum-max))
+  (test (+ 1 (* fixnum-max fixnum-max)))
+  (test (expt 10 100))
+  (test (+ 3 (expt 10 100)))
+
+  (test-wrong-type-arg -1)
+  (test-wrong-type-arg 1/9)
+  (test-wrong-type-arg fixnum-min)
+  (test-wrong-type-arg (1- fixnum-min))
+  (test-wrong-type-arg 1.0)
+  (test-wrong-type-arg 1.5)
+  (test-wrong-type-arg "foo")
+  (test-wrong-type-arg 'foo))
+
+
+;;;
 ;;; sqrt
 ;;;
 
 (with-test-prefix "sqrt"
-  (pass-if "documented?"
-    (documented? sqrt))
+  (pass-if (documented? sqrt))
 
   (pass-if-exception "no args" exception:wrong-num-args
     (sqrt))
@@ -3274,14 +4626,262 @@
     (eqv-loosely? +7.071-7.071i (sqrt -100.0i))))
 
 
-;;
-;; equal? 
-;; 
+;;;
+;;; Tests for number-theoretic division operators:
+;;;
+;;; euclidean/
+;;; euclidean-quotient
+;;; euclidean-remainder
+;;; floor/
+;;; floor-quotient
+;;; floor-remainder
+;;; ceiling/
+;;; ceiling-quotient
+;;; ceiling-remainder
+;;; truncate/
+;;; truncate-quotient
+;;; truncate-remainder
+;;; centered/
+;;; centered-quotient
+;;; centered-remainder
+;;; round/
+;;; round-quotient
+;;; round-remainder
+;;;
 
+(with-test-prefix "Number-theoretic division"
 
-(with-test-prefix "equal?"
-  (pass-if
+  ;; Tests that (lo <1 x <2 hi),
+  ;; but allowing for imprecision
+  ;; if x is inexact.
+  (define (test-within-range? lo <1 x <2 hi)
+    (if (exact? x)
+        (and (<1 lo x) (<2 x hi))
+        (let ((lo (- lo test-epsilon))
+              (hi (+ hi test-epsilon)))
+          (<= lo x hi))))
 
-   ;; lazy reduction bit for rationals should not affect equal?
-   (equal? 1/2 ((lambda (x) (denominator x) x) 1/2))))
-   
+  (define (valid-euclidean-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (test-within-range? 0 <= r < (abs y)))
+             (test-eqv? q (/ x y)))))
+
+  (define (valid-floor-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (if (> y 0)
+                      (test-within-range? 0 <= r < y)
+                      (test-within-range? y < r <= 0)))
+             (test-eqv? q (/ x y)))))
+
+  (define (valid-ceiling-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (if (> y 0)
+                      (test-within-range? (- y) < r <= 0)
+                      (test-within-range?    0 <= r < (- y))))
+             (test-eqv? q (/ x y)))))
+
+  (define (valid-truncate-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (if (> x 0)
+                      (test-within-range?          0 <= r < (abs y))
+                      (test-within-range? (- (abs y)) < r <= 0)))
+             (test-eqv? q (/ x y)))))
+
+  (define (valid-centered-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (test-within-range?
+                   (* -1/2 (abs y)) <= r < (* +1/2 (abs y))))
+             (test-eqv? q (/ x y)))))
+
+  (define (valid-round-answer? x y q r)
+    (and (eq? (exact? q)
+              (exact? r)
+              (and (exact? x) (exact? y)))
+         (test-eqv? r (- x (* q y)))
+         (if (and (finite? x) (finite? y))
+             (and (integer? q)
+                  (let ((ay/2 (/ (abs y) 2)))
+                    (if (even? q)
+                        (test-within-range? (- ay/2) <= r <= ay/2)
+                        (test-within-range? (- ay/2) <  r <  ay/2))))
+             (test-eqv? q (/ x y)))))
+
+  (define (for lsts f) (apply for-each f lsts))
+
+  (define big (expt 10 (1+ (inexact->exact (ceiling (log10 fixnum-max))))))
+
+  (define (run-division-tests quo+rem quo rem valid-answer?)
+    (define (test n d)
+      (run-test (list n d) #t
+                (lambda ()
+                  (let-values (((q r) (quo+rem n d)))
+                    (and (test-eqv? q (quo n d))
+                         (test-eqv? r (rem n d))
+                         (valid-answer? n d q r))))))
+    (define (test+/- n d)
+      (test n    d )
+      (test n (- d))
+      (cond ((not (zero? n))
+             (test (- n)    d )
+             (test (- n) (- d)))))
+
+    (define (test-for-exception n d exception)
+      (let ((name (list n d)))
+        (pass-if-exception name exception (quo+rem n d))
+        (pass-if-exception name exception (quo n d))
+        (pass-if-exception name exception (rem n d))))
+
+    (run-test "documented?" #t
+              (lambda ()
+                (and (documented? quo+rem)
+                     (documented? quo)
+                     (documented? rem))))
+
+    (with-test-prefix "inum / inum"
+      (with-test-prefix "fixnum-min / -1"
+        (test fixnum-min -1))
+      (for '((1 2 5 10))  ;; denominators
+           (lambda (d)
+             (for '((0 1 2 5 10))  ;; multiples
+                  (lambda (m)
+                    (for '((-2 -1 0 1 2 3 4 5 7 10
+                               12 15 16 19 20))  ;; offsets
+                         (lambda (b)
+                           (test+/- (+ b (* m d))
+                                    d))))))))
+
+    (with-test-prefix "inum / big"
+      (with-test-prefix "fixnum-min / -fixnum-min"
+        (test fixnum-min (- fixnum-min)))
+      (with-test-prefix "fixnum-max / (2*fixnum-max)"
+        (test+/- fixnum-max (* 2 fixnum-max)))
+      (for `((0 1 2 10 ,(1- fixnum-max) ,fixnum-max))
+           (lambda (n)
+             (test    n  (1+ fixnum-max))
+             (test (- n) (1+ fixnum-max))
+             (test    n  (1- fixnum-min))
+             (test (- n) (1- fixnum-min)))))
+
+    (with-test-prefix "big / inum"
+      (with-test-prefix "-fixnum-min / fixnum-min"
+        (test (- fixnum-min) fixnum-min))
+      (for '((1 4 5 10))  ;; denominators
+           (lambda (d)
+             (for `((1 2 5 ,@(if (even? d)
+                                 '(1/2 3/2 5/2)
+                                 '())))  ;; multiples
+                  (lambda (m)
+                    (for '((-2 -1 0 1 2))  ;; offsets
+                         (lambda (b)
+                           (test+/- (+ b (* m d big))
+                                    d))))))))
+
+    (with-test-prefix "big / big"
+      (for `((,big ,(1+ big)))  ;; denominators
+           (lambda (d)
+             (for `((1 2 5 ,@(if (even? d)
+                                 '(1/2 3/2 5/2)
+                                 '())))  ;; multiples
+                  (lambda (m)
+                    (for '((-2 -1 0 1 2))  ;; offsets
+                         (lambda (b)
+                           (test+/- (+ b (* m d))
+                                    d))))))))
+
+    (with-test-prefix "inexact"
+      (for '((0.5 1.5 2.25 5.75))  ;; denominators
+           (lambda (d)
+             (for '((0 1 2 5 1/2 3/2 5/2))  ;; multiples
+                  (lambda (m)
+                    (for '((-2 -1 0 1 2))  ;; offsets
+                         (lambda (b)
+                           (test+/- (+ b (* m d))
+                                    d))))))))
+
+    (with-test-prefix "fractions"
+      (for '((1/10 16/3 10/7))  ;; denominators
+           (lambda (d)
+             (for '((0 1 2 5 1/2 3/2 5/2))  ;; multiples
+                  (lambda (m)
+                    (for '((-2/9 -1/11 0 1/3 2/3))  ;; offsets
+                         (lambda (b)
+                           (test+/- (+ b (* m d))
+                                    d))))))))
+
+    (with-test-prefix "mixed types"
+      (for `((10 ,big 12.0 10/7 +inf.0 -inf.0 +nan.0))  ;; denominators
+           (lambda (d)
+             (for `((25 ,(* 3/2 big) 130.0 15/7
+                        0 0.0 -0.0 +inf.0 -inf.0 +nan.0))  ;; numerators
+                  (lambda (n)
+                    (test+/- n d))))))
+
+    (with-test-prefix "divide by zero"
+      (for `((0 0.0 +0.0))  ;; denominators
+           (lambda (d)
+             (for `((15 ,(* 3/2 big) 18.0 33/7
+                        0 0.0 -0.0 +inf.0 -inf.0 +nan.0))  ;; numerators
+                  (lambda (n)
+                    (test-for-exception
+                     n d exception:numerical-overflow)))))))
+
+  (with-test-prefix "euclidean/"
+    (run-division-tests euclidean/
+                        euclidean-quotient
+                        euclidean-remainder
+                        valid-euclidean-answer?))
+
+  (with-test-prefix "floor/"
+    (run-division-tests floor/
+                        floor-quotient
+                        floor-remainder
+                        valid-floor-answer?))
+
+  (with-test-prefix "ceiling/"
+    (run-division-tests ceiling/
+                        ceiling-quotient
+                        ceiling-remainder
+                        valid-ceiling-answer?))
+
+  (with-test-prefix "truncate/"
+    (run-division-tests truncate/
+                        truncate-quotient
+                        truncate-remainder
+                        valid-truncate-answer?))
+
+  (with-test-prefix "centered/"
+    (run-division-tests centered/
+                        centered-quotient
+                        centered-remainder
+                        valid-centered-answer?))
+
+  (with-test-prefix "round/"
+    (run-division-tests round/
+                        round-quotient
+                        round-remainder
+                        valid-round-answer?)))

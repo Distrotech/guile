@@ -1,4 +1,4 @@
-/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1998,2000,2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -66,6 +66,174 @@
 #endif /* __MINGW32__ */
 
 #include <full-read.h>
+
+
+
+
+/* First some libgc shims. */
+
+/* Make sure GC_fn_type is defined; it is missing from the public
+   headers of GC 7.1 and earlier.  */
+#ifndef HAVE_GC_FN_TYPE
+typedef void * (* GC_fn_type) (void *);
+#endif
+
+
+#ifndef GC_SUCCESS
+#define GC_SUCCESS 0
+#endif
+
+#ifndef GC_UNIMPLEMENTED
+#define GC_UNIMPLEMENTED 3
+#endif
+
+/* Likewise struct GC_stack_base is missing before 7.1.  */
+#ifndef HAVE_GC_STACK_BASE
+struct GC_stack_base {
+  void * mem_base; /* Base of memory stack. */
+#ifdef __ia64__
+  void * reg_base; /* Base of separate register stack. */
+#endif
+};
+
+static int
+GC_register_my_thread (struct GC_stack_base *stack_base)
+{
+  return GC_UNIMPLEMENTED;
+}
+
+static void
+GC_unregister_my_thread ()
+{
+}
+
+#if !SCM_USE_PTHREAD_THREADS
+/* No threads; we can just use GC_stackbottom.  */
+static void *
+get_thread_stack_base ()
+{
+  return GC_stackbottom;
+}
+
+#elif defined HAVE_PTHREAD_ATTR_GETSTACK && defined HAVE_PTHREAD_GETATTR_NP \
+  && defined PTHREAD_ATTR_GETSTACK_WORKS
+/* This method for GNU/Linux and perhaps some other systems.
+   It's not for MacOS X or Solaris 10, since pthread_getattr_np is not
+   available on them.  */
+static void *
+get_thread_stack_base ()
+{
+  pthread_attr_t attr;
+  void *start, *end;
+  size_t size;
+
+  pthread_getattr_np (pthread_self (), &attr);
+  pthread_attr_getstack (&attr, &start, &size);
+  end = (char *)start + size;
+
+#if SCM_STACK_GROWS_UP
+  return start;
+#else
+  return end;
+#endif
+}
+
+#elif defined HAVE_PTHREAD_GET_STACKADDR_NP
+/* This method for MacOS X.
+   It'd be nice if there was some documentation on pthread_get_stackaddr_np,
+   but as of 2006 there's nothing obvious at apple.com.  */
+static void *
+get_thread_stack_base ()
+{
+  return pthread_get_stackaddr_np (pthread_self ());
+}
+
+#else 
+#error Threads enabled with old BDW-GC, but missing get_thread_stack_base impl.  Please upgrade to libgc >= 7.1.
+#endif
+
+static int
+GC_get_stack_base (struct GC_stack_base *stack_base)
+{
+  stack_base->mem_base = get_thread_stack_base ();
+#ifdef __ia64__
+  /* Calculate and store off the base of this thread's register
+     backing store (RBS).  Unfortunately our implementation(s) of
+     scm_ia64_register_backing_store_base are only reliable for the
+     main thread.  For other threads, therefore, find out the current
+     top of the RBS, and use that as a maximum. */
+  stack_base->reg_base = scm_ia64_register_backing_store_base ();
+  {
+    ucontext_t ctx;
+    void *bsp;
+    getcontext (&ctx);
+    bsp = scm_ia64_ar_bsp (&ctx);
+    if (stack_base->reg_base > bsp)
+      stack_base->reg_base = bsp;
+  }
+#endif
+  return GC_SUCCESS;
+}
+
+static void *
+GC_call_with_stack_base(void * (*fn) (struct GC_stack_base*, void*), void *arg)
+{
+  struct GC_stack_base stack_base;
+
+  stack_base.mem_base = (void*)&stack_base;
+#ifdef __ia64__
+  /* FIXME: Untested.  */
+  {
+    ucontext_t ctx;
+    getcontext (&ctx);
+    stack_base.reg_base = scm_ia64_ar_bsp (&ctx);
+  }
+#endif
+
+  return fn (&stack_base, arg);
+}
+#endif /* HAVE_GC_STACK_BASE */
+
+
+/* Now define with_gc_active and with_gc_inactive.  */
+
+#if (defined(HAVE_GC_DO_BLOCKING) && defined (HAVE_DECL_GC_DO_BLOCKING) && defined (HAVE_GC_CALL_WITH_GC_ACTIVE))
+
+/* We have a sufficiently new libgc (7.2 or newer).  */
+
+static void*
+with_gc_inactive (GC_fn_type func, void *data)
+{
+  return GC_do_blocking (func, data);
+}
+
+static void*
+with_gc_active (GC_fn_type func, void *data)
+{
+  return GC_call_with_gc_active (func, data);
+}
+
+#else
+
+/* libgc not new enough, so never actually deactivate GC.
+
+   Note that though GC 7.1 does have a GC_do_blocking, it doesn't have
+   GC_call_with_gc_active.  */
+
+static void*
+with_gc_inactive (GC_fn_type func, void *data)
+{
+  return func (data);
+}
+
+static void*
+with_gc_active (GC_fn_type func, void *data)
+{
+  return func (data);
+}
+
+#endif /* HAVE_GC_DO_BLOCKING */
+
 
 
 static void
@@ -291,6 +459,12 @@ unblock_from_queue (SCM queue)
 /* Getting into and out of guile mode.
  */
 
+/* Key used to attach a cleanup handler to a given thread.  Also, if
+   thread-local storage is unavailable, this key is used to retrieve the
+   current thread with `pthread_getspecific ()'.  */
+scm_i_pthread_key_t scm_i_thread_key;
+
+
 #ifdef SCM_HAVE_THREAD_STORAGE_CLASS
 
 /* When thread-local storage (TLS) is available, a pointer to the
@@ -300,17 +474,7 @@ unblock_from_queue (SCM queue)
    represent.  */
 SCM_THREAD_LOCAL scm_i_thread *scm_i_current_thread = NULL;
 
-# define SET_CURRENT_THREAD(_t)  scm_i_current_thread = (_t)
-
-#else /* !SCM_HAVE_THREAD_STORAGE_CLASS */
-
-/* Key used to retrieve the current thread with `pthread_getspecific ()'.  */
-scm_i_pthread_key_t scm_i_thread_key;
-
-# define SET_CURRENT_THREAD(_t)				\
-  scm_i_pthread_setspecific (scm_i_thread_key, (_t))
-
-#endif /* !SCM_HAVE_THREAD_STORAGE_CLASS */
+#endif /* SCM_HAVE_THREAD_STORAGE_CLASS */
 
 
 static scm_i_pthread_mutex_t thread_admin_mutex = SCM_I_PTHREAD_MUTEX_INITIALIZER;
@@ -322,67 +486,75 @@ static SCM scm_i_default_dynamic_state;
 /* Perform first stage of thread initialisation, in non-guile mode.
  */
 static void
-guilify_self_1 (SCM_STACKITEM *base)
+guilify_self_1 (struct GC_stack_base *base)
 {
-  scm_i_thread *t = scm_gc_malloc (sizeof (scm_i_thread), "thread");
+  scm_i_thread t;
 
-  t->pthread = scm_i_pthread_self ();
-  t->handle = SCM_BOOL_F;
-  t->result = SCM_BOOL_F;
-  t->cleanup_handler = SCM_BOOL_F;
-  t->mutexes = SCM_EOL;
-  t->held_mutex = NULL;
-  t->join_queue = SCM_EOL;
-  t->dynamic_state = SCM_BOOL_F;
-  t->dynwinds = SCM_EOL;
-  t->active_asyncs = SCM_EOL;
-  t->block_asyncs = 1;
-  t->pending_asyncs = 1;
-  t->critical_section_level = 0;
-  t->base = base;
+  /* We must arrange for SCM_I_CURRENT_THREAD to point to a valid value
+     before allocating anything in this thread, because allocation could
+     cause GC to run, and GC could cause finalizers, which could invoke
+     Scheme functions, which need the current thread to be set.  */
+
+  t.pthread = scm_i_pthread_self ();
+  t.handle = SCM_BOOL_F;
+  t.result = SCM_BOOL_F;
+  t.cleanup_handler = SCM_BOOL_F;
+  t.mutexes = SCM_EOL;
+  t.held_mutex = NULL;
+  t.join_queue = SCM_EOL;
+  t.dynamic_state = SCM_BOOL_F;
+  t.dynwinds = SCM_EOL;
+  t.active_asyncs = SCM_EOL;
+  t.block_asyncs = 1;
+  t.pending_asyncs = 1;
+  t.critical_section_level = 0;
+  t.base = base->mem_base;
 #ifdef __ia64__
-  /* Calculate and store off the base of this thread's register
-     backing store (RBS).  Unfortunately our implementation(s) of
-     scm_ia64_register_backing_store_base are only reliable for the
-     main thread.  For other threads, therefore, find out the current
-     top of the RBS, and use that as a maximum. */
-  t->register_backing_store_base = scm_ia64_register_backing_store_base ();
-  {
-    ucontext_t ctx;
-    void *bsp;
-    getcontext (&ctx);
-    bsp = scm_ia64_ar_bsp (&ctx);
-    if (t->register_backing_store_base > bsp)
-      t->register_backing_store_base = bsp;
-  }
+  t.register_backing_store_base = base->reg-base;
 #endif
-  t->continuation_root = SCM_EOL;
-  t->continuation_base = base;
-  scm_i_pthread_cond_init (&t->sleep_cond, NULL);
-  t->sleep_mutex = NULL;
-  t->sleep_object = SCM_BOOL_F;
-  t->sleep_fd = -1;
+  t.continuation_root = SCM_EOL;
+  t.continuation_base = t.base;
+  scm_i_pthread_cond_init (&t.sleep_cond, NULL);
+  t.sleep_mutex = NULL;
+  t.sleep_object = SCM_BOOL_F;
+  t.sleep_fd = -1;
 
-  if (pipe (t->sleep_pipe) != 0)
+  if (pipe (t.sleep_pipe) != 0)
     /* FIXME: Error conditions during the initialization phase are handled
        gracelessly since public functions such as `scm_init_guile ()'
        currently have type `void'.  */
     abort ();
 
-  scm_i_pthread_mutex_init (&t->admin_mutex, NULL);
-  t->current_mark_stack_ptr = NULL;
-  t->current_mark_stack_limit = NULL;
-  t->canceled = 0;
-  t->exited = 0;
-  t->guile_mode = 0;
+  scm_i_pthread_mutex_init (&t.admin_mutex, NULL);
+  t.current_mark_stack_ptr = NULL;
+  t.current_mark_stack_limit = NULL;
+  t.canceled = 0;
+  t.exited = 0;
+  t.guile_mode = 0;
 
-  SET_CURRENT_THREAD (t);
+  /* The switcheroo.  */
+  {
+    scm_i_thread *t_ptr = &t;
+    
+    GC_disable ();
+    t_ptr = GC_malloc (sizeof (scm_i_thread));
+    memcpy (t_ptr, &t, sizeof t);
 
-  scm_i_pthread_mutex_lock (&thread_admin_mutex);
-  t->next_thread = all_threads;
-  all_threads = t;
-  thread_count++;
-  scm_i_pthread_mutex_unlock (&thread_admin_mutex);
+    scm_i_pthread_setspecific (scm_i_thread_key, t_ptr);
+
+#ifdef SCM_HAVE_THREAD_STORAGE_CLASS
+    /* Cache the current thread in TLS for faster lookup.  */
+    scm_i_current_thread = t_ptr;
+#endif
+
+    scm_i_pthread_mutex_lock (&thread_admin_mutex);
+    t_ptr->next_thread = all_threads;
+    all_threads = t_ptr;
+    thread_count++;
+    scm_i_pthread_mutex_unlock (&thread_admin_mutex);
+
+    GC_enable ();
+  }
 }
 
 /* Perform second stage of thread initialisation, in guile mode.
@@ -485,6 +657,17 @@ do_thread_exit (void *v)
   return NULL;
 }
 
+static void *
+do_thread_exit_trampoline (struct GC_stack_base *sb, void *v)
+{
+  /* Won't hurt if we are already registered.  */
+#if SCM_USE_PTHREAD_THREADS
+  GC_register_my_thread (sb);
+#endif
+
+  return scm_with_guile (do_thread_exit, v);
+}
+
 static void
 on_thread_exit (void *v)
 {
@@ -499,19 +682,18 @@ on_thread_exit (void *v)
       t->held_mutex = NULL;
     }
 
-  SET_CURRENT_THREAD (v);
+  /* Reinstate the current thread for purposes of scm_with_guile
+     guile-mode cleanup handlers.  Only really needed in the non-TLS
+     case but it doesn't hurt to be consistent.  */
+  scm_i_pthread_setspecific (scm_i_thread_key, t);
 
   /* Ensure the signal handling thread has been launched, because we might be
      shutting it down.  */
   scm_i_ensure_signal_delivery_thread ();
 
-  /* Unblocking the joining threads needs to happen in guile mode
-     since the queue is a SCM data structure.  */
-
-  /* Note: Since `do_thread_exit ()' uses allocates memory via `libgc', we
-     assume the GC is usable at this point, and notably that thread-local
-     storage (TLS) hasn't been deallocated yet.  */
-  do_thread_exit (v);
+  /* Scheme-level thread finalizers and other cleanup needs to happen in
+     guile mode.  */
+  GC_call_with_stack_base (do_thread_exit_trampoline, t);
 
   /* Removing ourself from the list of all threads needs to happen in
      non-guile mode since all SCM values on our stack become
@@ -538,44 +720,50 @@ on_thread_exit (void *v)
 
   scm_i_pthread_mutex_unlock (&thread_admin_mutex);
 
-  SET_CURRENT_THREAD (NULL);
-}
+  scm_i_pthread_setspecific (scm_i_thread_key, NULL);
 
-#ifndef SCM_HAVE_THREAD_STORAGE_CLASS
+#if SCM_USE_PTHREAD_THREADS
+  GC_unregister_my_thread ();
+#endif
+}
 
 static scm_i_pthread_once_t init_thread_key_once = SCM_I_PTHREAD_ONCE_INIT;
 
 static void
 init_thread_key (void)
 {
-  scm_i_pthread_key_create (&scm_i_thread_key, NULL);
+  scm_i_pthread_key_create (&scm_i_thread_key, on_thread_exit);
 }
 
-#endif
-
-/* Perform any initializations necessary to bring the current thread
-   into guile mode, initializing Guile itself, if necessary.
+/* Perform any initializations necessary to make the current thread
+   known to Guile (via SCM_I_CURRENT_THREAD), initializing Guile itself,
+   if necessary.
 
    BASE is the stack base to use with GC.
 
    PARENT is the dynamic state to use as the parent, ot SCM_BOOL_F in
    which case the default dynamic state is used.
 
-   Return zero when the thread was in guile mode already; otherwise
+   Returns zero when the thread was known to guile already; otherwise
    return 1.
-*/
+
+   Note that it could be the case that the thread was known
+   to Guile, but not in guile mode (because we are within a
+   scm_without_guile call).   Check SCM_I_CURRENT_THREAD->guile_mode to
+   be sure.  New threads are put into guile mode implicitly.  */
 
 static int
-scm_i_init_thread_for_guile (SCM_STACKITEM *base, SCM parent)
+scm_i_init_thread_for_guile (struct GC_stack_base *base, SCM parent)
 {
-  scm_i_thread *t;
-
-#ifndef SCM_HAVE_THREAD_STORAGE_CLASS
   scm_i_pthread_once (&init_thread_key_once, init_thread_key);
-#endif
 
-  t = SCM_I_CURRENT_THREAD;
-  if (t == NULL)
+  if (SCM_I_CURRENT_THREAD)
+    {
+      /* Thread is already known to Guile.
+      */
+      return 0;
+    }
+  else
     {
       /* This thread has not been guilified yet.
        */
@@ -587,6 +775,12 @@ scm_i_init_thread_for_guile (SCM_STACKITEM *base, SCM parent)
 	     initialization.
 	  */
 	  scm_i_init_guile (base);
+
+#if defined (HAVE_GC_ALLOW_REGISTER_THREADS) && SCM_USE_PTHREAD_THREADS
+          /* Allow other threads to come in later.  */
+          GC_allow_register_threads ();
+#endif
+
 	  scm_i_pthread_mutex_unlock (&scm_i_init_mutex);
 	}
       else
@@ -595,130 +789,32 @@ scm_i_init_thread_for_guile (SCM_STACKITEM *base, SCM parent)
 	     the first time.  Only initialize this thread.
 	  */
 	  scm_i_pthread_mutex_unlock (&scm_i_init_mutex);
+
+          /* Register this thread with libgc.  */
+#if SCM_USE_PTHREAD_THREADS
+          GC_register_my_thread (base);
+#endif
+
 	  guilify_self_1 (base);
 	  guilify_self_2 (parent);
 	}
       return 1;
     }
-  else if (t->top)
-    {
-      /* This thread is already guilified but not in guile mode, just
-	 resume it.
-
-         A user call to scm_with_guile() will lead us to here.  This could
-         happen from anywhere on the stack, and in particular lower on the
-         stack than when it was when this thread was first guilified.  Thus,
-         `base' must be updated.  */
-#if SCM_STACK_GROWS_UP
-      if (base < t->base)
-         t->base = base;
-#else
-      if (base > t->base)
-         t->base = base;
-#endif
-
-      t->top = NULL;
-      return 1;
-    }
-  else
-    {
-      /* Thread is already in guile mode.  Nothing to do.
-      */
-      return 0;
-    }
 }
-
-#if SCM_USE_PTHREAD_THREADS
-
-#if defined HAVE_PTHREAD_ATTR_GETSTACK && defined HAVE_PTHREAD_GETATTR_NP
-/* This method for GNU/Linux and perhaps some other systems.
-   It's not for MacOS X or Solaris 10, since pthread_getattr_np is not
-   available on them.  */
-#define HAVE_GET_THREAD_STACK_BASE
-
-static SCM_STACKITEM *
-get_thread_stack_base ()
-{
-  pthread_attr_t attr;
-  void *start, *end;
-  size_t size;
-
-  pthread_getattr_np (pthread_self (), &attr);
-  pthread_attr_getstack (&attr, &start, &size);
-  end = (char *)start + size;
-
-  /* XXX - pthread_getattr_np from LinuxThreads does not seem to work
-     for the main thread, but we can use scm_get_stack_base in that
-     case.
-  */
-
-#ifndef PTHREAD_ATTR_GETSTACK_WORKS
-  if ((void *)&attr < start || (void *)&attr >= end)
-    return (SCM_STACKITEM *) GC_stackbottom;
-  else
-#endif
-    {
-#if SCM_STACK_GROWS_UP
-      return start;
-#else
-      return end;
-#endif
-    }
-}
-
-#elif defined HAVE_PTHREAD_GET_STACKADDR_NP
-/* This method for MacOS X.
-   It'd be nice if there was some documentation on pthread_get_stackaddr_np,
-   but as of 2006 there's nothing obvious at apple.com.  */
-#define HAVE_GET_THREAD_STACK_BASE
-static SCM_STACKITEM *
-get_thread_stack_base ()
-{
-  return pthread_get_stackaddr_np (pthread_self ());
-}
-
-#elif defined (__MINGW32__)
-/* This method for mingw.  In mingw the basic scm_get_stack_base can be used
-   in any thread.  We don't like hard-coding the name of a system, but there
-   doesn't seem to be a cleaner way of knowing scm_get_stack_base can
-   work.  */
-#define HAVE_GET_THREAD_STACK_BASE
-static SCM_STACKITEM *
-get_thread_stack_base ()
-{
-  return (SCM_STACKITEM *) GC_stackbottom;
-}
-
-#endif /* pthread methods of get_thread_stack_base */
-
-#else /* !SCM_USE_PTHREAD_THREADS */
-
-#define HAVE_GET_THREAD_STACK_BASE
-
-static SCM_STACKITEM *
-get_thread_stack_base ()
-{
-  return (SCM_STACKITEM *) GC_stackbottom;
-}
-
-#endif /* !SCM_USE_PTHREAD_THREADS */
-
-#ifdef HAVE_GET_THREAD_STACK_BASE
 
 void
 scm_init_guile ()
 {
-  scm_i_init_thread_for_guile (get_thread_stack_base (),
-			       scm_i_default_dynamic_state);
-}
-
-#endif
-
-void *
-scm_with_guile (void *(*func)(void *), void *data)
-{
-  return scm_i_with_guile_and_parent (func, data,
-				      scm_i_default_dynamic_state);
+  struct GC_stack_base stack_base;
+  
+  if (GC_get_stack_base (&stack_base) == GC_SUCCESS)
+    scm_i_init_thread_for_guile (&stack_base,
+                                 scm_i_default_dynamic_state);
+  else
+    {
+      fprintf (stderr, "Failed to get stack base for current thread.\n");
+      exit (1);
+    }
 }
 
 SCM_UNUSED static void
@@ -727,81 +823,103 @@ scm_leave_guile_cleanup (void *x)
   on_thread_exit (SCM_I_CURRENT_THREAD);
 }
 
-void *
-scm_i_with_guile_and_parent (void *(*func)(void *), void *data, SCM parent)
+struct with_guile_args
+{
+  GC_fn_type func;
+  void *data;
+  SCM parent;
+};
+
+static void *
+with_guile_trampoline (void *data)
+{
+  struct with_guile_args *args = data;
+
+  return scm_c_with_continuation_barrier (args->func, args->data);
+}
+  
+static void *
+with_guile_and_parent (struct GC_stack_base *base, void *data)
 {
   void *res;
-  int really_entered;
-  SCM_STACKITEM base_item;
+  int new_thread;
+  scm_i_thread *t;
+  struct with_guile_args *args = data;
 
-  really_entered = scm_i_init_thread_for_guile (&base_item, parent);
-  if (really_entered)
+  new_thread = scm_i_init_thread_for_guile (base, args->parent);
+  t = SCM_I_CURRENT_THREAD;
+  if (new_thread)
     {
-      scm_i_pthread_cleanup_push (scm_leave_guile_cleanup, NULL);
-      res = scm_c_with_continuation_barrier (func, data);
-      scm_i_pthread_cleanup_pop (0);
+      /* We are in Guile mode.  */
+      assert (t->guile_mode);
+
+      res = scm_c_with_continuation_barrier (args->func, args->data);
+
+      /* Leave Guile mode.  */
+      t->guile_mode = 0;
+    }
+  else if (t->guile_mode)
+    {
+      /* Already in Guile mode.  */
+      res = scm_c_with_continuation_barrier (args->func, args->data);
     }
   else
-    res = scm_c_with_continuation_barrier (func, data);
+    {
+      /* We are not in Guile mode, either because we are not within a
+         scm_with_guile, or because we are within a scm_without_guile.
 
+         This call to scm_with_guile() could happen from anywhere on the
+         stack, and in particular lower on the stack than when it was
+         when this thread was first guilified.  Thus, `base' must be
+         updated.  */
+#if SCM_STACK_GROWS_UP
+      if (SCM_STACK_PTR (base->mem_base) < t->base)
+        t->base = SCM_STACK_PTR (base->mem_base);
+#else
+      if (SCM_STACK_PTR (base->mem_base) > t->base)
+        t->base = SCM_STACK_PTR (base->mem_base);
+#endif
+
+      t->guile_mode = 1;
+      res = with_gc_active (with_guile_trampoline, args);
+      t->guile_mode = 0;
+    }
   return res;
 }
 
-
-/*** Non-guile mode.  */
-
-#ifdef HAVE_GC_DO_BLOCKING
-
-# ifndef HAVE_GC_FN_TYPE
-/* This typedef is missing from the public headers of GC 7.1 and earlier.  */
-typedef void * (* GC_fn_type) (void *);
-# endif /* HAVE_GC_FN_TYPE */
-
-# ifndef HAVE_DECL_GC_DO_BLOCKING
-/* This declaration is missing from the public headers of GC 7.1.  */
-extern void GC_do_blocking (GC_fn_type, void *);
-# endif /* HAVE_DECL_GC_DO_BLOCKING  */
-
-struct without_guile_arg
+static void *
+scm_i_with_guile_and_parent (void *(*func)(void *), void *data, SCM parent)
 {
-  void * (*function) (void *);
-  void    *data;
-  void    *result;
-};
+  struct with_guile_args args;
 
-static void
-without_guile_trampoline (void *closure)
-{
-  struct without_guile_arg *arg;
-
-  SCM_I_CURRENT_THREAD->guile_mode = 0;
-
-  arg = (struct without_guile_arg *) closure;
-  arg->result = arg->function (arg->data);
-
-  SCM_I_CURRENT_THREAD->guile_mode = 1;
+  args.func = func;
+  args.data = data;
+  args.parent = parent;
+  
+  return GC_call_with_stack_base (with_guile_and_parent, &args);
 }
 
-#endif /* HAVE_GC_DO_BLOCKING */
-
+void *
+scm_with_guile (void *(*func)(void *), void *data)
+{
+  return scm_i_with_guile_and_parent (func, data,
+				      scm_i_default_dynamic_state);
+}
 
 void *
 scm_without_guile (void *(*func)(void *), void *data)
 {
   void *result;
+  scm_i_thread *t = SCM_I_CURRENT_THREAD;
 
-#ifdef HAVE_GC_DO_BLOCKING
-  if (SCM_I_CURRENT_THREAD->guile_mode)
+  if (t->guile_mode)
     {
-      struct without_guile_arg arg;
-
-      arg.function = func;
-      arg.data = data;
-      GC_do_blocking ((GC_fn_type) without_guile_trampoline, &arg);
-      result = arg.result;
+      SCM_I_CURRENT_THREAD->guile_mode = 0;
+      result = with_gc_inactive (func, data);
+      SCM_I_CURRENT_THREAD->guile_mode = 1;
     }
   else
-#endif
+    /* Otherwise we're not in guile mode, so nothing to do.  */
     result = func (data);
 
   return result;
@@ -837,9 +955,6 @@ really_launch (void *d)
     t->result = scm_call_0 (thunk);
   else
     t->result = scm_catch (SCM_BOOL_T, thunk, handler);
-
-  /* Trigger a call to `on_thread_exit ()'.  */
-  pthread_exit (NULL);
 
   return 0;
 }
@@ -1923,7 +2038,7 @@ pthread_mutexattr_t scm_i_pthread_mutexattr_recursive[1];
 #endif
 
 void
-scm_threads_prehistory (SCM_STACKITEM *base)
+scm_threads_prehistory (void *base)
 {
 #if SCM_USE_PTHREAD_THREADS
   pthread_mutexattr_init (scm_i_pthread_mutexattr_recursive);
@@ -1936,7 +2051,7 @@ scm_threads_prehistory (SCM_STACKITEM *base)
   scm_i_pthread_mutex_init (&scm_i_misc_mutex, NULL);
   scm_i_pthread_cond_init (&wake_up_cond, NULL);
 
-  guilify_self_1 (base);
+  guilify_self_1 ((struct GC_stack_base *) base);
 }
 
 scm_t_bits scm_tc16_thread;

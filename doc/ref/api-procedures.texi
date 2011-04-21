@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Guile Reference Manual.
-@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2009, 2010
+@c Copyright (C)  1996, 1997, 2000, 2001, 2002, 2003, 2004, 2009, 2010, 2011
 @c   Free Software Foundation, Inc.
 @c See the file guile.texi for copying conditions.
 
@@ -13,8 +13,10 @@
 * Compiled Procedures::         Scheme procedures can be compiled.
 * Optional Arguments::          Handling keyword, optional and rest arguments.
 * Case-lambda::                 One function, multiple arities.
+* Higher-Order Functions::      Function that take or return functions.
 * Procedure Properties::        Procedure properties and meta-information.
 * Procedures with Setters::     Procedures with setters.
+* Inlinable Procedures::        Procedures that can be inlined.
 @end menu
 
 
@@ -488,7 +490,7 @@ take @code{lambda*}-style extended parameter lists, where @code{#:optional},
 semantics. Here is an example of a macro with an optional argument:
 
 @lisp
-(defmacro* transmorgify (a #:optional b)
+(defmacro* transmogrify (a #:optional b)
   (a 1))
 @end lisp
 @end deffn
@@ -572,6 +574,62 @@ not contribute to the ``matching'' behavior. That is to say,
 arguments, and on the predicate; keyword arguments may be present but
 do not contribute to the ``success'' of a match. In fact a bad keyword
 argument list may cause an error to be raised.
+
+@node Higher-Order Functions
+@subsection Higher-Order Functions
+
+@cindex higher-order functions
+
+As a functional programming language, Scheme allows the definition of
+@dfn{higher-order functions}, i.e., functions that take functions as
+arguments and/or return functions.  Utilities to derive procedures from
+other procedures are provided and described below.
+
+@deffn {Scheme Procedure} const value
+Return a procedure that accepts any number of arguments and returns
+@var{value}.
+
+@lisp
+(procedure? (const 3))        @result{} #t
+((const 'hello))              @result{} hello
+((const 'hello) 'world)       @result{} hello
+@end lisp
+@end deffn
+
+@deffn {Scheme Procedure} negate proc
+Return a procedure with the same arity as @var{proc} that returns the
+@code{not} of @var{proc}'s result.
+
+@lisp
+(procedure? (negate number?)) @result{} #t
+((negate odd?) 2)             @result{} #t
+((negate real?) 'dream)       @result{} #t
+((negate string-prefix?) "GNU" "GNU Guile")
+                              @result{} #f
+(filter (negate number?) '(a 2 "b"))
+                              @result{} (a "b")
+@end lisp
+@end deffn
+
+@deffn {Scheme Procedure} compose proc rest ...
+Compose @var{proc} with the procedures in @var{rest}, such that the last
+one in @var{rest} is applied first and @var{proc} last, and return the
+resulting procedure.  The given procedures must have compatible arity.
+
+@lisp
+(procedure? (compose 1+ 1-)) @result{} #t
+((compose sqrt 1+ 1+) 2)     @result{} 2.0
+((compose 1+ sqrt) 3)        @result{} 2.73205080756888
+(eq? (compose 1+) 1+)        @result{} #t
+
+((compose zip unzip2) '((1 2) (a b)))
+                             @result{} ((1 2) (a b))
+@end lisp
+@end deffn
+
+@deffn {Scheme Procedure} identity x
+Return X.
+@end deffn
 
 @node Procedure Properties
 @subsection Procedure Properties and Meta-information
@@ -740,6 +798,32 @@ Return the setter of @var{proc}, which must be either a procedure with
 setter or an operator struct.
 @end deffn
 
+@node Inlinable Procedures
+@subsection Inlinable Procedures
+
+You can define an @dfn{inlinable procedure} by using
+@code{define-inlinable} instead of @code{define}.  An inlinable
+procedure behaves the same as a regular procedure, but direct calls will
+result in the procedure body being inlined into the caller.
+
+Procedures defined with @code{define-inlinable} are @emph{always}
+inlined, at all direct call sites.  This eliminates function call
+overhead at the expense of an increase in code size.  Additionally, the
+caller will not transparently use the new definition if the inline
+procedure is redefined.  It is not possible to trace an inlined
+procedures or install a breakpoint in it (@pxref{Traps}).  For these
+reasons, you should not make a procedure inlinable unless it
+demonstrably improves performance in a crucial way.
+
+In general, only small procedures should be considered for inlining, as
+making large procedures inlinable will probably result in an increase in
+code size.  Additionally, the elimination of the call overhead rarely
+matters for for large procedures.
+
+@deffn {Scheme Syntax} define-inlinable (name parameter ...) body ...
+Define @var{name} as a procedure with parameters @var{parameter}s and
+body @var{body}.
+@end deffn
 
 @c Local Variables:
 @c TeX-master: "guile.texi"

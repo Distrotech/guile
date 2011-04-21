@@ -1,4 +1,4 @@
-;;;; 	Copyright (C) 2010 Free Software Foundation, Inc.
+;;;; 	Copyright (C) 2010, 2011 Free Software Foundation, Inc.
 ;;;;
 ;;;; This library is free software; you can redistribute it and/or
 ;;;; modify it under the terms of the GNU Lesser General Public
@@ -19,6 +19,8 @@
 (define-module (system foreign)
   #:use-module (rnrs bytevectors)
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-9 gnu)
   #:export (void
             float double
             short
@@ -33,7 +35,10 @@
 
             %null-pointer
             null-pointer?
+            pointer?
             make-pointer
+            pointer->scm
+            scm->pointer
             pointer-address
 
             pointer->bytevector
@@ -46,7 +51,9 @@
 
             pointer->procedure
             ;; procedure->pointer (see below)
-            make-c-struct parse-c-struct))
+            make-c-struct parse-c-struct
+
+            define-wrapped-pointer-type))
 
 (eval-when (load eval compile)
   (load-extension (string-append "libguile-" (effective-version))
@@ -69,85 +76,21 @@
 ;;; Structures.
 ;;;
 
-(define-syntax compile-time-value
-  (syntax-rules ()
-    "Evaluate the given expression at compile time.  The expression must
-evaluate to a simple datum."
-    ((_ exp)
-     (let-syntax ((v (lambda (s)
-                       (let ((val exp))
-                         (syntax-case s ()
-                           (_ (datum->syntax s val)))))))
-       v))))
+(define bytevector-pointer-ref
+  (case (sizeof '*)
+    ((8) (lambda (bv offset)
+           (make-pointer (bytevector-u64-native-ref bv offset))))
+    ((4) (lambda (bv offset)
+           (make-pointer (bytevector-u32-native-ref bv offset))))
+    (else (error "what machine is this?"))))
 
-(eval-when (eval compile load)
-  ;; The procedures below are used at compile time by the macros below.
-
-  (define (integer-ref type signed?)
-    (case (sizeof type)
-      ((8) (if signed?
-               'bytevector-s64-native-ref
-               'bytevector-u64-native-ref))
-      ((4) (if signed?
-               'bytevector-s32-native-ref
-               'bytevector-u32-native-ref))
-      ((2) (if signed?
-               'bytevector-s16-native-ref
-               'bytevector-u16-native-ref))
-      (else
-       (error "what machine is this?" type (sizeof type)))))
-
-  (define (integer-set type signed?)
-    (case (sizeof type)
-      ((8) (if signed?
-               'bytevector-s64-native-set!
-               'bytevector-u64-native-set!))
-      ((4) (if signed?
-               'bytevector-s32-native-set!
-               'bytevector-u32-native-set!))
-      ((2) (if signed?
-               'bytevector-s16-native-set!
-               'bytevector-u16-native-set!))
-      (else
-       (error "what machine is this?" type (sizeof type))))))
-
-(define-syntax define-integer-reader
-  (syntax-rules ()
-    ((_ name type signed?)
-     (letrec-syntax ((ref (identifier-syntax
-                           (compile-time-value
-                            (integer-ref type signed?)))))
-       (define name ref)))))
-
-(define-syntax define-integer-writer
-  (syntax-rules ()
-    ((_ name type signed?)
-     (letrec-syntax ((set (identifier-syntax
-                           (compile-time-value
-                            (integer-set type signed?)))))
-       (define name set)))))
-
-
-(define-integer-reader %read-short short #t)
-(define-integer-reader %read-int int #t)
-(define-integer-reader %read-long long #t)
-(define-integer-writer %write-short! short #t)
-(define-integer-writer %write-int! int #t)
-(define-integer-writer %write-long! long #t)
-
-(define-integer-reader %read-unsigned-short unsigned-short #f)
-(define-integer-reader %read-unsigned-int unsigned-int #f)
-(define-integer-reader %read-unsigned-long unsigned-long #f)
-(define-integer-writer %write-unsigned-short! unsigned-short #f)
-(define-integer-writer %write-unsigned-int! unsigned-int #f)
-(define-integer-writer %write-unsigned-long! unsigned-long #f)
-
-(define-integer-reader %read-size_t size_t #f)
-(define-integer-writer %write-size_t! size_t #f)
-
-(define-integer-reader %read-pointer '* #f)
-(define-integer-writer %write-pointer! '* #f)
-
+(define bytevector-pointer-set!
+  (case (sizeof '*)
+    ((8) (lambda (bv offset ptr)
+           (bytevector-u64-native-set! bv offset (pointer-address ptr))))
+    ((4) (lambda (bv offset ptr)
+           (bytevector-u32-native-set! bv offset (pointer-address ptr))))
+    (else (error "what machine is this?"))))
 
 (define *writers*
   `((,float . ,bytevector-ieee-single-native-set!)
@@ -160,18 +103,7 @@ evaluate to a simple datum."
     (,uint32 . ,bytevector-u32-native-set!)
     (,int64 . ,bytevector-s64-native-set!)
     (,uint64 . ,bytevector-u64-native-set!)
-
-    (,short         . ,%write-short!)
-    (,unsigned-short . ,%write-unsigned-short!)
-    (,int           . ,%write-int!)
-    (,unsigned-int  . ,%write-unsigned-int!)
-    (,long          . ,%write-long!)
-    (,unsigned-long . ,%write-unsigned-long!)
-    (,size_t        . ,%write-size_t!)
-
-    (*              . ,(lambda (bv offset ptr)
-                         (%write-pointer! bv offset
-                                          (pointer-address ptr))))))
+    (* . ,bytevector-pointer-set!)))
 
 (define *readers*
   `((,float . ,bytevector-ieee-single-native-ref)
@@ -184,17 +116,8 @@ evaluate to a simple datum."
     (,uint32 . ,bytevector-u32-native-ref)
     (,int64 . ,bytevector-s64-native-ref)
     (,uint64 . ,bytevector-u64-native-ref)
+    (* . ,bytevector-pointer-ref)))
 
-    (,short         . ,%read-short)
-    (,unsigned-short . ,%read-unsigned-short)
-    (,int           . ,%read-int)
-    (,unsigned-int  . ,%read-unsigned-int)
-    (,long          . ,%read-long)
-    (,unsigned-long . ,%read-unsigned-long)
-    (,size_t        . ,%read-size_t)
-
-    (*              . ,(lambda (bv offset)
-                         (make-pointer (%read-pointer bv offset))))))
 
 (define (align off alignment)
   (1+ (logior (1- off) (1- alignment))))
@@ -243,3 +166,38 @@ evaluate to a simple datum."
                     0
                     types)))
     (read-c-struct (pointer->bytevector foreign size) 0 types)))
+
+
+;;;
+;;; Wrapped pointer types.
+;;;
+
+(define-syntax define-wrapped-pointer-type
+  (lambda (stx)
+    "Define helper procedures to wrap pointer objects into Scheme
+objects with a disjoint type.  Specifically, this macro defines PRED, a
+predicate for the new Scheme type, WRAP, a procedure that takes a
+pointer object and returns an object that satisfies PRED, and UNWRAP
+which does the reverse.  PRINT must name a user-defined object printer."
+    (syntax-case stx ()
+      ((_ type-name pred wrap unwrap print)
+       (with-syntax ((%wrap (datum->syntax #'wrap (gensym "wrap"))))
+         #'(begin
+             (define-record-type type-name
+               (%wrap pointer)
+               pred
+               (pointer unwrap))
+             (define wrap
+               ;; Use a weak hash table to preserve pointer identity, i.e.,
+               ;; PTR1 == PTR2 <-> (eq? (wrap PTR1) (wrap PTR2)).
+               (let ((ptr->obj (make-weak-value-hash-table 3000)))
+                 (lambda (ptr)
+                   ;; XXX: We can't use `hash-create-handle!' +
+                   ;; `set-cdr!' here because the former would create a
+                   ;; weak-cdr pair but the latter wouldn't register a
+                   ;; disappearing link (see `scm_hash_fn_set_x'.)
+                   (or (hash-ref ptr->obj ptr)
+                       (let ((o (%wrap ptr)))
+                         (hash-set! ptr->obj ptr o)
+                         o)))))
+             (set-record-type-printer! type-name print)))))))
