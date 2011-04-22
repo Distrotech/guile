@@ -1,4 +1,4 @@
-;;;; lua-eval-2.test --- basic tests for builtin lua constructs, act III  -*- mode: scheme -*-
+;;;; lua-eval-3.test --- basic tests for builtin lua constructs, act III  -*- mode: scheme -*-
 ;;;;
 ;;;; Copyright (C) 2010 Free Software Foundation, Inc.
 ;;;;
@@ -45,5 +45,5 @@
     ;;; y will equal 2 in case of extra eval
     (test "y = 0 function tmp() y = y + 1 return true end assert(tmp() or tmp()) return y == 1")
     ;;; y will equal 4 in case of extra eval
-    (test "y = 0 function tmp() y = y + 2 return false end; function tmp2() y = y + 1 return true end; print(tmp() and tmp2()) print(y) return y == 2")
+    (test "y = 0 function void(x) end function tmp() y = y + 2 return false end; function tmp2() y = y + 1 return true end; void(tmp() and tmp2()) return y == 2")
   ))

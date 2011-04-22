@@ -9,13 +9,13 @@ This is an org-mode todo list of stuff that needs to be done for Guile Lua.
 ** TODO Use prompt and abort instead of throw and catch
 ** TODO Standard library function: module
 ** TODO Standard library function: table.sort
-** TODO Get the official test suite running
+** TODO Get the official Lua 5.1 test suite running
 
 * Eh
+** TODO Standard library function: math.frexp
+   Pending some additions to Guile's numeric tower.
 ** TODO Better testing of standard library modules io, os
 ** TODO Function environments (getfenv and setfenv)
-** TODO Parser should probably be rewritten
-
 
 * Differences
   Here are some difference in Guile Lua's behavior that should not cause

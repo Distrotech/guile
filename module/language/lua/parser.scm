@@ -125,7 +125,7 @@
 (define *special-tokens*
   '(#\. #\( #\) #\, #\- #\< #\; #\+ #\{ #\} #\[ #\] #\: #\#
     #:function #:end #:if #:return #:elseif #:then #:else #:true #:false
-    #:nil #:== #:~= #:= #\> #:>= #:<= #:local #:dots #:break #:do #:in
+    #:nil #:== #:~= #:= #\> #:>= #:<= #:local #:varargs #:break #:do #:in
     #:and #:or))
 
 (define (token/type t)
@@ -466,7 +466,7 @@
                (values (reverse! parameters) #f))))
         ((#\))
          (values (reverse! parameters) #f))
-        ((#:dots)
+        ((#:varargs)
          (advance!)
          (values (reverse! parameters) #t))
         (else
@@ -532,7 +532,7 @@
         ;; table-literal
         ((#\{) (table-literal))
         ;; ...
-        ((#:dots)
+        ((#:varargs)
          (unless *vararg-function*
            (syntax-error src "cannot use '...' outside of a variable arguments function"))
          (advance! (make-ast-variable-arguments src)))

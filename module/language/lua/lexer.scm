@@ -282,7 +282,7 @@ of an identifier"
                    (begin
                      (read-char)
                      (if (eqv? (peek-char) #\.)
-                         (begin (read-char) #:dots)
+                         (begin (read-char) #:varargs)
                          #:concat))
                    #\.)))
 
