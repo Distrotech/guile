@@ -18,9 +18,6 @@
 
 (define-module (test-lua)
   #:use-module (ice-9 format)
-  #:use-module (language tree-il)
-  #:use-module (srfi srfi-1)
-  #:use-module (srfi srfi-8)
   #:use-module (system base compile)
   #:use-module (test-suite lib)
 
@@ -41,9 +38,22 @@
         ((_ string)
          (test string #t)))))
 
+#|
     ;; make sure logical expressions don't evaluate expressions twice
     ;;; y will equal 2 in case of extra eval
     (test "y = 0 function tmp() y = y + 1 return true end assert(tmp() or tmp()) return y == 1")
     ;;; y will equal 4 in case of extra eval
     (test "y = 0 function void(x) end function tmp() y = y + 2 return false end; function tmp2() y = y + 1 return true end; void(tmp() and tmp2()) return y == 2")
+|#
+    1
   ))
+
+
+(define (from-string string)
+  (compile ((make-parser (open-input-string string)))
+           #:from 'lua
+           #:to 'value))
+
+;(format #t "~a\n" (from-string "function tmp() return 4,5 end print(1,2,3,tmp())"))
+
+(format #t "~a\n" (from-string "function tmp(...) print(1,2,3,...) end tmp(4,5)"))

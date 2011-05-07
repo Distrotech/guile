@@ -18,9 +18,6 @@
 
 (define-module (test-lua)
   #:use-module (ice-9 format)
-  #:use-module (language tree-il)
-  #:use-module (srfi srfi-1)
-  #:use-module (srfi srfi-8)
   #:use-module (system base compile)
   #:use-module (test-suite lib)
 

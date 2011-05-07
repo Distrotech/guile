@@ -9,7 +9,7 @@
 
 In addition to Scheme, a user may write a Guile program in an increasing
 number of other languages. Currently supported languages include Emacs
-Lisp and ECMAScript.
+Lisp, ECMAScript, and Lua.
 
 Guile is still fundamentally a Scheme, but it tries to support a wide
 variety of language building-blocks, so that other languages can be
@@ -24,6 +24,7 @@ Virtual Machine}.)
 * Using Other Languages::       How to use other languages.
 * Emacs Lisp::                  The dialect of Lisp used in Emacs.
 * ECMAScript::                  As seen on television.
+* Lua::                         A flexible scripting language.
 @end menu
 
 
@@ -270,6 +271,29 @@ perhaps by some more responsible hacker.
 In the meantime, the charitable user might investigate such invocations
 as @code{,L ecmascript} and @code{cat test-suite/tests/ecmascript.test}.
 
+@node Lua
+@subsection Lua
+
+@url{http://www.lua.org,Lua}
+is a powerful scripting language similar in many ways to Scheme.
+Support for Lua 5.1 was added to Guile to make Guile a more attractive
+option for extending programs, and to make it possible for projects
+already using Lua to switch to Guile without giving up support for Lua.
+
+This section of the manual documents Guile's implementation of Lua. For
+documentation of the Lua language, please see
+@url{http://www.lua.org/docs.html,Lua's official documentation}.
+
+Guile's implementation of Lua is intended to behave exactly like the
+reference implementation of Lua 5.1, but problems are to be expected. If
+your Lua programs act strangely, it may very well be a problem with
+Guile's Lua.
+
+Notes:
+
+collectgarbage is not fully supported. Attempting to use collectgarbage
+with an argument other than ``collect'' will result in a warning being
+printed.
 
 @c Local Variables:
 @c TeX-master: "guile.texi"

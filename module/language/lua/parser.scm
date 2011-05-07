@@ -351,7 +351,7 @@
          (enforce-next! #\))
          ;; finished
          save))
-      (else (syntax-error (get-source-info) "unexpected symbol ~a" token))))
+      (else (syntax-error (get-source-info) "unexpected token ~a" token))))
 
   ;; index -> '[' expression ']'
   (define (index)
@@ -598,7 +598,6 @@
 
   ;; FIXME: does a left-to-right assignment, so x, y = y, x probably
   ;; doesn't work. Also does not appear to handle the x, y = foo() case.
-  ;;
   (define (parse-assignment src left right)
     ;; and then parses it, branching to handle overflows on either side if necessary
     (make-ast-sequence

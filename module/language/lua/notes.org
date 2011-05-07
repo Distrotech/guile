@@ -5,17 +5,32 @@ This is an org-mode todo list of stuff that needs to be done for Guile Lua.
    CLOSED: [2011-04-19 Tue 19:36]
 ** DONE Standard library functions: math.modf, math.fmod
    CLOSED: [2011-04-21 Thu 15:43]
-** TODO Variable arguments and multiple returns
+** TODO Assignment cannot be naive left-to-right
+   a,b = b,a should work correctly
+** STARTED Multiple values
+   What's the deal? In Lua, the rightmost expression in a
+   comma-delimited list (such as in a function application, or the
+   right-hand side of an assignment) may result in multiple values.
+
+** TODO Variable arguments
+
+** TODO Function environments (getfenv and setfenv)
 ** TODO Use prompt and abort instead of throw and catch
 ** TODO Standard library function: module
 ** TODO Standard library function: table.sort
 ** TODO Get the official Lua 5.1 test suite running
+** TODO Lua working at the REPL
+** TODO Document some stuff
 
 * Eh
 ** TODO Standard library function: math.frexp
    Pending some additions to Guile's numeric tower.
+** TODO Use module binders
 ** TODO Better testing of standard library modules io, os
-** TODO Function environments (getfenv and setfenv)
+** TODO compile-tree-il.scm should be rewritten
+   Right now it's a jungle of tree-il constructors. There's a lot of
+   boilerplate code that could be made much nicer using macros and
+   parse-tree-il.
 
 * Differences
   Here are some difference in Guile Lua's behavior that should not cause

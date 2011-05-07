@@ -332,10 +332,7 @@
       (runtime-error "~a" (if (null? opts) "assertion failed" (car opts)))))
 
 ;; NOTE: collectgarbage cannot be fully implemented because it expects
-;; an incremental garbage collector that matches lua's interface; libgc
-;; can be incremental but i don't think we can turn that on from guile
-;; currently, and even if we could i'm not sure that libgc exposes what
-;; lua wants
+;; an incremental garbage collector that matches lua's interface
 (define-global collectgarbage
   (lambda* (opt #:optional (arg #nil))
     (define (ignore) (runtime-warning "collectgarbage cannot respect command ~a" opt))

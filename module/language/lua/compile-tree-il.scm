@@ -20,6 +20,7 @@
 
 (define-module (language lua compile-tree-il)
   #:use-module (language tree-il)
+  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-39)
   #:use-module ((system base syntax) #:select (record-case))
   #:use-module (rnrs control)
@@ -35,19 +36,44 @@
 
 
 (define (ref-runtime src name)
+  "Shorthand for referring to a variable in the (language lua runtime) module"
   (make-module-ref src *runtime-name* name #t))
 
 (define (make-runtime-application src name arguments)
-  "Apply a function in the (language lua runtime) module"
+  "Shorthand for creating an application of a function in the (language lua runtime) module"
   (make-application src (ref-runtime src name) arguments))
 
 (define (make-table-ref src table index)
+  "Shorthand for calling the index function in (language lua runtime)"
   (make-runtime-application src 'index
     (list table (if (symbol? index) (make-const src (symbol->string index)) index))))
 
 (define (make-table-set! src table index exp)
+  "Shorthand for calling the new-index! function in (language lua runtime)"
   (make-runtime-application src 'new-index!
     (list table (if (symbol? index) (make-const src (symbol->string index)) index) exp)))
+
+;; Calling conventions
+(define* (make-plain-lambda-case src args gensyms body #:optional alternate)
+  (make-lambda-case src args #f #f #f '() (or gensyms args) body alternate))
+
+(define* (make-plain-lambda src args gensyms body #:optional alternate)
+  (make-lambda src '()
+               (make-plain-lambda-case src args gensyms body alternate)))
+
+(define (make-arg-ignoring-lambda src body)
+  (make-lambda src '()
+               (make-lambda-case src '() #f '_ #f '() (list (gensym "_"))
+                                 body #f)))
+
+(define (make-catch-all-lambda src body rest-gensym)
+  (make-lambda src '()
+               (make-lambda-case src '() #f 'rest #f '() (list rest-gensym)
+                                 body #f)))
+
+(define (make-argless-lambda src body)
+  (make-plain-lambda src '() #f body))
+
 
 ;; FIXME: use prompt and abort rather than catch and throw
 (define (apply-named-lua-function src name get-body)
@@ -81,24 +107,15 @@
              (make-application src (make-lexical-ref src loop loop) '())))
       (make-void src)))))
 
-;; calling conventions
-(define* (make-plain-lambda-case src args gensyms body #:optional alternate)
-  (make-lambda-case src args #f #f #f '() (or gensyms args) body alternate))
+(define (could-result-in-multiple-values? x)
+  (if (not (null? x))
+      (let ((last-expr (last x)))
+        (or (ast-function-call? last-expr) (ast-variable-arguments? last-expr)))
+      #f))
 
-(define* (make-plain-lambda src args gensyms body #:optional alternate)
-  (make-lambda src '()
-               (make-plain-lambda-case src args gensyms body alternate)))
-
-(define (make-arg-ignoring-lambda src body)
-  (make-lambda src '()
-               (make-lambda-case src '() #f '_ #f '() (list (gensym "_"))
-                                 body #f)))
-
-(define (make-argless-lambda src body)
-  (make-plain-lambda src '() #f body))
-
-(define (adjust-to-single-value src exp)
-  "adjust an expression so that it only returns one result; the rest are
+;; TODO REMOVE
+#;(define (adjust-to-single-value src exp)
+  "Adjust an expression so that it only returns one result; the rest are
 dropped silently"
   ;; Rely on the truncating behavior of returning multiple values to a
   ;; singly-valued continuation.
@@ -153,12 +170,40 @@ dropped silently"
                           #f))))
 
     ((ast-function-call src operator operands)
- #|    (let* ((proc (compile operator))
-            (args (make-application src (make-primitive-ref src 'list) (map-compile operands)))
-            (app-args (make-application src (make-primitive-ref src 'list) (list proc args)))
-            (app (make-application src (make-primitive-ref src 'apply) (list (make-primitive-ref src 'apply) app-args)))) |#
      (let* ((proc (compile operator))
-            (app (make-application src proc (map-compile operands))))
+            ;; will be #t if the the last expression in the list is a
+            ;; function call or variable arguments, which means we need
+            ;; to account for #<values>
+            (need-to-apply-multiple-values? (could-result-in-multiple-values? operands))
+            (args (map-compile operands)))
+       (define app
+         (if need-to-apply-multiple-values?
+             ;; Get the last function's (the one that could result in
+             ;; multiple values) return values using call-with-values
+             ;; and a function that takes variable arguments. Then
+             ;; append those variable arguments to the rest of the
+             ;; expression, and apply the first function to it)
+             (make-application src
+               (make-primitive-ref src 'call-with-values)
+               (list
+                 (make-argless-lambda src (make-sequence src (last-pair args)))
+                 (let ((rest-gensym (gensym "rest")))
+                   (make-catch-all-lambda src
+                     (make-application src (make-primitive-ref src 'apply)
+                       (list
+                         proc
+                         (make-application src
+                           (make-module-ref src '(srfi srfi-1) 'append! #t)
+                           (list
+                             (make-application src (make-primitive-ref src 'list) (drop-right args 1))
+                             (make-lexical-ref src 'rest rest-gensym)))))
+                       rest-gensym))))
+
+             (make-application src proc args)))
+
+       ;; If this is function is a global variable, prepend a call to
+       ;; check-global-function to make sure it's defined before
+       ;; applying it
        (if (ast-global-ref? operator)
            (make-sequence
             src (list
