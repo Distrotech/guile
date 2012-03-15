@@ -653,7 +653,7 @@ AC_CHECK_HEADERS([complex.h fenv.h io.h libc.h limits.h memory.h process.h strin
 sys/dir.h sys/ioctl.h sys/select.h \
 sys/time.h sys/timeb.h sys/times.h sys/stdtypes.h sys/types.h \
 sys/utime.h time.h unistd.h utime.h pwd.h grp.h sys/utsname.h \
-direct.h machine/fpu.h poll.h sched.h])
+direct.h machine/fpu.h poll.h sched.h sys/epoll.h])
 
 # "complex double" is new in C99, and "complex" is only a keyword if
 # <complex.h> is included
@@ -732,6 +732,7 @@ AC_CHECK_HEADERS([assert.h crt_externs.h])
 #       for gcc to provide the "complex double" type but the system to not
 #       have functions like cexp and clog
 #   clog10 - not in mingw (though others like clog and csqrt are)
+#   epoll_create, epoll_create1: glibc/Linux API
 #   fesetround - available in C99, but not older systems
 #   ftruncate - posix, but probably not older systems (current mingw
 #               has it as an inline for chsize)
@@ -751,7 +752,7 @@ AC_CHECK_HEADERS([assert.h crt_externs.h])
 #   utimensat: posix.1-2008
 #   sched_getaffinity, sched_setaffinity: GNU extensions (glibc)
 #
-AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid fesetround ftime ftruncate fchown fchmod getcwd geteuid getsid gettimeofday gmtime_r ioctl lstat mkdir mknod nice pipe _pipe poll readdir_r readdir64_r readlink rename rmdir select setegid seteuid setlocale setpgid setsid sigaction siginterrupt stat64 strftime strptime symlink sync sysconf tcgetpgrp tcsetpgrp times uname waitpid strdup system usleep atexit on_exit chown link fcntl ttyname getpwent getgrent kill getppid getpgrp fork setitimer getitimer strchr strcmp index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron strcoll strcoll_l newlocale utimensat sched_getaffinity sched_setaffinity])
+AC_CHECK_FUNCS([DINFINITY DQNAN cexp chsize clog clog10 ctermid epoll_create epoll_create1 fesetround ftime ftruncate fchown fchmod getcwd geteuid getsid gettimeofday gmtime_r ioctl lstat mkdir mknod nice pipe _pipe poll readdir_r readdir64_r readlink rename rmdir select setegid seteuid setlocale setpgid setsid sigaction siginterrupt stat64 strftime strptime symlink sync sysconf tcgetpgrp tcsetpgrp times uname waitpid strdup system usleep atexit on_exit chown link fcntl ttyname getpwent getgrent kill getppid getpgrp fork setitimer getitimer strchr strcmp index bcopy memcpy rindex truncate unsetenv isblank _NSGetEnviron strcoll strcoll_l newlocale utimensat sched_getaffinity sched_setaffinity])
 
 # Reasons for testing:
 #   netdb.h - not in mingw
