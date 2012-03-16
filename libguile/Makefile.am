@@ -171,6 +171,7 @@ libguile_@GUILE_EFFECTIVE_VERSION@_la_SOURCES =				\
 	mallocs.c				\
 	memoize.c				\
 	modules.c				\
+	nio.c					\
 	null-threads.c				\
 	numbers.c				\
 	objcodes.c				\
@@ -564,6 +565,7 @@ modinclude_HEADERS =				\
 	memoize.h				\
 	modules.h				\
 	net_db.h				\
+	nio.h					\
 	null-threads.h				\
 	numbers.h				\
 	objcodes.h				\

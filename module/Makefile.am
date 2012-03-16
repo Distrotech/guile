@@ -214,6 +214,7 @@ ICE_9_SOURCES = \
   ice-9/mapping.scm \
   ice-9/match.scm \
   ice-9/networking.scm \
+  ice-9/nio.scm \
   ice-9/null.scm \
   ice-9/occam-channel.scm \
   ice-9/optargs.scm \

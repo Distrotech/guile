@@ -85,6 +85,7 @@
 #include "libguile/memoize.h"
 #include "libguile/modules.h"
 #include "libguile/net_db.h"
+#include "libguile/nio.h"
 #include "libguile/numbers.h"
 #include "libguile/objcodes.h"
 #include "libguile/objprop.h"
@@ -401,6 +402,7 @@ scm_i_init_guile (void *base)
   scm_register_foreign ();
   scm_register_srfi_1 ();
   scm_register_srfi_60 ();
+  scm_register_nio ();
   scm_register_poll ();
 
   scm_init_strings ();            /* Requires array-handle */
