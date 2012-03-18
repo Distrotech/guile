@@ -670,13 +670,17 @@ SCM_DEFINE (scm_setsockopt, "setsockopt", 4, 0, 0,
 
   int ilevel, ioptname;
 
-  sock = SCM_COERCE_OUTPORT (sock);
+  if (scm_is_integer (sock))
+    fd = scm_to_int (sock);
+  else
+    {
+      sock = SCM_COERCE_OUTPORT (sock);
+      SCM_VALIDATE_OPFPORT (1, sock);
+      fd = SCM_FPORT_FDES (sock);
+    }
 
-  SCM_VALIDATE_OPFPORT (1, sock);
   ilevel = scm_to_int (level);
   ioptname = scm_to_int (optname);
-
-  fd = SCM_FPORT_FDES (sock);
   
   if (ilevel == SOL_SOCKET)
     {
