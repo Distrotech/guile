@@ -146,43 +146,38 @@ port."
         (header-decl-writer decl)
         display)))
 
-(define (read-line* port)
+(define (read-line port)
   (let* ((pair (%read-line port))
          (line (car pair))
          (delim (cdr pair)))
     (if (and (string? line) (char? delim))
-        (let ((orig-len (string-length line)))
-          (let lp ((len orig-len))
-            (if (and (> len 0)
-                     (char-whitespace? (string-ref line (1- len))))
-                (lp (1- len))
-                (if (= len orig-len)
-                    line
-                    (substring line 0 len)))))
+        (string-trim-right line)
         (bad-header '%read line))))
 
-(define (read-continuation-line port val)
-  (if (or (eqv? (peek-char port) #\space)
-          (eqv? (peek-char port) #\tab))
+(define (continuation-line? port)
+  (case (peek-char port)
+    ((#\space #\tab) #t)
+    (else #f)))
+
+(define (read-continuation-line port val read-line continuation-line?)
+  (if (continuation-line? port)
       (read-continuation-line port
-                              (string-append val
-                                             (begin
-                                               (read-line* port))))
+                              (string-append val (read-line port))
+                              read-line continuation-line?)
       val))
 
-(define *eof* (call-with-input-string "" read))
-
-(define (read-header port)
+(define* (read-header port #:optional
+                      (read-line read-line)
+                      (continuation-line? continuation-line?))
   "Reads one HTTP header from @var{port}. Returns two values: the header
 name and the parsed Scheme value. May raise an exception if the header
 was known but the value was invalid.
 
 Returns the end-of-file object for both values if the end of the message
 body was reached (i.e., a blank line)."
-  (let ((line (read-line* port)))
-    (if (or (string-null? line)
-            (string=? line "\r"))
-        (values *eof* *eof*)
+  (let ((line (read-line port)))
+    (if (string-null? line)
+        (values the-eof-object the-eof-object)
         (let* ((delim (or (string-index line #\:)
                           (bad-header '%read line)))
                (sym (string->header (substring line 0 delim))))
@@ -192,7 +187,8 @@ body was reached (i.e., a blank line)."
             sym
             (read-continuation-line
              port
-             (string-trim-both line char-set:whitespace (1+ delim)))))))))
+             (string-trim-both line char-set:whitespace (1+ delim))
+             read-line continuation-line?)))))))
 
 (define (parse-header sym val)
   "Parse @var{val}, a string, with the parser registered for the header
@@ -218,11 +214,13 @@ Otherwise the value is written using @code{display}."
   ((header-writer sym) val port)
   (display "\r\n" port))
 
-(define (read-headers port)
+(define* (read-headers port #:optional (read-line read-line)
+                       (continuation-line? continuation-line?))
   "Read an HTTP message from @var{port}, returning the headers as an
 ordered alist."
   (let lp ((headers '()))
-    (call-with-values (lambda () (read-header port))
+    (call-with-values
+        (lambda () (read-header port read-line continuation-line?))
       (lambda (k v)
         (if (eof-object? k)
             (reverse! headers)
@@ -1051,10 +1049,10 @@ not have to have a scheme or host name.  The result is a URI object."
     (or (string->uri (substring str start end))
         (bad-request "Invalid URI: ~a" (substring str start end))))))
 
-(define (read-request-line port)
+(define* (read-request-line port #:optional (read-line read-line))
   "Read the first line of an HTTP request from @var{port}, returning
 three values: the method, the URI, and the version."
-  (let* ((line (read-line* port))
+  (let* ((line (read-line port))
          (d0 (string-index line char-set:whitespace)) ; "delimiter zero"
          (d1 (string-rindex line char-set:whitespace)))
     (if (and d0 d1 (< d0 d1))
@@ -1112,11 +1110,11 @@ three values: the method, the URI, and the version."
   (write-http-version version port)
   (display "\r\n" port))
 
-(define (read-response-line port)
+(define* (read-response-line port #:optional (read-line read-line))
   "Read the first line of an HTTP response from @var{port}, returning
 three values: the HTTP version, the response code, and the \"reason
 phrase\"."
-  (let* ((line (read-line* port))
+  (let* ((line (read-line port))
          (d0 (string-index line char-set:whitespace)) ; "delimiter zero"
          (d1 (and d0 (string-index line char-set:whitespace
                                    (skip-whitespace line d0)))))
