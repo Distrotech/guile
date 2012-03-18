@@ -378,6 +378,7 @@ WEB_SOURCES =					\
   web/response.scm				\
   web/server.scm				\
   web/server/http.scm				\
+  web/server/ethreads.scm			\
   web/uri.scm
 
 EXTRA_DIST += oop/ChangeLog-2008
