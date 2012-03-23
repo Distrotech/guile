@@ -36,8 +36,10 @@
             accept-eport
 
             get-u8
+            putback-u8
             lookahead-u8
             get-bytevector-some
+            putback-bytevector
             get-bytevector-n
             get-bytevector-n!
             get-bytevector-delimited
