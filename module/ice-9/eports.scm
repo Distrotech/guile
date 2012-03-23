@@ -315,7 +315,7 @@
 ;; delimiter, and the delimiter, or the EOF object if EOF was
 ;; encountered first.
 ;;
-(define* (get-bytevector-delimited eport predicate)
+(define* (get-bytevector-delimited eport predicate #:key limit)
   (define (collect-result prev prev-len bv)
     (if (null? prev-len)
         bv
@@ -328,6 +328,15 @@
               (let ((len (bytevector-length (car prev))))
                 (bytevector-copy! (car prev) 0 out (- prev-len len) len)
                 (lp (cdr prev) (- prev-len len)))))))))
+  (define (found-delimiter buf start len delimiter prev prev-len)
+    (when (and limit (> (+ len prev-len) limit))
+      (error "Input too long" limit (+ len prev-len)))
+    (let ((ret (make-bytevector len)))
+      (bytevector-copy! (buf-bv buf) start ret 0 len)
+      ;; Plus one for the delimiter, if present
+      (flush-buffer buf (if (eof-object? delimiter) len (1+ len)))
+      (values (collect-result prev prev-len ret)
+              delimiter)))
   (let ((buf (eport-readbuf eport)))
     (unless buf
       (error "not a readable port" eport))
@@ -335,25 +344,26 @@
            (size (bytevector-length bv)))
       (let lp ((prev '()) (prev-len 0))
         (when (= (buf-cur buf) (buf-end buf))
+          (when (and limit (> prev-len limit))
+            (error "Input too long" limit prev-len))
           (fill-input eport))
         (let ((cur (buf-cur buf))
               (end (buf-end buf)))
           (let search ((i cur))
             (if (< i end)
                 (if (predicate (bytevector-u8-ref bv i))
-                    (let ((ret (make-bytevector (- i cur))))
-                      (bytevector-copy! bv cur ret 0 (- i cur))
-                      ;; Plus one for the delimiter
-                      (flush-buffer buf (1+ (- i cur)))
-                      (values ret (bytevector-u8-ref bv i)))
+                    (found-delimiter buf cur (- i cur)
+                                     (bytevector-u8-ref bv i)
+                                     prev prev-len)
                     (search (1+ i)))
                 (let ((len (- end cur)))
                   (if (zero? len)
                       ;; EOF
-                      (values (if (zero? prev-len)
-                                  the-eof-object
-                                  (collect-result prev prev-len #vu8()))
-                              the-eof-object)
+                      (if (zero? prev-len)
+                          (values the-eof-object
+                                  the-eof-object)
+                          (found-delimiter buf cur len the-eof-object
+                                           prev prev-len))
                       (let ((ret (make-bytevector len)))
                         (bytevector-copy! bv cur ret 0 len)
                         (flush-buffer buf len)
