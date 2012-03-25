@@ -22,10 +22,6 @@
 ;;; This is the non-blocking HTTP implementation of the (web server)
 ;;; interface.
 ;;;
-;;; `read-request' sets the character encoding on the new port to
-;;; latin-1.  See the note in request.scm regarding character sets,
-;;; strings, and bytevectors for more information.
-;;;
 ;;; Code:
 
 (define-module (web server ethreads)
@@ -63,7 +59,11 @@
                                 INADDR_LOOPBACK))
                       (port 8080)
                       (socket (make-default-socket family addr port)))
-  (listen socket 128)
+  ;; We use a large backlog by default.  If the server is suddenly hit
+  ;; with a number of connections on a small backlog, clients won't
+  ;; receive confirmation for their SYN, leading them to retry --
+  ;; probably successfully, but with a large latency.
+  (listen socket 1024)
   (sigaction SIGPIPE SIG_IGN)
   (let* ((ctx (make-econtext))
          (esocket (file-port->eport socket))
@@ -134,6 +134,21 @@
               ((0) (memq 'keep-alive (response-connection response)))))
            (else #f)))))
 
+(define cork!
+  (cond
+   ((defined? 'TCP_NODELAY)
+    (lambda (fd cork?)
+      ;; Always disable Nagle's algorithm, as we handle buffering
+      ;; ourselves.  Don't bother disabling if cork? is #f.
+      (when cork?
+        (setsockopt fd IPPROTO_TCP TCP_NODELAY 0))))
+   ((defined? 'TCP_CORK)
+    ;; If we don't have TCP_NODELAY, the Linux-specific TCP_CORK will
+    ;; do.
+    (lambda (fd cork?)
+      (setsockopt fd IPPROTO_TCP TCP_CORK (if cork? 1 0))))
+   (else (lambda (fd cork?) #t))))
+
 (define (client-loop client have-request)
   (with-throw-handler #t
     (lambda ()
@@ -154,6 +169,7 @@
                                           #:headers '((content-length . 0)))
                           #vu8()))))
           (lambda (response body)
+            (cork! (eport-fd client) #t)
             (put-bytevector client
                             (call-with-output-bytevector
                              (lambda (port) (write-response response port))))
@@ -161,7 +177,9 @@
               (put-bytevector client body))
             (drain-output client)
             (if (and (keep-alive? response)
-                     (not (eof-object? (lookahead-u8 client))))
+                     (begin
+                       (cork! (eport-fd client) #f)
+                       (not (eof-object? (lookahead-u8 client)))))
                 (loop)
                 (close-eport client))))))
     (lambda (k . args)
@@ -177,7 +195,6 @@
                      client-thread request body))
   (let loop ()
     (let ((client (accept-eport esocket)))
-      ;; From "HOP, A Fast Server for the Diffuse Web", Serrano.
       (setsockopt (eport-fd client) SOL_SOCKET SO_SNDBUF (* 12 1024))
       (spawn (lambda () (client-loop client have-request)))
       (loop))))
