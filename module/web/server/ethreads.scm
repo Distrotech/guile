@@ -91,9 +91,9 @@
         (utf8->string bv))))))
 
 (define (continuation-line? port)
-  (case (integer->char (lookahead-u8 port))
-    ((#\space #\tab) #t)
-    (else #f)))
+  (let ((c (lookahead-u8 port)))
+    (or (eqv? c (char->integer #\space))
+        (eqv? c (char->integer #\tab)))))
 
 ;; Read a request from this port.
 (define (read-request client)
