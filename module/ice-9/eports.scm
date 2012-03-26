@@ -43,9 +43,19 @@
             get-bytevector-n
             get-bytevector-n!
             get-bytevector-delimited
-            get-u8
             put-u8
-            put-bytevector))
+            put-bytevector
+
+            get-latin1-char
+            putback-latin1-char
+            lookahead-latin1-char
+            get-latin1-string-some
+            putback-latin1-string
+            get-latin1-string-n
+            get-latin1-string-n!
+            get-latin1-string-delimited
+            put-latin1-char
+            put-latin1-string))
 
 (define-record-type <eport>
   (make-eport fd readbuf writebuf file-port)
@@ -312,12 +322,13 @@
             (flush-buffer buf len)
             ret)))))
 
-;; Read bytes from EPORT until the byte DELIMITER is seen.  Return
-;; two values: a bytevector of the bytes read, not including the
-;; delimiter, and the delimiter, or the EOF object if EOF was
+;; Read bytes from EPORT, continuing to read until calling PREDICATE on
+;; the byte returns a true value.  Return two values: a bytevector of
+;; the bytes read, not including the delimiter, and the delimiter, or #f
+;; if the byte limit was reached, or the EOF object if EOF was
 ;; encountered first.
 ;;
-(define* (get-bytevector-delimited eport predicate #:key limit)
+(define* (get-bytevector-delimited eport predicate #:key max-bytes)
   (define (collect-result prev prev-len bv)
     (if (null? prev-len)
         bv
@@ -331,12 +342,10 @@
                 (bytevector-copy! (car prev) 0 out (- prev-len len) len)
                 (lp (cdr prev) (- prev-len len)))))))))
   (define (found-delimiter buf start len delimiter prev prev-len)
-    (when (and limit (> (+ len prev-len) limit))
-      (error "Input too long" limit (+ len prev-len)))
     (let ((ret (make-bytevector len)))
       (bytevector-copy! (buf-bv buf) start ret 0 len)
       ;; Plus one for the delimiter, if present
-      (flush-buffer buf (if (eof-object? delimiter) len (1+ len)))
+      (flush-buffer buf (if (integer? delimiter) (1+ len) len))
       (values (collect-result prev prev-len ret)
               delimiter)))
   (let ((buf (eport-readbuf eport)))
@@ -346,11 +355,11 @@
            (size (bytevector-length bv)))
       (let lp ((prev '()) (prev-len 0))
         (when (= (buf-cur buf) (buf-end buf))
-          (when (and limit (> prev-len limit))
-            (error "Input too long" limit prev-len))
           (fill-input eport))
-        (let ((cur (buf-cur buf))
-              (end (buf-end buf)))
+        (let* ((cur (buf-cur buf))
+               (end (if max-bytes
+                        (min (+ cur (- max-bytes prev-len)) (buf-end buf))
+                        (buf-end buf))))
           (let search ((i cur))
             (if (< i end)
                 (if (predicate (bytevector-u8-ref bv i))
@@ -359,17 +368,21 @@
                                      prev prev-len)
                     (search (1+ i)))
                 (let ((len (- end cur)))
-                  (if (zero? len)
-                      ;; EOF
-                      (if (zero? prev-len)
-                          (values the-eof-object
-                                  the-eof-object)
-                          (found-delimiter buf cur len the-eof-object
-                                           prev prev-len))
-                      (let ((ret (make-bytevector len)))
-                        (bytevector-copy! bv cur ret 0 len)
-                        (flush-buffer buf len)
-                        (lp (cons ret prev) (+ len prev-len))))))))))))
+                  (cond
+                   ((and max-bytes (= (+ len prev-len) max-bytes))
+                    ;; Limit reached
+                    (found-delimiter buf cur len #f
+                                     prev prev-len))
+                   ((zero? len)
+                    ;; EOF
+                    (found-delimiter buf cur len the-eof-object
+                                     prev prev-len))
+                   (else
+                    ;; End of buffered input
+                    (let ((ret (make-bytevector len)))
+                      (bytevector-copy! bv cur ret 0 len)
+                      (flush-buffer buf len)
+                      (lp (cons ret prev) (+ len prev-len)))))))))))))
 
 ;; Read COUNT bytes into bytevector DST, starting at offset START.
 ;; Return the actual number of bytes read, which may be less if EOF was
@@ -445,3 +458,98 @@
             (when (< written count)
               (wait-for-writable eport)
               (lp (+ start written) (- count written))))))))))
+
+;; Get the next latin1 (ISO-8859-1) character from EPORT, or EOF.
+;;
+(define (get-latin1-char eport)
+  (let ((x (get-u8 eport)))
+    (if (integer? x)
+        (integer->char x)
+        x)))
+
+;; Put a latin1 character back into the buf of the port.  Note that you
+;; are only guaranteed to be able to put back as many bytes as your last
+;; fill-input was able to read.
+;;
+(define (putback-latin1-char eport c)
+  (putback-u8 eport (char->integer c)))
+
+;; Peek at the next latin1 character from EPORT, blocking if necessary.
+;;
+(define (lookahead-latin1-char eport)
+  (let ((x (lookahead-u8 eport)))
+    (if (integer? x)
+        (integer->char x)
+        x)))
+
+(define (get-latin1-string-n eport count)
+  (let* ((bv (get-bytevector-n eport count))
+         (len (bytevector-length bv))
+         (str (make-string len)))
+    (let lp ((n 0))
+      (when (< n len)
+        (string-set! str n (integer->char (bytevector-u8-ref bv n)))
+        (lp (1+ n))))
+    str))
+
+(define (get-latin1-string-n! eport dst start count)
+  (let lp ((start start) (count count) (total 0))
+    (let* ((buf (eport-readbuf eport))
+           (bv (buf-bv buf))
+           (size (bytevector-length bv))
+           (cur (buf-cur buf))
+           (len (- (buf-end buf) cur)))
+      (unless buf
+        (error "not a readable port" eport))
+      (if (<= count len)
+          (begin
+            (let lp ((n 0))
+              (when (< n count)
+                (string-set! dst (+ start n)
+                             (integer->char (bytevector-u8-ref bv (+ n cur))))
+                (lp (1+ n))))
+            (flush-buffer buf count)
+            (+ total count))
+          (begin
+            (let lp ((n 0))
+              (when (< n len)
+                (string-set! dst (+ start n)
+                             (integer->char (bytevector-u8-ref bv (+ n cur))))
+                (lp (1+ n))))
+            (flush-buffer buf len)
+            (if (zero? (fill-input eport))
+                (+ total len)
+                (lp (+ start len) (- count len) (+ total len))))))))
+
+;; Read latin1 (ISO-8859-1) characters from EPORT, continuing to read
+;; until calling PREDICATE on the character returns a true value, or EOF
+;; is reached, or MAX-CHARS is reached.
+;;
+;; Return two values: a string of the characters read, not including the
+;; delimiter, and the delimiter as a character, or #f if MAX-CHARS was
+;; reached, or the EOF object if no more bytes were available.
+;;
+(define* (get-latin1-string-delimited eport predicate #:key max-chars)
+  (call-with-values (lambda ()
+                      (get-bytevector-delimited
+                       eport
+                       (lambda (u8) (predicate (integer->char u8)))
+                       #:max-bytes max-chars))
+    (lambda (bv delimiter)
+      (values (utf8->string bv)
+              (if (integer? delimiter)
+                  (integer->char delimiter)
+                  delimiter)))))
+
+(define (put-latin1-char eport c)
+  (put-u8 eport (char->integer c)))
+
+(define (put-latin1-string eport str)
+  (if (string-every (lambda (c) (< (char->integer c) 128)) str)
+      (put-bytevector eport (string->utf8 eport))
+      ;; Need a string->latin1.
+      (let ((len (string-length str)))
+        (let lp ((n 0))
+          (when (< n len)
+            (put-u8 eport (char->integer (string-ref str n)))
+            (lp (1+ n)))))))
