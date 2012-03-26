@@ -75,20 +75,23 @@
   (throw 'bad-request msg args))
 
 (define (read-http-line eport)
-  ;; 10 and 13 are #\newline and #\return, respectively.
-  (define (end-of-line? u8)
-    (or (eqv? u8 10) (eqv? u8 13)))
-  (call-with-values (lambda ()
-                      (get-bytevector-delimited eport end-of-line?))
-    (lambda (bv delim)
+  (define (end-of-line? c)
+    (or (eqv? c #\newline) (eqv? c #\return)))
+  (call-with-values
+      (lambda ()
+        ;; Restrict to 512 chars to avoid denial of service attacks.
+        (get-latin1-string-delimited eport end-of-line? #:max-chars 512))
+    (lambda (str delim)
       (cond
+       ((not delim)
+        (bad-request "Line too long: ~S" str))
        ((eof-object? delim)
-        (bad-request "EOF while reading line: ~S" bv))
+        (bad-request "EOF while reading line: ~S" str))
        (else
-        (when (and (eqv? delim 13)
-                   (eqv? (lookahead-u8 eport) 10))
+        (when (and (eqv? delim #\return)
+                   (eqv? (lookahead-u8 eport) (char->integer #\newline)))
           (get-u8 eport))
-        (utf8->string bv))))))
+        str)))))
 
 (define (continuation-line? port)
   (let ((c (lookahead-u8 port)))
