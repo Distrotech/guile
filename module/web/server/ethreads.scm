@@ -89,14 +89,14 @@
         (bad-request "EOF while reading line: ~S" str))
        (else
         (when (and (eqv? delim #\return)
-                   (eqv? (lookahead-u8 eport) (char->integer #\newline)))
-          (get-u8 eport))
+                   (eqv? (lookahead-latin1-char eport) #\newline))
+          (get-latin1-char eport))
         str)))))
 
 (define (continuation-line? port)
-  (let ((c (lookahead-u8 port)))
-    (or (eqv? c (char->integer #\space))
-        (eqv? c (char->integer #\tab)))))
+  (let ((c (lookahead-latin1-char port)))
+    (or (eqv? c #\space)
+        (eqv? c #\tab))))
 
 ;; Read a request from this port.
 (define (read-request client)
