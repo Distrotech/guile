@@ -55,7 +55,10 @@
             get-latin1-string-n!
             get-latin1-string-delimited
             put-latin1-char
-            put-latin1-string))
+            put-latin1-string
+
+            put-utf8-char
+            put-utf8-string))
 
 (define-record-type <eport>
   (make-eport fd readbuf writebuf file-port)
@@ -546,10 +549,18 @@
 
 (define (put-latin1-string eport str)
   (if (string-every (lambda (c) (< (char->integer c) 128)) str)
-      (put-bytevector eport (string->utf8 eport))
+      (put-bytevector eport (string->utf8 str))
       ;; Need a string->latin1.
       (let ((len (string-length str)))
         (let lp ((n 0))
           (when (< n len)
             (put-u8 eport (char->integer (string-ref str n)))
             (lp (1+ n)))))))
+
+(define (put-utf8-char eport c)
+  (if (< (char->integer c) 128)
+      (put-u8 eport (char->integer c))
+      (put-utf8-string eport (string c))))
+
+(define (put-utf8-string eport str)
+  (put-bytevector eport (string->utf8 str)))
