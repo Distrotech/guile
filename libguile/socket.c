@@ -535,12 +535,17 @@ SCM_DEFINE (scm_getsockopt, "getsockopt", 3, 0, 0,
   int ilevel;
   int ioptname;
 
-  sock = SCM_COERCE_OUTPORT (sock);
-  SCM_VALIDATE_OPFPORT (1, sock);
+  if (scm_is_integer (sock))
+    fd = scm_to_int (sock);
+  else
+    {
+      sock = SCM_COERCE_OUTPORT (sock);
+      SCM_VALIDATE_OPFPORT (1, sock);
+      fd = SCM_FPORT_FDES (sock);
+    }
   ilevel = scm_to_int (level);
   ioptname = scm_to_int (optname);
 
-  fd = SCM_FPORT_FDES (sock);
   if (getsockopt (fd, ilevel, ioptname, (void *) &optval, &optlen) == -1)
     SCM_SYSERROR;
 
