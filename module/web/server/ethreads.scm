@@ -137,21 +137,6 @@
               ((0) (memq 'keep-alive (response-connection response)))))
            (else #f)))))
 
-(define cork!
-  (cond
-   ((defined? 'TCP_NODELAY)
-    (lambda (fd cork?)
-      ;; Always disable Nagle's algorithm, as we handle buffering
-      ;; ourselves.  Don't bother disabling if cork? is #f.
-      (when cork?
-        (setsockopt fd IPPROTO_TCP TCP_NODELAY 0))))
-   ((defined? 'TCP_CORK)
-    ;; If we don't have TCP_NODELAY, the Linux-specific TCP_CORK will
-    ;; do.
-    (lambda (fd cork?)
-      (setsockopt fd IPPROTO_TCP TCP_CORK (if cork? 1 0))))
-   (else (lambda (fd cork?) #t))))
-
 (define (client-loop client have-request)
   (with-throw-handler #t
     (lambda ()
@@ -172,7 +157,6 @@
                                           #:headers '((content-length . 0)))
                           #vu8()))))
           (lambda (response body)
-            (cork! (eport-fd client) #t)
             (put-bytevector client
                             (call-with-output-bytevector
                              (lambda (port) (write-response response port))))
@@ -180,9 +164,7 @@
               (put-bytevector client body))
             (drain-output client)
             (if (and (keep-alive? response)
-                     (begin
-                       (cork! (eport-fd client) #f)
-                       (not (eof-object? (lookahead-u8 client)))))
+                     (not (eof-object? (lookahead-u8 client))))
                 (loop)
                 (close-eport client))))))
     (lambda (k . args)
@@ -199,6 +181,11 @@
   (let loop ()
     (let ((client (accept-eport esocket)))
       (setsockopt (eport-fd client) SOL_SOCKET SO_SNDBUF (* 12 1024))
+      ;; Always disable Nagle's algorithm, as we handle buffering
+      ;; ourselves.  Ignore exceptions if it's not a TCP port, or
+      ;; TCP_NODELAY is not defined on this platform.
+      (false-if-exception
+       (setsockopt (eport-fd client) IPPROTO_TCP TCP_NODELAY 0))
       (spawn (lambda () (client-loop client have-request)))
       (loop))))
 
