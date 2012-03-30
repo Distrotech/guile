@@ -111,21 +111,13 @@
 (define (make-fresh-buf n)
   (make-buf (make-bytevector n 0) 0 0))
 
-;; Mark N bytes as having been read or written.  This advances CUR by N,
-;; except in the case that CUR would be equal to END, in which case both
-;; are reset to 0.
+;; Mark N bytes as having been read or written.  This advances CUR by N.
 ;;
 (define (flush-buffer buf n)
-  (let ((new-cur (+ (buf-cur buf) n))
-        (end (buf-end buf)))
-    (cond
-     ((< new-cur end)
-      (set-buf-cur! buf new-cur))
-     ((= new-cur end)
-      (set-buf-cur! buf 0)
-      (set-buf-end! buf 0))
-     (else
-      (error "flushing too many bytes" buf n)))))
+  (let ((cur (buf-cur buf)))
+    (unless (<= n (- (buf-end buf) cur))
+      (error "flushing too many bytes" buf n))
+    (set-buf-cur! buf (+ cur n))))
 
 ;; Create an NIO port that wraps FD.  The strange default sizes assume
 ;; that the memory is allocated inline to the bytevector, and thus has a
@@ -196,19 +188,19 @@
 (define (fill-input eport)
   (let* ((buf (eport-readbuf eport))
          (bv (buf-bv buf))
-         (cur (buf-cur buf))
-         (end (buf-end buf))
          (len (bytevector-length bv)))
-    (if (zero? (- len end))
-        (error "fill-input should only be called when the readbuf is empty"))
-    (let ((rv (nio-read (eport-fd eport) bv end (- len end))))
+    (unless (= (buf-cur buf) (buf-end buf))
+      (error "fill-input should only be called when the readbuf is empty"))
+    (set-buf-cur! buf 0)
+    (set-buf-end! buf 0) ; in case nio-read throws an error
+    (let ((rv (nio-read (eport-fd eport) bv 0 len)))
       (if (< rv 0)
           (begin
             (wait-for-readable eport)
             (fill-input eport))
-          (let ((new-end (+ end rv)))
-            (set-buf-end! buf new-end)
-            (- new-end cur))))))
+          (begin
+            (set-buf-end! buf rv)
+            rv)))))
 
 ;; Write all buffered output: those bytes between CUR and END.  Advances
 ;; CUR to be equal to END.
@@ -240,7 +232,12 @@
              (end (buf-end buf))
              (bv (buf-bv buf))
              (size (bytevector-length bv)))
-        (when (= end size)
+        (cond
+         ((zero? end))
+         ((= cur end)
+          (set-buf-cur! buf 0)
+          (set-buf-end! buf 0))
+         ((= end size)
           (if (> (* cur 2) size)
               ;; The buffer is less than half full; shuffle the data to
               ;; make space.
@@ -250,12 +247,13 @@
                 (set-buf-end! buf (- end cur)))
               ;; The buffer is more than half full; write some data and
               ;; try again.
-              (let ((written (nio-write (eport-fd eport)
-                                        bv cur (- end cur))))
-                (flush-buffer buf written)
-                (when (< written (- end cur))
-                  (wait-for-writable eport)
-                  (lp)))))))))
+              (begin
+                (let ((written (nio-write (eport-fd eport)
+                                         bv cur (- end cur))))
+                 (flush-buffer buf written)
+                 (when (< written (- end cur))
+                   (wait-for-writable eport)
+                   (lp)))))))))))
 
 ;; Peek at the next octet from EPORT, blocking if necessary.
 ;;
