@@ -34,6 +34,7 @@
             current-write-waiter
 
             accept-eport
+            connect-eport
 
             get-u8
             putback-u8
@@ -177,6 +178,17 @@
         (begin
           (wait-for-readable eport)
           (accept-eport eport)))))
+
+;; Connect a socket eport to the remote host at SOCKADDR.  Returns no
+;; values.
+;;
+(define (connect-eport eport sockaddr)
+  (unless (nio-connect (eport-fd eport) sockaddr)
+    (wait-for-writable eport)
+    (let ((err (getsockopt (eport-fd eport) SOL_SOCKET SO_ERROR)))
+      (unless (zero? err)
+        (scm-error 'system-error "connect-eport" "~A"
+                   (list (strerror err)) #f)))))
 
 ;; Ensure that there are readable bytes in the buffer, or that the
 ;; buffer is at EOF.  Returns the actual number of available bytes.
