@@ -169,6 +169,37 @@ scm_nio_accept (SCM fd)
 }
 #undef FUNC_NAME
 
+/* Initiate a connection from a socket.
+
+   The second argument should be a socket address object as returned by
+   @code{make-socket-address}.
+
+   Returns @code{#t} if the connection succeeded immediately, and
+   @code{#f} otherwise.  */
+static SCM
+scm_nio_connect (SCM fd, SCM sockaddr)
+#define FUNC_NAME "nio-connect"
+{
+  int c_fd, rv, save_errno;
+  struct sockaddr *soka;
+  size_t size;
+
+  c_fd = scm_to_int (fd);
+  soka = scm_to_sockaddr (sockaddr, &size);
+  rv = connect (c_fd, soka, size);
+  save_errno = errno;
+
+  if (rv == -1 && save_errno != EINPROGRESS)
+    {
+      free (soka);
+      errno = save_errno;
+      SCM_SYSERROR;
+    }
+  free (soka);
+  return scm_from_bool (rv == 0);
+}
+#undef FUNC_NAME
+
 
 
 
@@ -179,6 +210,7 @@ scm_init_nio (void)
   scm_c_define_gsubr ("%nio-read", 4, 0, 0, scm_nio_read);
   scm_c_define_gsubr ("%nio-write", 4, 0, 0, scm_nio_write);
   scm_c_define_gsubr ("%nio-accept", 1, 0, 0, scm_nio_accept);
+  scm_c_define_gsubr ("%nio-connect", 2, 0, 0, scm_nio_connect);
 }
 
 void

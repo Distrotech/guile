@@ -20,7 +20,8 @@
 (define-module (ice-9 nio)
   #:export (nio-read
             nio-write
-            nio-accept))
+            nio-accept
+            nio-connect))
 
 (eval-when (eval load compile)
   (load-extension (string-append "libguile-" (effective-version))
@@ -44,3 +45,13 @@ read without blocking.  A return value of 0 indicates EOF."
 new client socket, unless the @code{accept} call would have blocked, in
 which case return @code{#f}."
   (%nio-accept fd))
+
+(define (nio-connect fd sockaddr)
+  "Initiate a connection from a socket whose file descriptor is
+@var{fd}.  The second argument should be a socket address object as
+returned by @code{make-socket-address}.  Returns @code{#t} if the
+connection succeeded immediately, and @code{#f} otherwise.
+
+Once this socket becomes writable, it is ready.  If there was a
+connection error, it can be retrieved with getsockopt of SO_ERROR."
+  (%nio-connect fd sockaddr))
