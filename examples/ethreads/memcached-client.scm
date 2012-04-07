@@ -115,7 +115,7 @@
                                          (addrinfo:socktype addrinfo)
                                          (addrinfo:protocol addrinfo)))))
     ;; Disable Nagle's algorithm.  We buffer ourselves.
-    (setsockopt (eport-fd eport) IPPROTO_TCP TCP_NODELAY 0)
+    (setsockopt (file-eport-fd eport) IPPROTO_TCP TCP_NODELAY 0)
     (connect-eport eport (addrinfo:addr addrinfo))
     eport))
 
@@ -141,7 +141,7 @@
   (when (zero? *active-clients*)
     (exit 0)))
 
-(define (run-memcached-test num-clients num-connections)
+(define* (run-memcached-test #:optional (num-clients 100) (num-connections 1000))
   ;; The getaddrinfo call blocks, unfortunately.  Call it once before
   ;; spawning clients.
   (let ((addrinfo (car (getaddrinfo "localhost" (number->string 11211)))))

@@ -180,12 +180,12 @@
                      client-thread request body))
   (let loop ()
     (let ((client (accept-eport esocket)))
-      (setsockopt (eport-fd client) SOL_SOCKET SO_SNDBUF (* 12 1024))
+      (setsockopt (file-eport-fd client) SOL_SOCKET SO_SNDBUF (* 12 1024))
       ;; Always disable Nagle's algorithm, as we handle buffering
       ;; ourselves.  Ignore exceptions if it's not a TCP port, or
       ;; TCP_NODELAY is not defined on this platform.
       (false-if-exception
-       (setsockopt (eport-fd client) IPPROTO_TCP TCP_NODELAY 0))
+       (setsockopt (file-eport-fd client) IPPROTO_TCP TCP_NODELAY 0))
       (spawn (lambda () (client-loop client have-request)))
       (loop))))
 

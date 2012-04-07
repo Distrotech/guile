@@ -229,7 +229,7 @@
    events
    (suspend
     (lambda (ctx thread)
-      (let* ((fd (eport-fd eport))
+      (let* ((fd (file-eport-fd eport))
              (sources (hashv-ref (econtext-sources ctx) fd)))
         (cond
          (sources

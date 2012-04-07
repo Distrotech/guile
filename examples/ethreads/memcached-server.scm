@@ -134,7 +134,7 @@
   (let loop ()
     (let ((client (accept-eport esocket)))
       ;; Disable Nagle's algorithm.  We buffer ourselves.
-      (setsockopt (eport-fd client) IPPROTO_TCP TCP_NODELAY 0)
+      (setsockopt (file-eport-fd client) IPPROTO_TCP TCP_NODELAY 0)
       (spawn (lambda () (client-loop client store)))
       (loop))))
 
