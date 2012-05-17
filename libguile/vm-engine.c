@@ -428,16 +428,37 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   abort (); /* never reached */
 }
 
-#undef VM_USE_HOOKS
+#undef ALIGNED_P
+#undef CACHE_REGISTER
+#undef CHECK_OVERFLOW
+#undef FREE_VARIABLE_REF
+#undef FUNC2
+#undef INIT
+#undef INUM_MAX
+#undef INUM_MIN
+#undef jump_table
+#undef LOCAL_REF
+#undef LOCAL_SET
+#undef NEXT
+#undef NEXT_JUMP
+#undef REL
+#undef RETURN
+#undef RETURN_ONE_VALUE
+#undef RETURN_VALUE_LIST
+#undef SYNC_ALL
+#undef SYNC_BEFORE_GC
+#undef SYNC_IP
+#undef SYNC_REGISTER
+#undef VARIABLE_BOUNDP
+#undef VARIABLE_REF
+#undef VARIABLE_SET
+#undef VM_CHECK_FREE_VARIABLE
 #undef VM_CHECK_OBJECT
 #undef VM_CHECK_FREE_VARIABLE
 #undef VM_CHECK_UNDERFLOW
 #undef VM_DEFINE_OP
 #undef VM_INSTRUCTION_TO_LABEL
 #undef VM_USE_HOOKS
-#undef VM_VALIDATE_BYTEVECTOR
-#undef VM_VALIDATE_PAIR
-#undef VM_VALIDATE_STRUCT
 
 /*
   Local Variables:
