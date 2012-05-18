@@ -68,6 +68,39 @@
 # define ASSERT(condition)
 #endif
 
+#if VM_USE_HOOKS
+#define RUN_HOOK(h, args, n, rest_p)                    \
+  do {                                                  \
+    if (SCM_UNLIKELY (vp->trace_level > 0))             \
+      {                                                 \
+        SYNC_REGISTER ();				\
+        vm_dispatch_hook (vm, h, args, n, rest_p);      \
+      }                                                 \
+  } while (0)
+#else
+#define RUN_HOOK(h, args, n, rest_p)
+#endif
+
+#define APPLY_HOOK()                            \
+  RUN_HOOK (SCM_VM_APPLY_HOOK, NULL, 0, 0)
+#define PUSH_CONTINUATION_HOOK()                \
+  RUN_HOOK (SCM_VM_PUSH_CONTINUATION_HOOK, NULL, 0, 0)
+#define POP_CONTINUATION_HOOK(vals, n, rest_p)  \
+  RUN_HOOK (SCM_VM_POP_CONTINUATION_HOOK, vals, n, rest_p)
+#define NEXT_HOOK()                             \
+  RUN_HOOK (SCM_VM_NEXT_HOOK, NULL, 0, 0)
+#define ABORT_CONTINUATION_HOOK(vals, n, rest_p)        \
+  RUN_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK, vals, n, rest_p)
+#define RESTORE_CONTINUATION_HOOK()            \
+  RUN_HOOK (SCM_VM_RESTORE_CONTINUATION_HOOK, NULL, 0, 0)
+
+#define VM_HANDLE_INTERRUPTS                     \
+  SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_REGISTER ())
+
+
+
+
+/* Now we start with the macros that are specific to the old VM.  */
 
 /* Cache the VM's instruction, stack, and frame pointer in local variables.  */
 #define CACHE_REGISTER()			\
@@ -140,51 +173,6 @@
 /* Accesses to a program's object table.  */
 #define CHECK_OBJECT(_num)
 #define CHECK_FREE_VARIABLE(_num)
-
-
-/*
- * Hooks
- */
-
-#if VM_USE_HOOKS
-#define RUN_HOOK(h)                                     \
-  {                                                     \
-    if (SCM_UNLIKELY (vp->trace_level > 0))             \
-      {                                                 \
-        SYNC_REGISTER ();				\
-        vm_dispatch_hook (vm, h);                       \
-      }                                                 \
-  }
-#define RUN_HOOK1(h, x)                                 \
-  {                                                     \
-    if (SCM_UNLIKELY (vp->trace_level > 0))             \
-      {                                                 \
-        PUSH (x);                                       \
-        SYNC_REGISTER ();				\
-        vm_dispatch_hook (vm, h);                       \
-        DROP();                                         \
-      }                                                 \
-  }
-#else
-#define RUN_HOOK(h)
-#define RUN_HOOK1(h, x)
-#endif
-
-#define APPLY_HOOK()                            \
-  RUN_HOOK (SCM_VM_APPLY_HOOK)
-#define PUSH_CONTINUATION_HOOK()                \
-  RUN_HOOK (SCM_VM_PUSH_CONTINUATION_HOOK)
-#define POP_CONTINUATION_HOOK(n)                \
-  RUN_HOOK1 (SCM_VM_POP_CONTINUATION_HOOK, SCM_I_MAKINUM (n))
-#define NEXT_HOOK()                             \
-  RUN_HOOK (SCM_VM_NEXT_HOOK)
-#define ABORT_CONTINUATION_HOOK()               \
-  RUN_HOOK (SCM_VM_ABORT_CONTINUATION_HOOK)
-#define RESTORE_CONTINUATION_HOOK()            \
-  RUN_HOOK (SCM_VM_RESTORE_CONTINUATION_HOOK)
-
-#define VM_HANDLE_INTERRUPTS                     \
-  SCM_ASYNC_TICK_WITH_CODE (current_thread, SYNC_REGISTER ())
 
 
 /*
@@ -355,7 +343,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
       CACHE_PROGRAM ();
       /* The stack contains the values returned to this continuation,
          along with a number-of-values marker -- like an MV return. */
-      ABORT_CONTINUATION_HOOK ();
+      ABORT_CONTINUATION_HOOK (sp - SCM_I_INUM (*sp), SCM_I_INUM (*sp), 0);
       NEXT;
     }
 
@@ -444,6 +432,12 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef VM_CHECK_OBJECT
 #undef VM_CHECK_FREE_VARIABLE
 #undef VM_CHECK_UNDERFLOW
+#undef VM_DEFINE_OP
+#undef VM_INSTRUCTION_TO_LABEL
+#undef VM_USE_HOOKS
+#undef VM_VALIDATE_BYTEVECTOR
+#undef VM_VALIDATE_PAIR
+#undef VM_VALIDATE_STRUCT
 
 /*
   Local Variables:
