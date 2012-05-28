@@ -589,7 +589,7 @@ VM_DEFINE_INSTRUCTION (46, assert_nargs_ee, "assert-nargs-ee", 2, 0, 0)
   n = FETCH () << 8;
   n += FETCH ();
   VM_ASSERT (sp - (fp - 1) == n,
-             vm_error_wrong_num_args (program));
+             vm_error_wrong_num_args (vm, program, sp - (fp - 1)));
   NEXT;
 }
 
@@ -599,7 +599,7 @@ VM_DEFINE_INSTRUCTION (47, assert_nargs_ge, "assert-nargs-ge", 2, 0, 0)
   n = FETCH () << 8;
   n += FETCH ();
   VM_ASSERT (sp - (fp - 1) >= n,
-             vm_error_wrong_num_args (program));
+             vm_error_wrong_num_args (vm, program, sp - (fp - 1)));
   NEXT;
 }
 
@@ -1567,7 +1567,7 @@ VM_DEFINE_INSTRUCTION (95, assert_nargs_ee_locals, "assert-nargs-ee/locals", 1, 
   n = FETCH ();
 
   VM_ASSERT (sp - (fp - 1) == (n & 0x7),
-             vm_error_wrong_num_args (program));
+             vm_error_wrong_num_args (vm, program, sp - (fp - 1)));
 
   old_sp = sp;
   sp += (n >> 3);

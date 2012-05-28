@@ -419,7 +419,7 @@ static void vm_error_kwargs_length_not_even (SCM proc) SCM_NORETURN SCM_NOINLINE
 static void vm_error_kwargs_invalid_keyword (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_kwargs_unrecognized_keyword (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_too_many_args (int nargs) SCM_NORETURN SCM_NOINLINE;
-static void vm_error_wrong_num_args (SCM proc) SCM_NORETURN SCM_NOINLINE;
+static void vm_error_wrong_num_args (SCM vm, SCM proc, int nargs) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_wrong_type_apply (SCM proc) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_stack_overflow (struct scm_vm *vp) SCM_NORETURN SCM_NOINLINE;
 static void vm_error_stack_underflow (void) SCM_NORETURN SCM_NOINLINE;
@@ -517,8 +517,10 @@ vm_error_too_many_args (int nargs)
 }
 
 static void
-vm_error_wrong_num_args (SCM proc)
+vm_error_wrong_num_args (SCM vm, SCM proc, int nargs)
 {
+  struct scm_vm *vp = SCM_VM_DATA (vm);
+  vp->sp = vp->fp - 1 + nargs;
   scm_wrong_num_args (proc);
 }
 
