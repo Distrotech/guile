@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
  * * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -97,6 +97,37 @@ struct scm_vm_frame
   (SCM_FRAME_STRUCT (fp)->stack[i])
 #define SCM_FRAME_PROGRAM(fp)                   \
   (SCM_FRAME_STRUCT (fp)->program)
+
+
+/*
+ * RTL frames
+ */
+
+/* The frame format for the new RTL programs is almost like that for the
+   stack-vm programs.  They only differ in they mvra slot.  The RTL
+   programs use that slot to indicate where to return the value(s), and
+   how many values are expected.  Until we complete the RTL transition,
+   here we abuse the above defines to shoehorn the return loc into
+   normal VM frames.
+*/
+
+#define SCM_FRAME_RETURN_LOC(fp)                        \
+  ((scm_t_uint32) (scm_t_bits) SCM_FRAME_MV_RETURN_ADDRESS (fp))
+#define SCM_FRAME_SET_RETURN_LOC(fp, loc)               \
+  SCM_FRAME_SET_MV_RETURN_ADDRESS (fp, (scm_t_uint8 *) (scm_t_bits) (loc))
+
+#define SCM_FRAME_RTL_RETURN_ADDRESS(fp)                \
+  ((scm_t_uint32 *) SCM_FRAME_RETURN_ADDRESS (fp))
+#define SCM_FRAME_SET_RTL_RETURN_ADDRESS(fp, ip)        \
+  SCM_FRAME_SET_RETURN_ADDRESS (fp, (scm_t_uint8 *) (ip))
+
+#define UNUSED_RETURN_LOC 0
+/* return_loc:24 nreq:7 rest:1 */
+#define SCM_PACK_MV_RETURN_LOC(reg, nreq, has_rest) (((reg) << 8) | (nreq << 1) | has_rest)
+/* Interestingly, a truncating MV return loc with 0 required args and no
+   rest arg is the same as ignoring the return value: the bottom 8 bits
+   are 0.  */
+#define SCM_PACK_RETURN_LOC(reg) SCM_PACK_MV_RETURN_LOC (reg, 1, 0)
 
 
 /*

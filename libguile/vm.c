@@ -628,6 +628,14 @@ vm_error_free_variable ()
 
 static SCM boot_continuation;
 
+const scm_t_uint32 rtl_boot_continuation_code[] = {
+  0, /* 0 locals */
+  0, /* No meta */
+  SCM_PACK_RTL_24 (scm_rtl_op_halt_values, 0) /* results from r0 */
+};
+
+static SCM rtl_boot_continuation;
+
 
 /*
  * VM
@@ -671,18 +679,22 @@ initialize_default_stack_size (void)
 }
 
 #define VM_NAME   vm_regular_engine
+#define RTL_VM_NAME   rtl_vm_regular_engine
 #define FUNC_NAME "vm-regular-engine"
 #define VM_ENGINE SCM_VM_REGULAR_ENGINE
 #include "vm-engine.c"
 #undef VM_NAME
+#undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
 
 #define VM_NAME	  vm_debug_engine
+#define RTL_VM_NAME   rtl_vm_debug_engine
 #define FUNC_NAME "vm-debug-engine"
 #define VM_ENGINE SCM_VM_DEBUG_ENGINE
 #include "vm-engine.c"
 #undef VM_NAME
+#undef RTL_VM_NAME
 #undef FUNC_NAME
 #undef VM_ENGINE
 
@@ -1144,6 +1156,8 @@ scm_init_vm (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/vm.x"
 #endif
+
+  rtl_boot_continuation = scm_i_make_rtl_program (rtl_boot_continuation_code);
 }
 
 /*

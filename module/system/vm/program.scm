@@ -26,6 +26,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-26)
   #:export (make-program
+            make-rtl-program
 
             make-binding binding:name binding:boxed? binding:index
             binding:start binding:end
