@@ -1,0 +1,118 @@
+;;;; Low-level tests of the RTL assembler -*- mode: scheme; coding: utf-8; -*-
+;;;;
+;;;; 	Copyright (C) 2010, 2011, 2012 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (tests rtl)
+  #:use-module (test-suite lib)
+  #:use-module (system vm rtl))
+
+(define-syntax-rule (assert-equal val expr)
+  (let ((x val))
+    (pass-if (object->string x) (equal? expr x))))
+
+(define (return-constant val)
+  (assemble-program `((begin-program foo 1)
+                      (assert-nargs-ee/locals 0 1)
+                      (load-constant 0 ,val)
+                      (return 0))))
+
+(define-syntax-rule (assert-constants val ...)
+  (begin
+    (assert-equal val ((return-constant val)))
+    ...))
+
+(with-test-prefix "load-constant"
+  (assert-constants
+   1
+   -1
+   0
+   most-positive-fixnum
+   most-negative-fixnum
+   #t
+   #\c
+   (integer->char 16000)
+   3.14
+   "foo"
+   'foo
+   #:foo
+   "æ" ;; a non-ASCII Latin-1 string
+   "λ" ;; non-ascii, non-latin-1
+   '(1 . 2)
+   '(1 2 3 4)
+   #(1 2 3)
+   #("foo" "bar" 'baz)
+   ;; FIXME: Add tests for arrays (uniform and otherwise)
+   ))
+
+(with-test-prefix "static procedure"
+  (assert-equal 42
+                (((assemble-program `((begin-program foo 1)
+                                      (assert-nargs-ee/locals 0 1)
+                                      (load-static-procedure 0 bar)
+                                      (return 0)
+                                      (begin-program bar 1)
+                                      (assert-nargs-ee/locals 0 1)
+                                      (load-constant 0 42)
+                                      (return 0)))))))
+
+(with-test-prefix "loop"
+  (assert-equal (* 999 500)
+                (let ((sumto
+                       (assemble-program
+                        ;; 0: limit
+                        ;; 1: n
+                        ;; 2: accum
+                        '((begin-program countdown 3)
+                          (assert-nargs-ee/locals 1 2)
+                          (br fix-body)
+                          (label loop-head)
+                          (br-if-= 1 0 out)
+                          (add 2 1 2)
+                          (add1 1 1)
+                          (br loop-head)
+                          (label fix-body)
+                          (load-constant 1 0)
+                          (load-constant 2 0)
+                          (br loop-head)
+                          (label out)
+                          (return 2)))))
+                  (sumto 1000))))
+
+(with-test-prefix "accum"
+  (assert-equal (+ 1 2 3)
+                (let ((make-accum
+                       (assemble-program
+                        ;; 0: elt
+                        ;; 1: tail
+                        ;; 2: head
+                        '((begin-program make-accum 2)
+                          (assert-nargs-ee/locals 0 2)
+                          (load-constant 0 0)
+                          (box 0 0)
+                          (make-closure 1 accum (0))
+                          (return 1)
+                          (begin-program accum 3)
+                          (assert-nargs-ee/locals 1 2)
+                          (free-ref 1 0)
+                          (box-ref 2 1)
+                          (add 2 2 0)
+                          (box-set! 1 2)
+                          (return 2)))))
+                  (let ((accum (make-accum)))
+                    (accum 1)
+                    (accum 2)
+                    (accum 3)))))
