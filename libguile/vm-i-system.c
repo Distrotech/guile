@@ -1153,7 +1153,7 @@ VM_DEFINE_INSTRUCTION (68, tail_call_cc, "tail-call/cc", 0, 1, 1)
 VM_DEFINE_INSTRUCTION (69, return, "return", 0, 1, 1)
 {
  vm_return:
-  POP_CONTINUATION_HOOK (sp, 1, 0);
+  POP_CONTINUATION_HOOK (sp, 1);
 
   VM_HANDLE_INTERRUPTS;
 
@@ -1192,7 +1192,7 @@ VM_DEFINE_INSTRUCTION (70, return_values, "return/values", 1, -1, -1)
      that perhaps it might be used without declaration. Fooey to that, I say. */
   nvalues = FETCH ();
  vm_return_values:
-  POP_CONTINUATION_HOOK (sp + 1 - nvalues, nvalues, 0);
+  POP_CONTINUATION_HOOK (sp + 1 - nvalues, nvalues);
 
   VM_HANDLE_INTERRUPTS;
 
