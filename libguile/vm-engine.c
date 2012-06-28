@@ -534,9 +534,11 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
  */
 
 
-/* The VM has two state bits: the instruction pointer (IP) and the frame
-   pointer (FP).  We cache both of these in machine registers, local to
-   the VM.
+/* The VM has three state bits: the instruction pointer (IP), the frame
+   pointer (FP), and the top-of-stack pointer (SP).  We cache the first
+   two of these in machine registers, local to the VM, because they are
+   used extensively by the VM.  As the SP is used more by code outside
+   the VM than by the VM itself, we don't bother caching it locally.
 
    Since the FP changes infrequently, relative to the IP, we keep vp->fp
    in sync with the local FP.  This would be a big lose for the IP,
@@ -549,23 +551,49 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #define SYNC_IP() \
   vp->ip = (scm_t_uint8 *) (ip)
 
-#define SYNC_SP() \
-  vp->sp = vp->fp - 1 + SCM_RTL_PROGRAM_NUM_LOCALS (fp[-1])
-
 #define SYNC_REGISTER() \
   SYNC_IP()
-#define SYNC_BEFORE_GC() /* Only FP needed to trace GC */
+#define SYNC_BEFORE_GC() /* Only SP and FP needed to trace GC */
 #define SYNC_ALL() /* FP already saved */ \
-  SYNC_IP(); SYNC_SP()
+  SYNC_IP()
+
+#define CHECK_OVERFLOW(sp)                      \
+  do {                                          \
+    if (SCM_UNLIKELY ((sp) >= stack_limit))     \
+      vm_error_stack_overflow (vp);             \
+  } while (0)
+
+/* Reserve stack space for a frame.  Will check that there is sufficient
+   stack space for N locals, not including the procedure, in addition to
+   4 words to set up the next frame.  Invoke after preparing the new
+   frame and setting the fp and ip.  */
+#define ALLOC_FRAME(n)                                              \
+  do {                                                              \
+    SCM *new_sp = vp->sp = fp - 1 + n;                              \
+    CHECK_OVERFLOW (new_sp + 4);                                    \
+  } while (0)
+
+/* Reset the current frame to hold N locals.  Used when we know that no
+   stack expansion is needed.  */
+#define RESET_FRAME(n)                                              \
+  do {                                                              \
+    vp->sp = fp - 1 + n;                                            \
+  } while (0)
+
+/* Restore registers after returning from a frame.  */
+#define RESTORE_FRAME()                                             \
+  do {                                                              \
+    ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);                         \
+    vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;                      \
+    fp = vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);                      \
+  } while (0)
+
 
 #define CACHE_REGISTER()                        \
   do {                                          \
     ip = (scm_t_uint32 *) vp->ip;               \
     fp = vp->fp;                                \
   } while (0)
-
-#define CHECK_OVERFLOW(n) \
-  VM_ASSERT (fp + n < stack_limit, vm_error_stack_overflow (vp))
 
 #ifdef HAVE_LABELS_AS_VALUES
 # define BEGIN_DISPATCH_SWITCH /* */
@@ -613,11 +641,11 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 
 #define RETURN_ONE_VALUE(ret)                           \
   do {                                                  \
-    SCM *new_fp = SCM_FRAME_DYNAMIC_LINK (fp);          \
     scm_t_uint32 ret_loc = SCM_FRAME_RETURN_LOC (fp) ;  \
     VM_HANDLE_INTERRUPTS;                               \
     if (ret_loc)                                        \
       {                                                 \
+        SCM *new_fp = SCM_FRAME_DYNAMIC_LINK (fp);      \
         scm_t_uint32 idx = ret_loc >> 8;                \
         scm_t_uint8 nreq = (ret_loc & 0xff) >> 1;       \
         scm_t_uint8 has_rest = ret_loc & 0x1;           \
@@ -641,8 +669,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
           }                                             \
         }                                               \
     /* Restore registers */                             \
-    ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);             \
-    fp = vp->fp = new_fp;                               \
+    RESTORE_FRAME ();                                   \
     NEXT (0);                                           \
   } while (0)
 
@@ -671,8 +698,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
       new_fp[idx] = tail_;                              \
     POP_CONTINUATION_HOOK (&new_fp[idx], nreq, has_rest); \
     /* Restore registers */                             \
-    ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);             \
-    fp = vp->fp = new_fp;                               \
+    RESTORE_FRAME ();                                   \
     NEXT (0);                                           \
   } while (0)
 
@@ -837,16 +863,17 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
   if (SCM_I_SETJMP (registers))
     {
-      /* Non-local return.  Cache the VM registers back from the vp, and
-         go to the handler.
+      /* Non-local return.  The values are on the stack, on a new frame
+         set up to call `values' to return the values to the handler.
+         Cache the VM registers back from the vp, and dispatch to the
+         body of `values'.
 
          Note, at this point, we must assume that any variable local to
-         vm_engine that can be assigned *has* been assigned. So we need to pull
-         all our state back from the ip/fp/sp.
+         vm_engine that can be assigned *has* been assigned. So we need
+         to pull all our state back from the ip/fp/sp.
       */
       CACHE_REGISTER ();
-      /* FIXME, need to pass the aborted values, somehow!  */
-      ABORT_CONTINUATION_HOOK (NULL, 0, 0);
+      ABORT_CONTINUATION_HOOK (fp, vp->sp + 1 - fp, 0);
       NEXT (0);
     }
 
@@ -859,19 +886,20 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   {
     SCM *base;
 
-    /* Check that we have enough space: 4 words for the boot
-       continuation, and 4 + nargs for the procedure application.  */
+    /* Check that we have enough space: 5 words for the boot
+       continuation, 4 + nargs for the procedure application, and 4 for
+       setting up a new frame.  */
     base = vp->sp + 1;
     nargs = nargs_;
+    CHECK_OVERFLOW (vp->sp + 5 + 4 + nargs + 4);
 
     /* Since it's possible to receive the arguments on the stack itself,
        and indeed the regular VM invokes us that way, shuffle up the
        arguments first.  */
-    CHECK_OVERFLOW (4 + 4 + nargs);
     {
       int i;
       for (i = nargs - 1; i >= 0; i--)
-        base[8 + i] = argv[i];
+        base[9 + i] = argv[i];
     }
 
     /* Initial frame, saving previous fp and ip, with the boot
@@ -880,15 +908,17 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     base[1] = SCM_PACK (UNUSED_RETURN_LOC); /* the boot continuation does not return to scheme */
     base[2] = SCM_PACK (ip); /* ra */
     base[3] = rtl_boot_continuation;
+    base[4] = SCM_UNDEFINED; /* space for the return value */
     fp = &base[4];
     ip = SCM_RTL_PROGRAM_ENTRY (rtl_boot_continuation);
 
     /* MV-call frame, function & arguments */
-    base[4] = SCM_PACK (fp); /* dynamic link */
-    base[5] = SCM_PACK (SCM_PACK_MV_RETURN_LOC (0, 0, 1)); /* collect all return values into a list, store in local 0 */
-    base[6] = SCM_PACK (ip); /* ra */
-    base[7] = program;
-    fp = &base[8];
+    base[5] = SCM_PACK (fp); /* dynamic link */
+    base[6] = SCM_PACK (SCM_PACK_MV_RETURN_LOC (0, 0, 1)); /* collect all return values into a list, store in local 0 */
+    base[7] = SCM_PACK (ip); /* ra */
+    base[8] = program;
+    fp = vp->fp = &base[9];
+    RESET_FRAME (nargs);
   }
 
  apply:
@@ -958,13 +988,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       ret = LOCAL_REF (src);
 
-      /* Restore registers */
-      vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;
-      /* Setting the ip here doesn't actually affect control flow, as the calling
-         code will restore its own registers, but it does help when walking the
-         stack */
-      vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
-      vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
+      RESTORE_FRAME ();
+      SYNC_ALL ();
 
       return ret;
     }
@@ -983,13 +1008,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       ret = scm_values (LOCAL_REF (src));
 
-      /* Restore registers */
-      vp->sp = SCM_FRAME_LOWER_ADDRESS (fp) - 1;
-      /* Setting the ip here doesn't actually affect control flow, as the calling
-         code will restore its own registers, but it does help when walking the
-         stack */
-      vp->ip = SCM_FRAME_RETURN_ADDRESS (fp);
-      vp->fp = SCM_FRAME_DYNAMIC_LINK (fp);
+      RESTORE_FRAME ();
+      SYNC_ALL ();
 
       return ret;
     }
@@ -1021,8 +1041,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
       SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 5 + nargs);
       SCM_FRAME_SET_RETURN_LOC (fp, return_loc);
-
       fp[-1] = old_fp[proc];
+      ALLOC_FRAME (nargs);
+
       for (n = 0; n < nargs; n++)
         LOCAL_SET (n, old_fp[ip[4 + n]]);
 
@@ -1051,6 +1072,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       VM_HANDLE_INTERRUPTS;
 
       fp[-1] = LOCAL_REF (proc);
+      /* No need to check for overflow, as the compiler has already
+         ensured that this frame has enough space.  */
+      RESET_FRAME (nargs);
 
       APPLY_HOOK ();
 
@@ -1107,9 +1131,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       POP_CONTINUATION_HOOK (new_fp, nreq, has_rest);
 
-      /* Restore registers */
-      ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);
-      fp = vp->fp = new_fp;
+      RESTORE_FRAME ();
 
       NEXT (0);
     }
@@ -1293,14 +1315,18 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       VM_HANDLE_INTERRUPTS;
 
+      VM_ASSERT (nargs >= 2, abort ());
       list_idx = nargs - 1;
       list = LOCAL_REF (list_idx);
       list_len = scm_ilength (list);
 
       VM_ASSERT (list_len >= 0, vm_error_apply_to_non_list (list));
 
+      nargs = nargs - 2 + list_len;
+      ALLOC_FRAME (nargs);
+
       for (i = 0; i < list_idx; i++)
-        fp[i -1] = fp[i];
+        fp[i - 1] = fp[i];
 
       /* Null out these slots, just in case there are less than 2 elements
          in the list. */
@@ -1309,8 +1335,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       for (i = 0; i < list_len; i++, list = SCM_CDR (list))
         fp[list_idx - 1 + i] = SCM_CAR (list);
-
-      nargs = nargs - 2 + list_len;
 
       APPLY_HOOK ();
 
@@ -1349,6 +1373,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       fp[-1] = fp[0];
       fp[0] = cont;
       nargs = 1;
+      RESET_FRAME (nargs);
 
       APPLY_HOOK ();
 
@@ -1395,9 +1420,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       POP_CONTINUATION_HOOK (new_fp, nreq, has_rest);
 
-      /* Restore registers */
-      ip = SCM_FRAME_RTL_RETURN_ADDRESS (fp);
-      fp = vp->fp = new_fp;
+      RESTORE_FRAME ();
 
       NEXT (0);
     }
@@ -1462,9 +1485,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint32 nlocals;
       SCM_UNPACK_RTL_24 (op, nlocals);
 
-      // FIXME: extend the stack!
-      VM_ASSERT (fp + nlocals < stack_limit, abort());
-
+      ALLOC_FRAME (nlocals);
       while (nlocals-- > nargs)
         LOCAL_SET (nlocals, SCM_UNDEFINED);
 
@@ -1480,11 +1501,12 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint16 expected, nlocals;
       SCM_UNPACK_RTL_12_12 (op, expected, nlocals);
+
       VM_ASSERT (nargs == expected, vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp), nargs));
-      // FIXME: extend the stack!
-      VM_ASSERT (fp + expected + nlocals < stack_limit, abort());
+      ALLOC_FRAME (expected + nlocals);
       while (nlocals--)
         LOCAL_SET (expected + nlocals, SCM_UNDEFINED);
+
       NEXT (1);
     }
 
@@ -1531,7 +1553,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         npositional++;
       nkw = nargs - npositional;
       /* shuffle non-positional arguments above ntotal */
-      /* FIXME check overflow */
+      ALLOC_FRAME (ntotal + nkw);
       n = nkw;
       while (n--)
         LOCAL_SET (ntotal + n, LOCAL_REF (npositional + n));
@@ -1572,8 +1594,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
           LOCAL_SET (nreq_and_opt, rest);
         }
 
-      for (n = 0; n < nkw; n++)
-        LOCAL_SET (ntotal + n, SCM_UNDEFINED);
+      RESET_FRAME (ntotal);
 
       NEXT (4);
     }
@@ -1597,6 +1618,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         }
 
       LOCAL_SET (dst, rest);
+
+      RESET_FRAME (dst + 1);
 
       NEXT (1);
     }
@@ -2344,7 +2367,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       /* FIXME: return_loc */
       scm_dynstack_push_prompt (&current_thread->dynstack, flags,
                                 LOCAL_REF (tag),
-                                fp, fp + SCM_RTL_PROGRAM_NUM_LOCALS (fp[-1]), ip + offset, &registers);
+                                fp, vp->sp, ip + offset, &registers);
       NEXT (3);
     }
 #else
@@ -3490,8 +3513,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 #undef VM_VALIDATE_BYTEVECTOR
 #undef VM_VALIDATE_PAIR
 #undef VM_VALIDATE_STRUCT
-
-/* FIXME: inline scm_cons to scm_cell */
 
 /*
 (defun renumber-ops ()
