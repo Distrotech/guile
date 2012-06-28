@@ -560,8 +560,6 @@
 
 (define-macro-assembler (begin-program asm label nlocals)
   (emit-label asm label)
-  (emit asm nlocals)
-  (emit asm 0) ; meta-label
   )
 
 (define-macro-assembler (label asm sym)

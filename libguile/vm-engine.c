@@ -910,7 +910,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     base[3] = rtl_boot_continuation;
     base[4] = SCM_UNDEFINED; /* space for the return value */
     fp = &base[4];
-    ip = SCM_RTL_PROGRAM_ENTRY (rtl_boot_continuation);
+    ip = SCM_RTL_PROGRAM_CODE (rtl_boot_continuation);
 
     /* MV-call frame, function & arguments */
     base[5] = SCM_PACK (fp); /* dynamic link */
@@ -962,7 +962,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     }
 
   /* Let's go! */
-  ip = SCM_RTL_PROGRAM_ENTRY (SCM_FRAME_PROGRAM (fp));
+  ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
   NEXT (0);
 
   BEGIN_DISPATCH_SWITCH;
@@ -1053,7 +1053,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_ENTRY (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -1081,7 +1081,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_ENTRY (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -1341,7 +1341,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_ENTRY (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 
@@ -1380,7 +1380,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       if (SCM_UNLIKELY (!SCM_RTL_PROGRAM_P (SCM_FRAME_PROGRAM (fp))))
         goto apply;
 
-      ip = SCM_RTL_PROGRAM_ENTRY (SCM_FRAME_PROGRAM (fp));
+      ip = SCM_RTL_PROGRAM_CODE (SCM_FRAME_PROGRAM (fp));
       NEXT (0);
     }
 #else

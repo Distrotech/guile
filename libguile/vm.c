@@ -629,8 +629,6 @@ vm_error_free_variable ()
 static SCM boot_continuation;
 
 const scm_t_uint32 rtl_boot_continuation_code[] = {
-  0, /* 0 locals */
-  0, /* No meta */
   SCM_PACK_RTL_24 (scm_rtl_op_halt_values, 0) /* results from r0 */
 };
 
