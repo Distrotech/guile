@@ -58,6 +58,13 @@
 (define-syntax-rule (pack-u8-u8-u8-u8 x y z w)
   (logior x (ash y 8) (ash z 16) (ash w 24)))
 
+(define-record-type <meta>
+  (make-meta name low-pc high-pc)
+  meta?
+  (name meta-name)
+  (low-pc meta-low-pc)
+  (high-pc meta-high-pc set-meta-high-pc!))
+
 (define-syntax *block-size* (identifier-syntax 32))
 
 ;; We'll use native endianness when writing bytecode.  If we're
@@ -71,7 +78,8 @@
             labels relocs
             word-size endianness
             constants inits
-            string-table)
+            string-table
+            meta)
   asm?
   (cur asm-cur set-asm-cur!)
   (idx asm-idx set-asm-idx!)
@@ -85,7 +93,8 @@
   ;; Vhash of object -> label.  Order is important.
   (constants asm-constants set-asm-constants!)
   (inits asm-inits set-asm-inits!)
-  (string-table asm-string-table set-asm-string-table!))
+  (string-table asm-string-table set-asm-string-table!)
+  (meta asm-meta set-asm-meta!))
 
 (define-inlinable (fresh-block)
   (make-u32vector *block-size*))
@@ -96,7 +105,8 @@
             '() '()
             word-size endianness
             vlist-null '()
-            (make-elf-string-table)))
+            (make-elf-string-table)
+            '()))
 
 (define (intern-string! asm string)
   (call-with-values
@@ -266,7 +276,6 @@
                            (syntax->datum #'(word* ...)))))
          #'(lambda (asm formal0 ... formal* ... ...)
              (unless (asm? asm) (error "not an asm"))
-             (reset-asm-start! asm)
              code0 ...
              code* ... ...
              ))))))
@@ -558,19 +567,24 @@
   (let ((loc (intern-constant asm (make-static-procedure label))))
     (emit-make-non-immediate asm dst loc)))
 
-(define-macro-assembler (begin-program asm label nlocals)
+(define-macro-assembler (begin-program asm label)
   (emit-label asm label)
-  )
+  (let ((meta (make-meta label (asm-start asm) #f)))
+    (set-asm-meta! asm (cons meta (asm-meta asm)))))
+
+(define-macro-assembler (end-program asm)
+  (set-meta-high-pc! (car (asm-meta asm)) (asm-start asm)))
 
 (define-macro-assembler (label asm sym)
-  (reset-asm-start! asm)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
 
 (define (emit-text asm instructions)
   (for-each (lambda (inst)
+              (reset-asm-start! asm)
               (apply (or (hashq-ref assemblers (car inst))
                          (error 'bad-instruction inst))
-                     asm (cdr inst)))
+                     asm
+                     (cdr inst)))
             instructions))
 
 (define (process-relocs buf relocs labels)
@@ -704,7 +718,7 @@
     (and (not (null? inits))
          (let ((label (gensym "init-constants")))
            (emit-text asm
-                      `((begin-program ,label 1)
+                      `((begin-program ,label)
                         (assert-nargs-ee/locals 0 1)
                         ,@(reverse inits)
                         (load-constant 0 ,*unspecified*)

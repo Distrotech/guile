@@ -25,10 +25,11 @@
     (pass-if (object->string x) (equal? expr x))))
 
 (define (return-constant val)
-  (assemble-program `((begin-program foo 1)
+  (assemble-program `((begin-program foo)
                       (assert-nargs-ee/locals 0 1)
                       (load-constant 0 ,val)
-                      (return 0))))
+                      (return 0)
+                      (end-program))))
 
 (define-syntax-rule (assert-constants val ...)
   (begin
@@ -60,14 +61,16 @@
 
 (with-test-prefix "static procedure"
   (assert-equal 42
-                (((assemble-program `((begin-program foo 1)
+                (((assemble-program `((begin-program foo)
                                       (assert-nargs-ee/locals 0 1)
                                       (load-static-procedure 0 bar)
                                       (return 0)
-                                      (begin-program bar 1)
+                                      (end-program)
+                                      (begin-program bar)
                                       (assert-nargs-ee/locals 0 1)
                                       (load-constant 0 42)
-                                      (return 0)))))))
+                                      (return 0)
+                                      (end-program)))))))
 
 (with-test-prefix "loop"
   (assert-equal (* 999 500)
@@ -76,7 +79,7 @@
                         ;; 0: limit
                         ;; 1: n
                         ;; 2: accum
-                        '((begin-program countdown 3)
+                        '((begin-program countdown)
                           (assert-nargs-ee/locals 1 2)
                           (br fix-body)
                           (label loop-head)
@@ -89,7 +92,8 @@
                           (load-constant 2 0)
                           (br loop-head)
                           (label out)
-                          (return 2)))))
+                          (return 2)
+                          (end-program)))))
                   (sumto 1000))))
 
 (with-test-prefix "accum"
@@ -99,19 +103,21 @@
                         ;; 0: elt
                         ;; 1: tail
                         ;; 2: head
-                        '((begin-program make-accum 2)
+                        '((begin-program make-accum)
                           (assert-nargs-ee/locals 0 2)
                           (load-constant 0 0)
                           (box 0 0)
                           (make-closure 1 accum (0))
                           (return 1)
-                          (begin-program accum 3)
+                          (end-program)
+                          (begin-program accum)
                           (assert-nargs-ee/locals 1 2)
                           (free-ref 1 0)
                           (box-ref 2 1)
                           (add 2 2 0)
                           (box-set! 1 2)
-                          (return 2)))))
+                          (return 2)
+                          (end-program)))))
                   (let ((accum (make-accum)))
                     (accum 1)
                     (accum 2)
