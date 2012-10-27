@@ -32,7 +32,7 @@
 ;;  continuations or functions. therefore, we don't need to worry about
 ;;  searching a lexical environment for them. this also means that we
 ;;  can use the argument lists of continuations (and functions!) to
-;;  track the liveness of variables.
+;;  track the liveness of those variables.
 (define-type <cps>
   ;; <letval> actually handles multiple constant values, because why
   ;; not?
@@ -43,7 +43,9 @@
   ;; the important thing about continuations (as opposed to functions)
   ;; is that they can always be compiled as jumps. this is information
   ;; that was in the program itself, but would be lost if we compiled
-  ;; everything to lambdas without distinguishing them in some way
+  ;; everything to lambdas without distinguishing them in some
+  ;; way. also, continuations can never be referenced by variables, so
+  ;; we don't need to worry about packaging them up.
   (<letcont> names conts body)
   ;; the 'outer' form only appears as the outermost part of a CPS
   ;; expression. when we are compiling a procedure, it holds the names
@@ -84,13 +86,24 @@
 (define (allocate-registers! cps)
   (define (visit cps counter)
     (if (pair? cps)
-        counter
+        ;; a pair is either a lambda expression or a call.
+        (if (eq? (car cps) 'lambda)
+            (let iter ((args (cadr cps))
+                       (counter counter))
+              (if (null? args)
+                  (visit (caddr cps) counter)
+                  (begin
+                    (set! (register (car args)) counter)
+                    (iter (cdr args) (+ counter 1)))))
+            counter)
+        ;; TO DO: if the car of the pair is 'lambda, visit the body of the
+        ;; lambda-expression.
         (record-case cps
                      ((<letval> names vals body)
                       (let iter ((names names)
                                  (counter counter))
                         (if (null? names)
-                            counter
+                            (visit body counter)
                             (begin
                               (set! (register (car names)) counter)
                               (iter (cdr names) (+ counter 1))))))
@@ -105,22 +118,24 @@
                      ;; recursively, we should try to set up our
                      ;; allocation to avoid unnecessary moves.)
                      ((<letcont> conts body)
-                      (let cont-iter ((conts conts)
-                                      (counter counter))
-                        (if (null? conts)
-                            counter
-                            ;; now we're allocating registers for (car conts). that
-                            ;; must be a lambda expression that looks like this: (lambda (args)
-                            ;; ...). we need to allocate new registers for its
-                            ;; arguments.
-                            (let arg-iter ((args (cadr (car conts)))
-                                           (counter counter))
-                              (if (null? args)
-                                  (cont-iter (cdr conts) counter)
-                                  (begin
-                                    (set! (register (car args)) counter)
-                                    (arg-iter (cdr args) (+ counter 1)))))))))))
+                      (map (lambda (c) (visit c counter)) conts)
+                      (visit body counter))
 
+                     ;; in a letrec, unlike a letcont, we do have to
+                     ;; allocate registers to hold the actual functions,
+                     ;; because they could be used as values instead of
+                     ;; just as static jump targets. but they can also
+                     ;; reference each other, so we 
+                     ((<letrec> names funcs body)
+                      (let alloc-funcs ((names names)
+                                        (counter counter))
+                        (if (not (null? names))
+                            (begin
+                              (set! (register (car names)) counter)
+                              (alloc-funcs (cdr names) (+ counter 1)))
+                            (let ((alloc-func (lambda (f) (visit f counter))))
+                              (map alloc-func funcs)
+                              (visit body counter))))))))
   (record-case cps
     ((<outer> names body)
      (let iter ((names names)
