@@ -1,16 +1,18 @@
 (define-module (language cps)
   #:use-module (system base syntax) ;; for define-type
-  #:use-module (srfi srfi-1) ;; for append-map!
+  #:use-module (srfi srfi-1)
   #:use-module (system vm rtl) ;; for assemble-program
   #:use-module (language integer-sets) ;; not really
   #:use-module (ice-9 match) ;; not really
+  #:use-module (ice-9 q) ;; used in generate-shuffle
   #:export (<cps> cps?
             <letval> letval? make-letval letval-names letval-vals letval-body
             <letrec> letrec? make-letrec letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-conts letcont-body
             <outer> outer? make-outer outer-names outer-body
 
-            cps->rtl allocate-registers! with-regs cps->program
+            cps->rtl allocate-registers-and-labels! with-alloc cps->program
+            generate-shuffle
 
             return-three call-arg compose))
 
@@ -70,21 +72,32 @@
 ;; always be a symbol)
 (define register (make-object-property))
 
-;; and every contination gets a label, so we can jump to it
+;; and every contination gets a label, so we can jump to it. this is
+;; indexed by the names of the continuations, not the actual lambda objects.
 (define label (make-object-property))
+(define label-counter 0)
+
+;; a mapping from names to values. right now it only holds
+;; continuations, but there's no barrier to it holding other things,
+;; because all of the CPS names are distinct symbols. we don't have to
+;; worry about scoping, either. it might be better to get rid of this
+;; and replace names with direct links to their values, but that's a
+;; bigger project
+(define name-value (make-object-property))
 
 ;; and every function in a 'letrec', plus the 'outer' form, gets the
 ;; number of local variables it needs, so we can allocate them with the
 ;; 'nlocals or 'assert-nargs-ee/nlocals instructions. this is also set
-;; by allocate-registers!, because it has all the information we need
-;; anyway.
+;; by allocate-registers-and-labels!, because it has all the information
+;; we need anyway.
 (define nlocals (make-object-property))
 
-;; This function walks some CPS and allocates registers for
-;; it. Currently we never free a register before a function ends - bad,
-;; but it was easy to implement.
-(define (allocate-registers! cps)
+;; This function walks some CPS and allocates registers and labels for
+;; it. It's certainly not optimal yet. It also sets the name-value
+;; property for continuations
+(define (allocate-registers-and-labels! cps)
   (define (visit cps counter)
+    ;; counter is the number of local variables we've already allocated.
     (if (pair? cps)
         ;; a pair is either a lambda expression or a call.
         (if (eq? (car cps) 'lambda)
@@ -117,9 +130,26 @@
                      ;; continuations that are going to call each other
                      ;; recursively, we should try to set up our
                      ;; allocation to avoid unnecessary moves.)
-                     ((<letcont> conts body)
-                      (map (lambda (c) (visit c counter)) conts)
-                      (visit body counter))
+                     ((<letcont> names conts body)
+                      ;; first, allocate some labels
+                      (map (lambda (n)
+                             (set! (label n)
+                                   (string->symbol
+                                    (string-append
+                                     "l-" (number->string label-counter))))
+                             (set! label-counter (+ label-counter 1)))
+                           names)
+                      ;; then the name-value mapping
+                      (map (lambda (n c)
+                             (set! (name-value n) c))
+                           names conts)
+                      ;; then local variables. we need to return the
+                      ;; maximum of the register numbers used so that
+                      ;; whatever procedure we're part of will allocate
+                      ;; the right number of local variable slots on the
+                      ;; stack.
+                      (apply max (visit body counter)
+                             (map (lambda (c) (visit c counter)) conts)))
 
                      ;; in a letrec, unlike a letcont, we do have to
                      ;; allocate registers to hold the actual functions,
@@ -142,22 +172,30 @@
                 (counter 0))
        (if (null? names)
            (let ((total (visit body counter)))
-             (set! (nlocals cps) total))
+             ;; we reserve one more than whatever number of variables we
+             ;; have because we might need some extra space to move
+             ;; variables around. see the move-generator below. this
+             ;; should really be fixed.
+             (set! (nlocals cps) (+ total 1)))
            (begin
              (set! (register (car names)) counter)
              (iter (cdr names) (+ counter 1))))))))
 
-;; show what registers we've allocated where. use this at the REPL:
-;;   ,pp (with-regs cps)
-(define (with-regs cps)
+;; show what registers and labels we've allocated where. use this at the
+;; REPL: ,pp (with-alloc cps)
+(define (with-alloc cps)
   ;; return a list that looks like the CPS, but with everyone annotated
   ;; with a register
   (define (with-reg s) ;; s must be a symbol
-    (cons s (register s))) ;; (register s) will be #f if we haven't
-  ;; allocated s.
+    (if (eq? s 'return)
+        s
+        (cons s (register s)))) ;; (register s) will be #f if we haven't
+                                ;; allocated s.
 
   (cond ((pair? cps)
-         (map with-regs cps))
+         (if (eq? (car cps) 'lambda)
+             (cons 'lambda (map with-alloc (cdr cps)))
+             (map with-alloc cps)))
         ((symbol? cps)
          (with-reg cps))
         (else
@@ -165,14 +203,98 @@
            ((<letval> names vals body)
             `(letval ,(map with-reg names)
                      ,vals ,body))
-           ((<letcont> conts body)
-            `(letcont ,(map (lambda (cont)
-                              `(lambda ,(map with-reg (cadr cont)) . (cddr cont)))
-                            conts)
-                      ,body))
+           ((<letcont> names conts body)
+            `(letcont ,(map (lambda (name cont)
+                              `((,name . ,(label name))
+                                lambda ,(map with-alloc (cadr cont))
+                                ,(with-alloc (caddr cont))))
+                            names conts)
+                      ,(with-alloc body)))
            ((<outer> names body)
             `(outer ,(map with-reg names)
-                    ,(with-regs body)))))))
+                    ,(with-alloc body)))))))
+
+;; this function should probably be in (ice-9 q)
+(define (append-qs! q r)
+  (set-cdr! (cdr q) (car r))
+  (set-cdr! q (cdr r))
+  q)
+
+;; this function returns a list of `mov' instructions that accomplish a
+;; shuffle in the stack. each tail argument is a pair (from . to) that
+;; indicates how a value should move. the first argument is the number
+;; of an extra slot that it can use as swap space if it wants to.  NOTE:
+;; if the VM had a `swap' instruction, we wouldn't need an extra
+;; spot. maybe we should add one.
+(define (generate-shuffle swap . args)
+  ;; a "move chain" is ((x1 . x2) (x2 . x3) ...). we return a list of
+  ;; the swap chains we find in our args, as (ice-9 q) queues.
+  (define (make-move-chains chains rest)
+    ;; chains is a list of queues of elements, each of which is a move
+    ;; chain, and rest is a list of whatever moves have yet to be
+    ;; chained.
+    (if (null? rest)
+        chains
+        (let* ((next (car rest))
+               (front-match (find (lambda (x) (eq? (car (q-front x)) (cdr next)))
+                                  chains))
+               (end-match (find (lambda (x) (eq? (cdr (q-rear x)) (car next)))
+                                chains)))
+          ;; it is possible to get a front-match and an end-match at the
+          ;; same time in two different ways. if our set of moves
+          ;; includes a cycle, then we expect that at some point, the
+          ;; front-match and end-match will be eq?. we need to serialize
+          ;; our cycles anyway, so we just pick the front-match
+          ;; arbitrarily. however, if we have a front-match and an
+          ;; end-match that are not eq?, then it means we have found a
+          ;; link between two of our chains, and we need to stitch them
+          ;; together.
+          (cond
+           ((and front-match end-match (not (eq? front-match end-match)))
+            ;; stitch two chains together
+            (enq! end-match next)
+            (append-qs! end-match front-match)
+            (make-move-chains (delq front-match chains) (cdr rest)))
+           (front-match ;; push next onto the beginning of a chain
+            (q-push! front-match next)
+            (make-move-chains chains (cdr rest)))
+           (end-match ;; push next onto the end of a chain
+            (enq! end-match next)
+            (make-move-chains chains (cdr rest)))
+           (else ;; make a new chain
+            (let ((new-chain (make-q)))
+              (enq! new-chain next)
+              (make-move-chains (cons new-chain chains) (cdr rest))))))))
+
+  ;; given a single move chain, generate a series of moves to implement
+  ;; it, using the given swap register
+  (define (moves-for-chain swap chain)
+    (if (eq? (car (q-front chain))
+             (cdr (q-rear chain)))
+        ;; a cyclic chain!
+        `((mov ,swap ,(car (q-front chain)))
+          ;; we remove the first element of the chain, making it acyclic
+          ,@(moves-for-acyclic-list (cdar chain))
+          (mov ,(cdr (q-front chain)) ,swap))
+        (moves-for-acyclic-list (car chain))))
+
+  (define (moves-for-acyclic-list lst)
+    ;; this is named -list instead of -chain because it accepts a list
+    ;; holding a move chain, instead of a queue like the other -chain
+    ;; functions.
+    (let iter ((moves (reverse lst)))
+      (if (null? moves)
+          '()
+          (cons `(mov ,(cdar moves) ,(caar moves))
+                (iter (cdr moves))))))
+
+  ;; step one: eliminate identity shuffles
+  (let* ((no-ids (remove (lambda (x) (eq? (car x) (cdr x))) args))
+         ;; step two: make move chains
+         (chains (make-move-chains '() no-ids))) 
+    ;; step three: generate a series of moves for each chain, using the
+    ;; swap space.
+    (apply append (map (lambda (x) (moves-for-chain swap x)) chains))))
 
 ;; This is the main function. cps->rtl compiles a cps form into a list
 ;; of RTL code.
@@ -188,11 +310,47 @@
          ;; more generally, a call whose continuation escapes from our
          ;; scope is easy - it must be a tail call, because it's never
          ;; coming back. (we only check for 'return right now because
-         ;; that's the only escaping continuation so far)
-         ((and (eq? (cadr cps) 'return)
-               (eq? (cddr cps) '()))
-          `((tail-call 0 ,(register (car cps)))))
-         (else (error "We don't know how to compile calls yet")))
+         ;; that's the only escaping continuation so far). TO DO: check
+         ;; whether (car cps) is a continuation or a real function, and
+         ;; do something different if it's a continuation.
+         ((eq? (cadr cps) 'return)
+          (let ((num-args (length (cddr cps))))
+            ;; the shuffle here includes the procedure that we're going
+            ;; to call, because we don't want to accidentally overwrite
+            ;; it. this is a bit ugly - maybe there should be a better
+            ;; generate-shuffle procedure that knows that some registers
+            ;; are "protected", meaning that their values have to exist
+            ;; after the shuffle, but don't have to end up in any
+            ;; specific target register.
+            (let ((shuffle
+                   (cons (cons (register (car cps))
+                               (+ num-args 1))
+                         (let iter ((args (cddr cps))
+                                    (arg-num 0))
+                             (if (null? args)
+                                 '()
+                                 (cons
+                                  (cons (register (car args))
+                                        arg-num)
+                                  (iter (cdr args) (+ arg-num 1))))))))
+              `(,@(apply generate-shuffle (+ num-args 2) shuffle)
+                (tail-call ,num-args ,(+ num-args 1))))))
+         ((label (cadr cps)) ;; a call whose continuation is bound in a
+                             ;; letcont form
+          (let ((return-base (register (caadr (name-value (cadr cps))))))
+            ;; return-base is the stack offset where we want to put the
+            ;; return values of this function. there can't be anything
+            ;; important on the stack past return-base, because
+            ;; anything in scope would already have a reserved spot on
+            ;; the stack before return-base, because the allocator works
+            ;; that way.
+          `((call ,return-base ,(register (car cps))
+                  ,(map register (cddr cps)))
+            ;; the RA and MVRA both branch to the continuation. we don't
+            ;; do error checking yet.
+            (br ,(label (cadr cps)))    ;; MVRA
+            (br ,(label (cadr cps)))))) ;; RA
+         (else (error "We don't know how to compile" cps)))
         ;; it's a let expression
         (record-case cps
           ((<letval> names vals body)
@@ -201,10 +359,13 @@
                   `((load-constant ,(register name) ,val)))
                 names vals)
              ,@(visit body)))
-          ((<letcont> conts body)
-           (if (not (null? conts))
-               (error "We don't know how to compile continuations yet")
-               (visit body))))))
+          ((<letcont> names conts body)
+           (apply append
+                  (visit body)
+                  (map (lambda (n c)
+                         `((label ,(label n))
+                           ,@(visit (caddr c))))
+                       names conts))))))
 
   (record-case cps
     ((<outer> names body)
@@ -232,7 +393,7 @@
 (define compose
   (make-outer '(x y)
     (make-letcont '(c1)
-      (list '(lambda (r) (x 'return r)))
+      (list '(lambda (r) (x return r)))
       '(y c1))))
 
 ;; (lambda (k x) (k x)) <= (lambda (x) x)
