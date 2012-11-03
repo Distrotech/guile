@@ -14,7 +14,7 @@
             cps->rtl allocate-registers-and-labels! with-alloc cps->program
             generate-shuffle
 
-            return-three call-arg compose))
+            return-three call-arg compose identity))
 
 ;; this is based on Kennedy's intermediate language. the CPS
 ;; representation has several useful aspects:
@@ -398,8 +398,10 @@
       '(y c1))))
 
 ;; (lambda (k x) (k x)) <= (lambda (x) x)
+(define identity
+  (make-outer '(x)
+    '(return x)))
 
-;; (lambda (k x) (x k)) <= (lambda (x) (x))
 
 ;; (lambda (k x) (* k 2 x)) <= (lambda (x) (* x 2))
 
