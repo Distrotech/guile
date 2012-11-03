@@ -367,6 +367,7 @@
                            ,@(visit (caddr c))))
                        names conts))))))
 
+  (allocate-registers-and-labels! cps)
   (record-case cps
     ((<outer> names body)
      `((begin-program foo) ;; TO DO: save the name of the program
