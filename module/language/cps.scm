@@ -2,22 +2,30 @@
   #:use-module (system base syntax) ;; for define-type
   #:use-module (srfi srfi-1)
   #:use-module (system vm rtl) ;; for assemble-program
-  #:use-module (language integer-sets) ;; not really
-  #:use-module (ice-9 match) ;; not really
+  #:use-module (ice-9 match)
   #:use-module (ice-9 q) ;; used in generate-shuffle
   #:export (<cps> cps?
             <letval> letval? make-letval letval-names letval-vals letval-body
             <letrec> letrec? make-letrec letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-conts letcont-body
-            <outer> outer? make-outer outer-names outer-body
+            <lambda> lambda? make-lambda lambda-names lambda-body
+            <call> call? make-call call-proc call-cont call-args
 
-            cps->rtl allocate-registers-and-labels! with-alloc cps->program
-            generate-shuffle
+            cps->rtl allocate-registers-and-labels! with-alloc show-alloc!
+            cps->program generate-shuffle
 
             return-three call-arg compose identity))
 
-;; this is based on Kennedy's intermediate language. the CPS
-;; representation has several useful aspects:
+;; The CPS representation used in this file is based on the paper
+;; "Compiling with Continuations, Continued", by Andrew
+;; Kennedy. Although it's called CPS, it's not really what you (or at
+;; least I) would think of as "traditional" CPS, because the functions
+;; bound by <letcont> forms don't take their continuations as arguments!
+;; I believe Kennedy thinks of these as functions that always have the
+;; same continuation, so it's just been inlined.
+
+;; However, whether or not it's "traditional CPS", it has some useful
+;; properties:
 
 ;;  1) first, it's a runnable Scheme program (or close enough to
 ;;  Scheme). The CPS transformation applies to every Scheme program and
@@ -30,11 +38,13 @@
 ;;  forms represent some subset of the control flow graph in two parts,
 ;;  and control only flows one direction between the parts.
 
-;;  3) it represents all lexical non-lambda variables by arguments to
-;;  continuations or functions. therefore, we don't need to worry about
-;;  searching a lexical environment for them. this also means that we
-;;  can use the argument lists of continuations (and functions!) to
-;;  track the liveness of those variables.
+;;  3) every lexical variable gets a unique name, and if it is set!, the
+;;  new value gets a new name! therefore the variable names track
+;;  uniqueness in the eq? sense. also, since every variable gets a
+;;  unique name, we don't have to bother with environment structures
+;;  just to store properties - we just use the variable names as keys to
+;;  a hash table and know that they won't collide.
+
 (define-type <cps>
   ;; <letval> actually handles multiple constant values, because why
   ;; not?
@@ -49,20 +59,25 @@
   ;; way. also, continuations can never be referenced by variables, so
   ;; we don't need to worry about packaging them up.
   (<letcont> names conts body)
-  ;; the 'outer' form only appears as the outermost part of a CPS
-  ;; expression. when we are compiling a procedure, it holds the names
-  ;; of that procedure's arguments, to distinguish them from free
-  ;; variables. every CPS form should be surrounded by an 'outer'.
-  (<outer> names body)
+  ;; the 'lambda' form appears in the 'funcs' list of a letrec form and as
+  ;; the outermost form of a compilation unit (when we're compiling a
+  ;; procedure at a time) to distinguish procedure arguments from
+  ;; top-level variables.
+  (<lambda> names body)
+  ;; the 'call' form literally represents a call. the procedure will be
+  ;; a variable bound by either a lambda form, a letval, a letrec, or a
+  ;; letcont, or the special value 'return (which means to return from
+  ;; the enclosing lambda). cont is the continuation that we pass to the
+  ;; procedure. it's separate from the args because it can point to a
+  ;; letcont continuation and they cannot, so it is different for
+  ;; purposes of register allocation (and, of course, code
+  ;; generation). the cont slot will be #f if proc is a letcont
+  ;; continuation or 'return.
+  (<call> proc cont args)
   ;; right now we are missing the 'let' from Kennedy's paper. That is
   ;; used to compose record constructors and field accessors, but we are
   ;; not attempting to do that yet.
   )
-;; the 'body' in all three regular CPS cases must be either another
-;; 'let...' form or a call to a function or a continuation. The first
-;; argument to any call is the continuation to be passed. There is a
-;; special continuation called 'return which means that we are leaving
-;; our function, if we are just compiling one top-level function.
 
 ;; currently, the only way we have to run RTL code is to package it up
 ;; into a program and call that program. Therefore, all code that we
@@ -76,20 +91,27 @@
 ;; indexed by the names of the continuations, not the actual lambda objects.
 (define label (make-object-property))
 (define label-counter 0)
+(define (next-label!)
+  (let ((label
+         (string->symbol
+          (string-append
+           "l-" (number->string label-counter)))))
+    (set! label-counter (+ label-counter 1))
+    label))
 
-;; a mapping from names to values. right now it only holds
-;; continuations, but there's no barrier to it holding other things,
-;; because all of the CPS names are distinct symbols. we don't have to
-;; worry about scoping, either. it might be better to get rid of this
-;; and replace names with direct links to their values, but that's a
-;; bigger project
+;; this lets us find the values of names bound in 'let...' forms. right
+;; now it only holds continuations, but there's no barrier to it holding
+;; other things, because all of the CPS names are distinct symbols. we
+;; don't have to worry about scoping, either. it might be better to get
+;; rid of this and replace names with direct links to their values, but
+;; that's a bigger project.
 (define name-value (make-object-property))
 
-;; and every function in a 'letrec', plus the 'outer' form, gets the
-;; number of local variables it needs, so we can allocate them with the
-;; 'nlocals or 'assert-nargs-ee/nlocals instructions. this is also set
-;; by allocate-registers-and-labels!, because it has all the information
-;; we need anyway.
+;; this holds the number of local variable slots needed by every 'lambda'
+;; form, so we can allocate them with the 'nlocals or
+;; 'assert-nargs-ee/nlocals instructions. this is set by
+;; allocate-registers-and-labels!, because it has all the register
+;; information.
 (define nlocals (make-object-property))
 
 ;; This function walks some CPS and allocates registers and labels for
@@ -98,88 +120,78 @@
 (define (allocate-registers-and-labels! cps)
   (define (visit cps counter)
     ;; counter is the number of local variables we've already allocated.
-    (if (pair? cps)
-        ;; a pair is either a lambda expression or a call.
-        (if (eq? (car cps) 'lambda)
-            (let iter ((args (cadr cps))
-                       (counter counter))
-              (if (null? args)
-                  (visit (caddr cps) counter)
-                  (begin
-                    (set! (register (car args)) counter)
-                    (iter (cdr args) (+ counter 1)))))
-            counter)
-        ;; TO DO: if the car of the pair is 'lambda, visit the body of the
-        ;; lambda-expression.
-        (record-case cps
-                     ((<letval> names vals body)
-                      (let iter ((names names)
-                                 (counter counter))
-                        (if (null? names)
-                            (visit body counter)
-                            (begin
-                              (set! (register (car names)) counter)
-                              (iter (cdr names) (+ counter 1))))))
+    (record-case cps
+      ((<call>) counter)
+                 
+      ((<lambda> names body)
+       ;; TO DO: record which variables will be closure variables.
+       (let iter ((names names)
+                  (counter counter))
+         (if (null? names)
+             (let ((total (visit body counter)))
+               ;; we reserve one more than whatever number of variables
+               ;; we have because we might need an extra space to move
+               ;; variables around. see generate-shuffle below. this
+               ;; doesn't really feel elegant, but I don't have a better
+               ;; solution right now.
+               (set! (nlocals cps) (+ total 1)))
+             (begin
+               (set! (register (car names)) counter)
+               (iter (cdr names) (+ counter 1))))))
+      
+      ((<letval> names vals body)
+       (let iter ((names names)
+                  (counter counter))
+         (if (null? names)
+             (visit body counter)
+             (begin
+               (set! (register (car names)) counter)
+               (iter (cdr names) (+ counter 1))))))
+      
+      ;; an important scoping point: none of the arguments to any of the
+      ;; <letcont>'s continuations are in scope for any of the other
+      ;; continuations, or the body. therefore, we allocate registers
+      ;; for them independently. (TO DO: if we have a bunch of
+      ;; continuations that are going to call each other recursively, we
+      ;; should try to set up our allocation to avoid unnecessary
+      ;; moves.)
+      ((<letcont> names conts body)
+       ;; first, allocate some labels
+       (map (lambda (n)
+              (set! (label n) (next-label!)))
+            names)
+       ;; then the name-value mapping
+       (map (lambda (n c)
+              (set! (name-value n) c))
+            names conts)
+       ;; then local variables. we need to return the maximum of the
+       ;; register numbers used so that whatever procedure we're part of
+       ;; will allocate the right number of local variable slots on the
+       ;; stack.
+       (apply max (visit body counter)
+              (map (lambda (c) (visit c counter)) conts)))
+      
+      ;; in a letrec, unlike a letcont, we do have to allocate registers
+      ;; to hold the actual functions, because they could be used as
+      ;; values instead of just as static jump targets. but they can
+      ;; also reference each other, so we should allocate labels for
+      ;; them too.
+      ((<letrec> names funcs body)
+       (let alloc-funcs ((names names)
+                         (counter counter))
+         (if (not (null? names))
+             (begin
+               (set! (register (car names)) counter)
+               (set! (label (car names)) (next-label!))
+               (alloc-funcs (cdr names) (+ counter 1)))
+             ;; the counter resets to zero for a new lambda because when it's
+             ;; called, only its arguments will be on the stack -
+             ;; everything else will be a closure variable.
+             (let ((alloc-func (lambda (f) (visit f 0))))
+               (map alloc-func funcs)
+               (visit body counter)))))))
 
-                     ;; an important scoping point: none of the
-                     ;; arguments to any of the <letcont>'s
-                     ;; continuations are in scope for any of the other
-                     ;; continuations, or the body. therefore, we
-                     ;; allocate registers for them
-                     ;; independently. (TO DO: if we have a bunch of
-                     ;; continuations that are going to call each other
-                     ;; recursively, we should try to set up our
-                     ;; allocation to avoid unnecessary moves.)
-                     ((<letcont> names conts body)
-                      ;; first, allocate some labels
-                      (map (lambda (n)
-                             (set! (label n)
-                                   (string->symbol
-                                    (string-append
-                                     "l-" (number->string label-counter))))
-                             (set! label-counter (+ label-counter 1)))
-                           names)
-                      ;; then the name-value mapping
-                      (map (lambda (n c)
-                             (set! (name-value n) c))
-                           names conts)
-                      ;; then local variables. we need to return the
-                      ;; maximum of the register numbers used so that
-                      ;; whatever procedure we're part of will allocate
-                      ;; the right number of local variable slots on the
-                      ;; stack.
-                      (apply max (visit body counter)
-                             (map (lambda (c) (visit c counter)) conts)))
-
-                     ;; in a letrec, unlike a letcont, we do have to
-                     ;; allocate registers to hold the actual functions,
-                     ;; because they could be used as values instead of
-                     ;; just as static jump targets. but they can also
-                     ;; reference each other, so we 
-                     ((<letrec> names funcs body)
-                      (let alloc-funcs ((names names)
-                                        (counter counter))
-                        (if (not (null? names))
-                            (begin
-                              (set! (register (car names)) counter)
-                              (alloc-funcs (cdr names) (+ counter 1)))
-                            (let ((alloc-func (lambda (f) (visit f counter))))
-                              (map alloc-func funcs)
-                              (visit body counter))))))))
-  (record-case cps
-    ((<outer> names body)
-     (let iter ((names names)
-                (counter 0))
-       (if (null? names)
-           (let ((total (visit body counter)))
-             ;; we reserve one more than whatever number of variables we
-             ;; have because we might need some extra space to move
-             ;; variables around. see the move-generator below. this
-             ;; should really be fixed.
-             (set! (nlocals cps) (+ total 1)))
-           (begin
-             (set! (register (car names)) counter)
-             (iter (cdr names) (+ counter 1))))))))
+  (visit cps 0))
 
 ;; show what registers and labels we've allocated where. use this at the
 ;; REPL: ,pp (with-alloc cps)
@@ -192,27 +204,37 @@
         (cons s (register s)))) ;; (register s) will be #f if we haven't
                                 ;; allocated s.
 
-  (cond ((pair? cps)
-         (if (eq? (car cps) 'lambda)
-             (cons 'lambda (map with-alloc (cdr cps)))
-             (map with-alloc cps)))
-        ((symbol? cps)
+  (define (with-label s)
+    (if (eq? s 'return)
+        s
+        (cons s (label s))))
+
+  (cond ((symbol? cps)
          (with-reg cps))
+        ((boolean? cps)
+         ;; we get a boolean when with-alloc is called on the cont of a
+         ;; call to a letcont continuation.
+         cps)
         (else
          (record-case cps
+           ((<call> proc cont args)
+            (cons* (with-alloc proc)
+                   (with-alloc cont)
+                   (map with-alloc args)))
+           ((<lambda> names body)
+            `(lambda ,(map with-reg names)
+               ,(with-alloc body)))
            ((<letval> names vals body)
             `(letval ,(map with-reg names)
-                     ,vals ,body))
+                     ,vals ,(with-alloc body)))
            ((<letcont> names conts body)
-            `(letcont ,(map (lambda (name cont)
-                              `((,name . ,(label name))
-                                lambda ,(map with-alloc (cadr cont))
-                                ,(with-alloc (caddr cont))))
-                            names conts)
-                      ,(with-alloc body)))
-           ((<outer> names body)
-            `(outer ,(map with-reg names)
-                    ,(with-alloc body)))))))
+            `(letcont ,(map with-label names)
+                      ,(map with-alloc conts)
+                      ,(with-alloc body)))))))
+
+(define (show-alloc! cps)
+  (allocate-registers-and-labels! cps)
+  (with-alloc cps))
 
 ;; this function should probably be in (ice-9 q)
 (define (append-qs! q r)
@@ -301,79 +323,78 @@
 (define (cps->rtl cps)
   (define (visit cps)
     ;; cps is either a let expression or a call
-    (if (pair? cps)
-        ;; it's a call to a continuation with some arguments
-        (cond
-         ;; a call that returns is easy
-         ((eq? (car cps) 'return)
-          `((return ,(register (cadr cps)))))
-         ;; more generally, a call whose continuation escapes from our
-         ;; scope is easy - it must be a tail call, because it's never
-         ;; coming back. (we only check for 'return right now because
-         ;; that's the only escaping continuation so far). TO DO: check
-         ;; whether (car cps) is a continuation or a real function, and
-         ;; do something different if it's a continuation.
-         ((eq? (cadr cps) 'return)
-          (let ((num-args (length (cddr cps))))
-            ;; the shuffle here includes the procedure that we're going
-            ;; to call, because we don't want to accidentally overwrite
-            ;; it. this is a bit ugly - maybe there should be a better
-            ;; generate-shuffle procedure that knows that some registers
-            ;; are "protected", meaning that their values have to exist
-            ;; after the shuffle, but don't have to end up in any
-            ;; specific target register.
-            (let ((shuffle
-                   (cons (cons (register (car cps))
-                               (+ num-args 1))
-                         (let iter ((args (cddr cps))
-                                    (arg-num 0))
-                             (if (null? args)
-                                 '()
-                                 (cons
-                                  (cons (register (car args))
-                                        arg-num)
-                                  (iter (cdr args) (+ arg-num 1))))))))
-              `(,@(apply generate-shuffle (+ num-args 2) shuffle)
-                (tail-call ,num-args ,(+ num-args 1))))))
-         ((label (cadr cps)) ;; a call whose continuation is bound in a
-                             ;; letcont form
-          (let ((return-base (register (caadr (name-value (cadr cps))))))
-            ;; return-base is the stack offset where we want to put the
-            ;; return values of this function. there can't be anything
-            ;; important on the stack past return-base, because
-            ;; anything in scope would already have a reserved spot on
-            ;; the stack before return-base, because the allocator works
-            ;; that way.
-          `((call ,return-base ,(register (car cps))
-                  ,(map register (cddr cps)))
-            ;; the RA and MVRA both branch to the continuation. we don't
-            ;; do error checking yet.
-            (br ,(label (cadr cps)))    ;; MVRA
-            (br ,(label (cadr cps)))))) ;; RA
-         (else (error "We don't know how to compile" cps)))
-        ;; it's a let expression
-        (record-case cps
-          ((<letval> names vals body)
-           `(,@(append-map!
-                (lambda (name val)
-                  `((load-constant ,(register name) ,val)))
-                names vals)
-             ,@(visit body)))
-          ((<letcont> names conts body)
-           (apply append
-                  (visit body)
-                  (map (lambda (n c)
-                         `((label ,(label n))
-                           ,@(visit (caddr c))))
-                       names conts))))))
+    (match cps
+      ;; a call that returns is easy
+      (($ <call> 'return #f (arg))
+       `((return ,(register arg))))
+       ;; more generally, a call whose continuation escapes from our
+       ;; scope is easy - it must be a tail call, because it's never
+       ;; coming back. (we only check for 'return right now because
+       ;; that's the only escaping continuation so far). TO DO: check
+       ;; whether proc is a continuation or a real function, and do
+       ;; something different if it's a continuation.
+       (($ <call> proc 'return args)
+        (let ((num-args (length args)))
+          ;; the shuffle here includes the procedure that we're going to
+          ;; call, because we don't want to accidentally overwrite
+          ;; it. this is a bit ugly - maybe there should be a better
+          ;; generate-shuffle procedure that knows that some registers
+          ;; are "protected", meaning that their values have to exist
+          ;; after the shuffle, but don't have to end up in any specific
+          ;; target register.
+          (let ((shuffle
+                 (cons (cons (register proc)
+                             (+ num-args 1))
+                       (let iter ((args args)
+                                  (arg-num 0))
+                         (if (null? args)
+                             '()
+                             (cons
+                              (cons (register (car args))
+                                    arg-num)
+                              (iter (cdr args) (+ arg-num 1))))))))
+            `(,@(apply generate-shuffle (+ num-args 2) shuffle)
+              (tail-call ,num-args ,(+ num-args 1))))))
+       (($ <call> proc cont args)
+        (if (label cont) ;; a call whose continuation is bound in a
+                         ;; letcont form
+            (let ((return-base (register
+                                (car (lambda-names (name-value cont))))))
+              ;; return-base is the stack offset where we want to put
+              ;; the return values of this function. there can't be
+              ;; anything important on the stack past return-base,
+              ;; because anything in scope would already have a reserved
+              ;; spot on the stack before return-base, because the
+              ;; allocator works that way.
+              `((call ,return-base ,(register proc)
+                      ,(map register args))
+                ;; the RA and MVRA both branch to the continuation. we
+                ;; don't do error checking yet.
+                (br ,(label cont))    ;; MVRA
+                (br ,(label cont)))) ;; RA
+            (error "We don't know how to compile" cps)))
+       (($ <letval> names vals body)
+        `(,@(append-map!
+             (lambda (name val)
+               `((load-constant ,(register name) ,val)))
+             names vals)
+          ,@(visit body)))
+       (($ <letcont> names conts body)
+        (apply append
+               (visit body)
+               (map (lambda (n c)
+                      `((label ,(label n))
+                        ,@(visit (lambda-body c))))
+                    names conts)))
+       (($ <lambda> names body)
+        ;; TO DO: save the names of the lambdas
+        `((begin-program foo)
+          (assert-nargs-ee/locals ,(length names) ,(nlocals cps))
+          ,@(visit body)
+          (end-program)))))
 
   (allocate-registers-and-labels! cps)
-  (record-case cps
-    ((<outer> names body)
-     `((begin-program foo) ;; TO DO: save the name of the program
-       (assert-nargs-ee/locals ,(length names) ,(nlocals cps))
-       ,@(visit body)
-       (end-program)))))
+  (visit cps))
 
 (define (cps->program cps)
   (assemble-program
@@ -382,26 +403,26 @@
 ;; Here are some test pieces of CPS:
 ;; (lambda () 3)
 (define return-three
-  (make-outer '()
-    (make-letval '(val) '(3) '(return val))))
+  (make-lambda '()
+    (make-letval '(val) '(3)
+      (make-call 'return #f '(val)))))
 
 ;; (lambda (x) (x))
 (define call-arg
-  (make-outer '(x)
-    '(x return)))
+  (make-lambda '(x)
+    (make-call 'x 'return '())))
 
 ;; (lambda (x y) (x (y)))
 (define compose
-  (make-outer '(x y)
+  (make-lambda '(x y)
     (make-letcont '(c1)
-      (list '(lambda (r) (x return r)))
-      '(y c1))))
+      (list (make-lambda '(r) (make-call 'x 'return '(r))))
+      (make-call 'y 'c1 '()))))
 
 ;; (lambda (k x) (k x)) <= (lambda (x) x)
 (define identity
-  (make-outer '(x)
-    '(return x)))
-
+  (make-lambda '(x)
+    (make-call 'return #f '(x))))
 
 ;; (lambda (k x) (* k 2 x)) <= (lambda (x) (* x 2))
 
