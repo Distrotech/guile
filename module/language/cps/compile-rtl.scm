@@ -337,13 +337,15 @@
                 (br ,(label cont))    ;; MVRA
                 (br ,(label cont)))) ;; RA
             (error "We don't know how to compile" cps)))
-       ;; the second argument to if is either 0 or 1. if it is one, the
-       ;; instruction acts like br-if-false.
+       ;; the second argument to br-if-true is either 0 or 1. if it is
+       ;; one, the instruction acts like br-if-false.
        (($ <if> test consequent alternate)
         `((br-if-true ,(register test) 1 ,(label alternate))
           ,@(visit consequent)
+          (br ,(label consequent))
           (label ,(label alternate))
-          ,@(visit alternate)))
+          ,@(visit alternate)
+          (label ,(label consequent))))
        (($ <letval> names vals body)
         `(,@(append-map!
              (lambda (name val)
