@@ -1,12 +1,15 @@
 (define-module (language cps)
   #:use-module (system base syntax) ;; for define-type
+  #:use-module (ice-9 match)
   #:export (<cps> cps?
             <letval> letval? make-letval letval-names letval-vals letval-body
             <letrec> letrec? make-letrec letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
                       letcont-conts letcont-body
             <lambda> lambda? make-lambda lambda-names lambda-body
-            <call> call? make-call call-proc call-cont call-args))
+            <call> call? make-call call-proc call-cont call-args
+
+            parse-cps unparse-cps))
 
 ;; The CPS representation used in this file is based on the paper
 ;; "Compiling with Continuations, Continued", by Andrew Kennedy.
@@ -70,3 +73,39 @@
   ;; used to compose record constructors and field accessors, but we are
   ;; not attempting to do that yet.
   )
+
+(define (parse-cps tree)
+  (match tree
+    (('letval names vals body)
+     (make-letval names vals (parse-cps body)))
+    (('letrec names funcs body)
+     (make-letrec names
+                  (map parse-cps funcs)
+                  (parse-cps body)))
+    (('letcont names conts body)
+     (make-letcont names
+                   (map parse-cps conts)
+                   (parse-cps body)))
+    (('lambda names body)
+     (make-lambda names (parse-cps body)))
+    (('call proc cont args)
+     (make-call proc cont args))
+    (_ (error "couldn't parse CPS" tree))))
+
+(define (unparse-cps cps)
+  (match cps
+    (($ <letval> names vals body)
+     (list 'letval names vals (unparse-cps body)))
+    (($ <letrec> names funcs body)
+     (list 'letrec names
+           (map unparse-cps funcs)
+           (unparse-cps body)))
+    (($ <letcont> names conts body)
+     (list 'letcont names
+           (map unparse-cps conts)
+           (unparse-cps body)))
+    (($ <lambda> names body)
+     (list 'lambda names (unparse-cps body)))
+    (($ <call> proc cont args)
+     (list 'call proc cont args))
+    (_ (error "couldn't unparse CPS" cps))))

@@ -3,22 +3,22 @@
  (language cps)
  (language cps compile-rtl))
 
+(define-syntax-rule (cps x)
+  (cps->program (parse-cps 'x)))
+
 ;; (lambda () 3)
 (pass-if "return-three"
   (= 3
-     ((cps->program
-       (make-lambda '()
-         (make-letval '(val) '(3)
-           (make-call 'return #f '(val))))))))
+     ((cps (lambda ()
+             (letval (val) (3)
+               (call return #f (val))))))))
 
 (define (return-three) 3)
 
 ;; (lambda (x) (x))
 (pass-if "call-arg"
   (= 3
-     ((cps->program
-       (make-lambda '(x)
-         (make-call 'x 'return '())))
+     ((cps (lambda (x) (call x return ())))
       return-three)))
 
 (define (add-two x) (+ x 2))
@@ -26,20 +26,17 @@
 ;; (lambda (x y) (x (y)))
 (pass-if "single-value compose"
   (= 5
-     ((cps->program
-       (make-lambda '(x y)
-         (make-letcont '(c1)
-           (list (make-lambda '(r) (make-call 'x 'return '(r))))
-           (make-call 'y 'c1 '()))))
+     ((cps (lambda (x y)
+             (letcont (c1)
+               ((lambda (r) (call x return (r))))
+               (call y c1 ()))))
       add-two
       return-three)))
 
 ;; (lambda (k x) (k x)) <= (lambda (x) x)
 (pass-if "identity function"
   (= 3
-     ((cps->program
-       (make-lambda '(x)
-         (make-call 'return #f '(x))))
+     ((cps (lambda (x) (call return #f (x))))
       3)))
 
 
