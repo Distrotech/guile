@@ -8,6 +8,8 @@
                       letcont-conts letcont-body
             <lambda> lambda? make-lambda lambda-names lambda-body
             <call> call? make-call call-proc call-cont call-args
+            <primitive> primitive? make-primitive primitive-name
+            <if> if? make-if if-test if-consequent if-alternate
 
             parse-cps unparse-cps))
 
@@ -69,6 +71,16 @@
   ;; generation). the cont slot will be #f if proc is a letcont
   ;; continuation or 'return.
   (<call> proc cont args)
+  ;; the 'primitive' form represents a primitive procedure. it will
+  ;; probably appear in the 'proc' field of a <call> record, so maybe we
+  ;; should have a merged 'primcall' record like Tree-IL does, but it
+  ;; could also appear in a <letval> vals list. the name of a primitive
+  ;; is a symbol.
+  (<primitive> name)
+  ;; the 'if' form is like a Scheme 'if', except that the test must be a
+  ;; lexical variable. the consequent and alternate can be any CPS
+  ;; forms.
+  (<if> test consequent alternate)
   ;; right now we are missing the 'let' from Kennedy's paper. That is
   ;; used to compose record constructors and field accessors, but we are
   ;; not attempting to do that yet.
@@ -90,6 +102,12 @@
      (make-lambda names (parse-cps body)))
     (('call proc cont args)
      (make-call proc cont args))
+    (('primitive name)
+     (make-primitive name))
+    (('if test consequent alternate)
+     (make-if test
+              (parse-cps consequent)
+              (parse-cps alternate)))
     (_ (error "couldn't parse CPS" tree))))
 
 (define (unparse-cps cps)
@@ -108,4 +126,10 @@
      (list 'lambda names (unparse-cps body)))
     (($ <call> proc cont args)
      (list 'call proc cont args))
+    (($ <primitive> name)
+     (list 'primitive name))
+    (($ <if> test consequent alternate)
+     (list 'if test
+           (unparse-cps consequent)
+           (unparse-cps alternate)))
     (_ (error "couldn't unparse CPS" cps))))
