@@ -118,7 +118,17 @@
              ;; everything else will be a closure variable.
              (let ((alloc-func (lambda (f) (visit f 0))))
                (map alloc-func funcs)
-               (visit body counter)))))))
+               (visit body counter)))))
+
+      ;; for an if, we need labels for the consequent and alternate (so
+      ;; we can branch to one or the other). the register allocations
+      ;; for them can overlap, since only one will ever be used, but we
+      ;; need to save enough space for whichever is bigger.
+      ((<if> test consequent alternate)
+       (set! (label consequent) (next-label!))
+       (set! (label alternate) (next-label!))
+       (max (visit consequent counter)
+            (visit alternate counter)))))
 
   (visit cps 0))
 
@@ -159,7 +169,17 @@
            ((<letcont> names conts body)
             `(letcont ,(map with-label names)
                       ,(map with-alloc conts)
-                      ,(with-alloc body)))))))
+                      ,(with-alloc body)))
+           ((<primitive> name)
+            `(primitive ,name))
+           ;; this is sort of an ugly way to show the labels of the
+           ;; if-branches, but I don't have a better one right now.
+           ((<if> test consequent alternate)
+            `(if ,test
+                 (label ,(label consequent))
+                 ,(with-alloc consequent)
+                 (label ,(label alternate))
+                 ,(with-alloc alternate)))))))
 
 (define (show-alloc! cps)
   (allocate-registers-and-labels! cps)
@@ -302,6 +322,13 @@
                 (br ,(label cont))    ;; MVRA
                 (br ,(label cont)))) ;; RA
             (error "We don't know how to compile" cps)))
+       ;; the second argument to if is either 0 or 1. if it is one, the
+       ;; instruction acts like br-if-false.
+       (($ <if> test consequent alternate)
+        `((br-if-true ,(register test) 1 ,(label alternate))
+          ,@(visit consequent)
+          (label ,(label alternate))
+          ,@(visit alternate)))
        (($ <letval> names vals body)
         `(,@(append-map!
              (lambda (name val)

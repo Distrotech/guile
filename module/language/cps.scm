@@ -3,7 +3,7 @@
   #:use-module (ice-9 match)
   #:export (<cps> cps?
             <letval> letval? make-letval letval-names letval-vals letval-body
-            <letrec> letrec? make-letrec letrec-funcs letrec-body
+            <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
                       letcont-conts letcont-body
             <lambda> lambda? make-lambda lambda-names lambda-body

@@ -39,4 +39,12 @@
      ((cps (lambda (x) (call return #f (x))))
       3)))
 
+;; (lambda (x) (if x 1 2))
+(pass-if "if"
+  (= 1
+     ((cps (lambda (x)
+             (letval (one two) (1 2)
+               (if x (call return #f (one))
+                   (call return #f (two))))))
+      #t)))
 
