@@ -1,5 +1,6 @@
 (define-module (language cps compile-rtl)
   #:use-module (language cps)
+  #:use-module (language cps primitives)
   #:use-module (system vm rtl) ;; for assemble-program
   #:use-module (system base syntax) ;; for record-case
   #:use-module (ice-9 match)
@@ -304,6 +305,20 @@
                               (iter (cdr args) (+ arg-num 1))))))))
             `(,@(apply generate-shuffle (+ num-args 2) shuffle)
               (tail-call ,num-args ,(+ num-args 1))))))
+       ;; note that because of where this clause is placed, we will only
+       ;; compile calls to primitives with non-return
+       ;; continuations. this is because I don't know how to compile
+       ;; primitive tail calls yet - it might be best to make them into
+       ;; non-tail calls.
+       (($ <call> ($ <primitive> prim) cont args)
+        (let ((insn (hashq-ref *primitive-insn-table* prim))
+              (arity (hashq-ref *primitive-arity-table* prim))
+              (return-reg (register
+                           (car (lambda-names (name-value cont))))))
+          (if (and insn (= arity (length args)))
+              `((,insn ,return-reg ,@(map register args))
+                (br ,(label cont)))
+              (error "malformed primitive call" cps))))
        (($ <call> proc cont args)
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form

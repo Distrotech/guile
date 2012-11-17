@@ -48,3 +48,11 @@
                    (call return #f (two))))))
       #t)))
 
+;; (lambda () (+ 2 3))
+(pass-if "+"
+  (= 5
+     ((cps (lambda ()
+             (letval (x y) (2 3)
+               (letcont (c) ((lambda (z) (call return #f (z))))
+                 (call (primitive +) c (x y)))))))))
+                        
