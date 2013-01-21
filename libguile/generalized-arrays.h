@@ -3,7 +3,7 @@
 #ifndef SCM_GENERALIZED_ARRAYS_H
 #define SCM_GENERALIZED_ARRAYS_H
 
-/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,1997,1999,2000,2001, 2004, 2006, 2008, 2009, 2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -43,6 +43,9 @@ SCM_API SCM scm_typed_array_p (SCM v, SCM type);
 
 SCM_API size_t scm_c_array_rank (SCM ra);
 SCM_API SCM scm_array_rank (SCM ra);
+
+SCM_API size_t scm_c_array_length (SCM ra);
+SCM_API SCM scm_array_length (SCM ra);
 
 SCM_API SCM scm_array_dimensions (SCM ra);
 SCM_API SCM scm_array_type (SCM ra);
