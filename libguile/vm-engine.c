@@ -686,6 +686,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     {                                           \
       scm_t_int32 offset = ip[1];               \
       offset >>= 8; /* Sign-extending shift. */ \
+      if (offset < 0)                           \
+        VM_HANDLE_INTERRUPTS;                   \
       NEXT (offset);                            \
     }                                           \
   NEXT (2)
@@ -700,6 +702,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     {                                           \
       scm_t_int32 offset = ip[1];               \
       offset >>= 8; /* Sign-extending shift. */ \
+      if (offset < 0)                           \
+        VM_HANDLE_INTERRUPTS;                   \
       NEXT (offset);                            \
     }                                           \
   NEXT (2)
@@ -719,6 +723,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
+            if (offset < 0)                                             \
+              VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
         NEXT (2);                                                       \
@@ -730,6 +736,8 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
           {                                                             \
             scm_t_int32 offset = ip[1];                                 \
             offset >>= 8; /* Sign-extending shift. */                   \
+            if (offset < 0)                                             \
+              VM_HANDLE_INTERRUPTS;                                     \
             NEXT (offset);                                              \
           }                                                             \
         NEXT (2);                                                       \
