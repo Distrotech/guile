@@ -170,7 +170,7 @@
                        (assemble-program
                         '((begin-program get-sqrt-trampoline)
                           (assert-nargs-ee/locals 0 1)
-                          (save-current-module 0 sqrt-scope)
+                          (cache-current-module! 0 sqrt-scope)
                           (load-static-procedure 0 sqrt-trampoline)
                           (return 0)
 
@@ -189,7 +189,7 @@
                          (assemble-program
                           '((begin-program make-top-incrementor)
                             (assert-nargs-ee/locals 0 1)
-                            (save-current-module 0 top-incrementor)
+                            (cache-current-module! 0 top-incrementor)
                             (load-static-procedure 0 top-incrementor)
                             (return 0)
 

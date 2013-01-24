@@ -596,7 +596,7 @@
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
 
-(define-macro-assembler (save-current-module asm tmp scope)
+(define-macro-assembler (cache-current-module! asm tmp scope)
   (let ((mod-label (emit-module-cache-cell asm scope)))
     (emit-current-module asm tmp)
     (reset-asm-start! asm)
