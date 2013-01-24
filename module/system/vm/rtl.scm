@@ -1,6 +1,6 @@
 ;;; Guile VM program functions
 
-;;; Copyright (C) 2001, 2009, 2010, 2012 Free Software Foundation, Inc.
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 ;;;
 ;;; This library is free software; you can redistribute it and/or
 ;;; modify it under the terms of the GNU Lesser General Public
@@ -472,6 +472,14 @@
   static-procedure?
   (code static-procedure-code))
 
+;; Used for cells that cache the module that was current when a toplevel
+;; closure was created, or for toplevel refs within a procedure.
+(define-record-type <cache-cell>
+  (make-cache-cell scope key)
+  cache-cell?
+  (scope cache-cell-scope)
+  (key cache-cell-key))
+
 (define (statically-allocatable? x)
   (or (pair? x) (vector? x) (string? x) (stringbuf? x) (static-procedure? x)))
 
@@ -502,6 +510,7 @@
      ((static-procedure? obj)
       `((make-non-immediate 0 ,label)
         (link-procedure! 0 ,(static-procedure-code obj))))
+     ((cache-cell? obj) '())
      ((symbol? obj)
       `((make-non-immediate 0 ,(recur (symbol->string obj)))
         (string->symbol 0 0)
@@ -536,6 +545,15 @@
   (when (immediate? obj)
     (error "expected a non-immediate" obj))
   (intern-constant asm obj))
+
+;; Returns a label.  Resolutions of the same key within the same scope
+;; share a cell.
+(define (emit-cache-cell asm scope key)
+  (intern-constant asm (make-cache-cell scope key)))
+
+;; Return the label of the cell that holds the module for a scope.
+(define (emit-module-cache-cell asm scope)
+  (emit-cache-cell asm scope #t))
 
 (define-syntax define-macro-assembler
   (lambda (x)
@@ -577,6 +595,18 @@
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
+
+(define-macro-assembler (save-current-module asm tmp scope)
+  (let ((mod-label (emit-module-cache-cell asm scope)))
+    (emit-current-module asm tmp)
+    (reset-asm-start! asm)
+    (emit-static-set! asm tmp mod-label 0)))
+
+(define-macro-assembler (cached-toplevel asm dst scope sym)
+  (let ((sym-label (emit-non-immediate asm sym))
+        (mod-label (emit-module-cache-cell asm scope))
+        (cell-label (emit-cache-cell asm scope sym)))
+    (emit-toplevel-ref asm dst cell-label mod-label sym-label)))
 
 (define (emit-text asm instructions)
   (for-each (lambda (inst)
@@ -806,6 +836,9 @@
            (bytevector-u64-set! buf pos tc7-rtl-program endianness)
            (bytevector-u64-set! buf (+ pos 8) 0 endianness))
           (else (error "bad word size"))))
+
+       ((cache-cell? obj)
+        (write-immediate asm buf pos #f))
 
        ((string? obj)
         (let ((tag (logior tc7-ro-string (ash (string-length obj) 8))))

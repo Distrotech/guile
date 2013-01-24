@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -2158,11 +2158,27 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         interface, though there is also module-ref as a shortcut.
      */
 
+  /* current-module dst:24
+   *
+   * Store the current module in DST.
+   */
+  VM_DEFINE_OP (56, current_module, "current-module", OP1 (U8_U24) | OP_DST)
+    {
+      scm_t_uint32 dst;
+
+      SCM_UNPACK_RTL_24 (op, dst);
+
+      SYNC_IP ();
+      LOCAL_SET (dst, scm_current_module ());
+
+      NEXT (1);
+    }
+
   /* resolve dst:8 mod:8 sym:8
    *
    * Resolve SYM in MOD, and place the resulting variable in DST.
    */
-  VM_DEFINE_OP (56, resolve, "resolve", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (57, resolve, "resolve", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_uint8 dst, mod, sym;
 
@@ -2180,7 +2196,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * nonzero, resolve the public interface, otherwise use the private
    * interface.
    */
-  VM_DEFINE_OP (57, resolve_module, "resolve-module", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (58, resolve_module, "resolve-module", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_uint8 dst, name, public;
       SCM mod;
@@ -2201,7 +2217,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Look up a binding for SYM in the current module, creating it if
    * necessary.  Set its value to VAL.
    */
-  VM_DEFINE_OP (58, define, "define", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (59, define, "define", OP1 (U8_U12_U12))
     {
       scm_t_uint16 sym, val;
       SCM_UNPACK_RTL_12_12 (op, sym, val);
@@ -2229,7 +2245,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * an error if it is unbound, unbox it into DST, and cache the
    * resolved variable so that we will hit the cache next time.
    */
-  VM_DEFINE_OP (59, toplevel_ref, "toplevel-ref", OP4 (U8_U24, S32, S32, N32) | OP_DST)
+  VM_DEFINE_OP (60, toplevel_ref, "toplevel-ref", OP4 (U8_U24, S32, S32, N32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 var_offset;
@@ -2276,7 +2292,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Like toplevel-ref, except MOD-OFFSET points at the name of a module
    * instead of the module itself.
    */
-  VM_DEFINE_OP (60, module_ref, "module-ref", OP4 (U8_U24, S32, N32, N32) | OP_DST)
+  VM_DEFINE_OP (61, module_ref, "module-ref", OP4 (U8_U24, S32, N32, N32) | OP_DST)
     {
       scm_t_uint32 dst;
       scm_t_int32 var_offset;
@@ -2336,7 +2352,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * handler at HANDLER-OFFSET words from the current IP.  The handler
    * will expect a multiple-value return.
    */
-  VM_DEFINE_OP (61, prompt, "prompt", OP2 (U8_U24, U8_L24))
+  VM_DEFINE_OP (62, prompt, "prompt", OP2 (U8_U24, U8_L24))
 #if 0
     {
       scm_t_uint32 tag;
@@ -2368,7 +2384,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * the compiler should have inserted checks that they wind and unwind
    * procs are thunks, if it could not prove that to be the case.
    */
-  VM_DEFINE_OP (62, wind, "wind", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (63, wind, "wind", OP1 (U8_U12_U12))
     {
       scm_t_uint16 winder, unwinder;
       SCM_UNPACK_RTL_12_12 (op, winder, unwinder);
@@ -2383,7 +2399,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * VAL1, etc are 24-bit values, in the lower 24 bits of their words.
    * The upper 8 bits are 0.
    */
-  VM_DEFINE_OP (63, abort, "abort", OP2 (U8_U24, X8_R24))
+  VM_DEFINE_OP (64, abort, "abort", OP2 (U8_U24, X8_R24))
 #if 0
     {
       scm_t_uint32 tag, nvalues;
@@ -2406,7 +2422,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * A normal exit from the dynamic extent of an expression. Pop the top
    * entry off of the dynamic stack.
    */
-  VM_DEFINE_OP (64, unwind, "unwind", OP1 (U8_X24))
+  VM_DEFINE_OP (65, unwind, "unwind", OP1 (U8_X24))
     {
       scm_dynstack_pop (&current_thread->dynstack);
       NEXT (1);
@@ -2418,7 +2434,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * allocated in a continguous range on the stack, starting from
    * FLUID-BASE.  The values do not have this restriction.
    */
-  VM_DEFINE_OP (65, wind_fluids, "wind-fluids", OP2 (U8_U24, X8_R24))
+  VM_DEFINE_OP (66, wind_fluids, "wind-fluids", OP2 (U8_U24, X8_R24))
 #if 0
     {
       scm_t_uint32 fluid_base, n;
@@ -2440,7 +2456,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Leave the dynamic extent of a with-fluids expression, restoring the
    * fluids to their previous values.
    */
-  VM_DEFINE_OP (66, unwind_fluids, "unwind-fluids", OP1 (U8_X24))
+  VM_DEFINE_OP (67, unwind_fluids, "unwind-fluids", OP1 (U8_X24))
     {
       /* This function must not allocate.  */
       scm_dynstack_unwind_fluids (&current_thread->dynstack,
@@ -2452,7 +2468,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Reference the fluid in SRC, and place the value in DST.
    */
-  VM_DEFINE_OP (67, fluid_ref, "fluid-ref", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (68, fluid_ref, "fluid-ref", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       size_t num;
@@ -2485,7 +2501,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Set the value of the fluid in DST to the value in SRC.
    */
-  VM_DEFINE_OP (68, fluid_set, "fluid-set", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (69, fluid_set, "fluid-set", OP1 (U8_U12_U12))
     {
       scm_t_uint16 a, b;
       size_t num;
@@ -2518,7 +2534,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store the length of the string in SRC in DST.
    */
-  VM_DEFINE_OP (69, string_length, "string-length", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (70, string_length, "string-length", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (str);
       if (SCM_LIKELY (scm_is_string (str)))
@@ -2535,7 +2551,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Fetch the character at position IDX in the string in SRC, and store
    * it in DST.
    */
-  VM_DEFINE_OP (70, string_ref, "string-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (71, string_ref, "string-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_signed_bits i = 0;
       ARGS2 (str, idx);
@@ -2557,7 +2573,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Parse a string in SRC to a number, and store in DST.
    */
-  VM_DEFINE_OP (71, string_to_number, "string->number", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (72, string_to_number, "string->number", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
 
@@ -2573,7 +2589,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Parse a string in SRC to a symbol, and store in DST.
    */
-  VM_DEFINE_OP (72, string_to_symbol, "string->symbol", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (73, string_to_symbol, "string->symbol", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
 
@@ -2587,7 +2603,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Make a keyword from the symbol in SRC, and store it in DST.
    */
-  VM_DEFINE_OP (73, symbol_to_keyword, "symbol->keyword", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (74, symbol_to_keyword, "symbol->keyword", OP1 (U8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, src;
       SCM_UNPACK_RTL_12_12 (op, dst, src);
@@ -2606,7 +2622,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Cons CAR and CDR, and store the result in DST.
    */
-  VM_DEFINE_OP (74, cons, "cons", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (75, cons, "cons", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       RETURN (scm_cons (x, y));
@@ -2616,7 +2632,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the car of SRC in DST.
    */
-  VM_DEFINE_OP (75, car, "car", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (76, car, "car", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (x);
       VM_VALIDATE_PAIR (x, "car");
@@ -2627,7 +2643,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the cdr of SRC in DST.
    */
-  VM_DEFINE_OP (76, cdr, "cdr", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (77, cdr, "cdr", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (x);
       VM_VALIDATE_PAIR (x, "cdr");
@@ -2638,7 +2654,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Set the car of DST to SRC.
    */
-  VM_DEFINE_OP (77, set_car, "set-car!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (78, set_car, "set-car!", OP1 (U8_U12_U12))
     {
       scm_t_uint16 a, b;
       SCM x, y;
@@ -2654,7 +2670,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Set the cdr of DST to SRC.
    */
-  VM_DEFINE_OP (78, set_cdr, "set-cdr!", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (79, set_cdr, "set-cdr!", OP1 (U8_U12_U12))
     {
       scm_t_uint16 a, b;
       SCM x, y;
@@ -2677,7 +2693,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Add A to B, and place the result in DST.
    */
-  VM_DEFINE_OP (79, add, "add", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (80, add, "add", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       BINARY_INTEGER_OP (+, scm_sum);
     }
@@ -2686,7 +2702,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Add 1 to the value in SRC, and place the result in DST.
    */
-  VM_DEFINE_OP (80, add1, "add1", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (81, add1, "add1", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (x);
 
@@ -2712,7 +2728,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Subtract B from A, and place the result in DST.
    */
-  VM_DEFINE_OP (81, sub, "sub", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (82, sub, "sub", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       BINARY_INTEGER_OP (-, scm_difference);
     }
@@ -2721,7 +2737,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Subtract 1 from SRC, and place the result in DST.
    */
-  VM_DEFINE_OP (82, sub1, "sub1", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (83, sub1, "sub1", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (x);
 
@@ -2747,7 +2763,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Multiply A and B, and place the result in DST.
    */
-  VM_DEFINE_OP (83, mul, "mul", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (84, mul, "mul", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       SYNC_IP ();
@@ -2758,7 +2774,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Divide A by B, and place the result in DST.
    */
-  VM_DEFINE_OP (84, div, "div", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (85, div, "div", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       SYNC_IP ();
@@ -2769,7 +2785,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Divide A by B, and place the quotient in DST.
    */
-  VM_DEFINE_OP (85, quo, "quo", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (86, quo, "quo", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       SYNC_IP ();
@@ -2780,7 +2796,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Divide A by B, and place the remainder in DST.
    */
-  VM_DEFINE_OP (86, rem, "rem", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (87, rem, "rem", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       SYNC_IP ();
@@ -2791,7 +2807,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the modulo of A by B in DST.
    */
-  VM_DEFINE_OP (87, mod, "mod", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (88, mod, "mod", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       SYNC_IP ();
@@ -2802,7 +2818,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Shift A arithmetically by B bits, and place the result in DST.
    */
-  VM_DEFINE_OP (88, ash, "ash", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (89, ash, "ash", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2835,7 +2851,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the bitwise AND of A and B into DST.
    */
-  VM_DEFINE_OP (89, logand, "logand", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (90, logand, "logand", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2848,7 +2864,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the bitwise inclusive OR of A with B in DST.
    */
-  VM_DEFINE_OP (90, logior, "logior", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (91, logior, "logior", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2861,7 +2877,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Place the bitwise exclusive OR of A with B in DST.
    */
-  VM_DEFINE_OP (91, logxor, "logxor", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (92, logxor, "logxor", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (x, y);
       if (SCM_I_INUMP (x) && SCM_I_INUMP (y))
@@ -2874,7 +2890,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store the length of the vector in SRC in DST.
    */
-  VM_DEFINE_OP (92, vector_length, "vector-length", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (93, vector_length, "vector-length", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (vect);
       if (SCM_LIKELY (SCM_I_IS_VECTOR (vect)))
@@ -2891,7 +2907,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Fetch the item at position IDX in the vector in SRC, and store it
    * in DST.
    */
-  VM_DEFINE_OP (93, vector_ref, "vector-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (94, vector_ref, "vector-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_signed_bits i = 0;
       ARGS2 (vect, idx);
@@ -2912,7 +2928,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Fill DST with the item IDX elements into the vector at SRC.  Useful
    * for building data types using vectors.
    */
-  VM_DEFINE_OP (94, constant_vector_ref, "constant-vector-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (95, constant_vector_ref, "constant-vector-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
       SCM v;
@@ -2931,7 +2947,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store SRC into the vector DST at index IDX.
    */
-  VM_DEFINE_OP (95, vector_set, "vector-set", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (96, vector_set, "vector-set", OP1 (U8_U8_U8_U8))
     {
       scm_t_uint8 dst, idx_var, src;
       SCM vect, idx, val;
@@ -2966,7 +2982,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store the vtable of SRC into DST.
    */
-  VM_DEFINE_OP (96, struct_vtable, "struct-vtable", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (97, struct_vtable, "struct-vtable", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (obj);
       VM_VALIDATE_STRUCT (obj, "struct_vtable");
@@ -2980,7 +2996,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * the locals given by INIT0....  The format of INIT0... is as in the
    * "call" opcode: unsigned 24-bit values, with 0 in the high byte.
    */
-  VM_DEFINE_OP (97, make_struct, "make-struct", OP2 (U8_U12_U12, X8_R24))
+  VM_DEFINE_OP (98, make_struct, "make-struct", OP2 (U8_U12_U12, X8_R24))
 #if 0
     {
       scm_t_uint16 dst, vtable_r;
@@ -3023,7 +3039,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Fetch the item at slot IDX in the struct in SRC, and store it
    * in DST.
    */
-  VM_DEFINE_OP (98, struct_ref, "struct-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (99, struct_ref, "struct-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       ARGS2 (obj, pos);
 
@@ -3057,7 +3073,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store SRC into the struct DST at slot IDX.
    */
-  VM_DEFINE_OP (99, struct_set, "struct-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (100, struct_set, "struct-set!", OP1 (U8_U8_U8_U8))
     {
       scm_t_uint8 dst, idx, src;
       SCM obj, pos, val;
@@ -3098,7 +3114,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Store the vtable of SRC into DST.
    */
-  VM_DEFINE_OP (100, class_of, "class-of", OP1 (U8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (101, class_of, "class-of", OP1 (U8_U12_U12) | OP_DST)
     {
       ARGS1 (obj);
       if (SCM_INSTANCEP (obj))
@@ -3113,7 +3129,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * DST.  Unlike struct-ref, IDX is an 8-bit immediate value, not an
    * index into the stack.
    */
-  VM_DEFINE_OP (101, slot_ref, "slot-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (102, slot_ref, "slot-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     {
       scm_t_uint8 dst, src, idx;
       SCM_UNPACK_RTL_8_8_8 (op, dst, src, idx);
@@ -3127,7 +3143,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Store SRC into slot IDX of the struct in DST.  Unlike struct-set!,
    * IDX is an 8-bit immediate value, not an index into the stack.
    */
-  VM_DEFINE_OP (102, slot_set, "slot-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (103, slot_set, "slot-set!", OP1 (U8_U8_U8_U8))
     {
       scm_t_uint8 dst, idx, src;
       SCM_UNPACK_RTL_8_8_8 (op, dst, idx, src);
@@ -3148,7 +3164,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * from the instruction pointer, and store into DST.  LEN is a byte
    * length.  OFFSET is signed.
    */
-  VM_DEFINE_OP (103, load_typed_array, "load-typed-array", OP3 (U8_U8_U8_U8, N32, U32) | OP_DST)
+  VM_DEFINE_OP (104, load_typed_array, "load-typed-array", OP3 (U8_U8_U8_U8, N32, U32) | OP_DST)
     {
       scm_t_uint8 dst, type, shape;
       scm_t_int32 offset;
@@ -3168,7 +3184,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    *
    * Make a new array SRC into the vector DST at index IDX.
    */
-  VM_DEFINE_OP (104, make_array, "make-array", OP2 (U8_U12_U12, X8_U12_U12) | OP_DST)
+  VM_DEFINE_OP (105, make_array, "make-array", OP2 (U8_U12_U12, X8_U12_U12) | OP_DST)
     {
       scm_t_uint16 dst, type, fill, bounds;
       SCM_UNPACK_RTL_12_12 (op, dst, type);
@@ -3266,42 +3282,42 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       RETURN (scm_bytevector_ ## fn_stem ## _native_ref (bv, idx));	\
   } while (0)
 
-  VM_DEFINE_OP (105, bv_u8_ref, "bv-u8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (106, bv_u8_ref, "bv-u8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FIXABLE_INT_REF (u8, u8, uint8, 1);
 
-  VM_DEFINE_OP (106, bv_s8_ref, "bv-s8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (107, bv_s8_ref, "bv-s8-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FIXABLE_INT_REF (s8, s8, int8, 1);
 
-  VM_DEFINE_OP (107, bv_u16_ref, "bv-u16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (108, bv_u16_ref, "bv-u16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FIXABLE_INT_REF (u16, u16_native, uint16, 2);
 
-  VM_DEFINE_OP (108, bv_s16_ref, "bv-s16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (109, bv_s16_ref, "bv-s16-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FIXABLE_INT_REF (s16, s16_native, int16, 2);
 
-  VM_DEFINE_OP (109, bv_u32_ref, "bv-u32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (110, bv_u32_ref, "bv-u32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_REF (u32, u32_native, uint32, 4);
 #else
     BV_INT_REF (u32, uint32, 4);
 #endif
 
-  VM_DEFINE_OP (110, bv_s32_ref, "bv-s32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (111, bv_s32_ref, "bv-s32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_REF (s32, s32_native, int32, 4);
 #else
     BV_INT_REF (s32, int32, 4);
 #endif
 
-  VM_DEFINE_OP (111, bv_u64_ref, "bv-u64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (112, bv_u64_ref, "bv-u64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_INT_REF (u64, uint64, 8);
 
-  VM_DEFINE_OP (112, bv_s64_ref, "bv-s64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (113, bv_s64_ref, "bv-s64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_INT_REF (s64, int64, 8);
 
-  VM_DEFINE_OP (113, bv_f32_ref, "bv-f32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (114, bv_f32_ref, "bv-f32-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FLOAT_REF (f32, ieee_single, float, 4);
 
-  VM_DEFINE_OP (114, bv_f64_ref, "bv-f64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
+  VM_DEFINE_OP (115, bv_f64_ref, "bv-f64-ref", OP1 (U8_U8_U8_U8) | OP_DST)
     BV_FLOAT_REF (f64, ieee_double, double, 8);
 
   /* bv-u8-set! dst:8 idx:8 src:8
@@ -3405,42 +3421,42 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     NEXT (1);                                                           \
   } while (0)
 
-  VM_DEFINE_OP (115, bv_u8_set, "bv-u8-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (116, bv_u8_set, "bv-u8-set!", OP1 (U8_U8_U8_U8))
     BV_FIXABLE_INT_SET (u8, u8, uint8, 0, SCM_T_UINT8_MAX, 1);
 
-  VM_DEFINE_OP (116, bv_s8_set, "bv-s8-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (117, bv_s8_set, "bv-s8-set!", OP1 (U8_U8_U8_U8))
     BV_FIXABLE_INT_SET (s8, s8, int8, SCM_T_INT8_MIN, SCM_T_INT8_MAX, 1);
 
-  VM_DEFINE_OP (117, bv_u16_set, "bv-u16-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (118, bv_u16_set, "bv-u16-set!", OP1 (U8_U8_U8_U8))
     BV_FIXABLE_INT_SET (u16, u16_native, uint16, 0, SCM_T_UINT16_MAX, 2);
 
-  VM_DEFINE_OP (118, bv_s16_set, "bv-s16-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (119, bv_s16_set, "bv-s16-set!", OP1 (U8_U8_U8_U8))
     BV_FIXABLE_INT_SET (s16, s16_native, int16, SCM_T_INT16_MIN, SCM_T_INT16_MAX, 2);
 
-  VM_DEFINE_OP (119, bv_u32_set, "bv-u32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (120, bv_u32_set, "bv-u32-set!", OP1 (U8_U8_U8_U8))
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_SET (u32, u32_native, uint32, 0, SCM_T_UINT32_MAX, 4);
 #else
     BV_INT_SET (u32, uint32, 4);
 #endif
 
-  VM_DEFINE_OP (120, bv_s32_set, "bv-s32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (121, bv_s32_set, "bv-s32-set!", OP1 (U8_U8_U8_U8))
 #if SIZEOF_VOID_P > 4
     BV_FIXABLE_INT_SET (s32, s32_native, int32, SCM_T_INT32_MIN, SCM_T_INT32_MAX, 4);
 #else
     BV_INT_SET (s32, int32, 4);
 #endif
 
-  VM_DEFINE_OP (121, bv_u64_set, "bv-u64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (122, bv_u64_set, "bv-u64-set!", OP1 (U8_U8_U8_U8))
     BV_INT_SET (u64, uint64, 8);
 
-  VM_DEFINE_OP (122, bv_s64_set, "bv-s64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (123, bv_s64_set, "bv-s64-set!", OP1 (U8_U8_U8_U8))
     BV_INT_SET (s64, int64, 8);
 
-  VM_DEFINE_OP (123, bv_f32_set, "bv-f32-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (124, bv_f32_set, "bv-f32-set!", OP1 (U8_U8_U8_U8))
     BV_FLOAT_SET (f32, ieee_single, float, 4);
 
-  VM_DEFINE_OP (124, bv_f64_set, "bv-f64-set!", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (125, bv_f64_set, "bv-f64-set!", OP1 (U8_U8_U8_U8))
     BV_FLOAT_SET (f64, ieee_double, double, 8);
 
   END_DISPATCH_SWITCH;

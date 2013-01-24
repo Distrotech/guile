@@ -163,3 +163,19 @@
                           (load-constant 0 3) ;; R0 <- 3
                           (tail-call 1 1)))))
                   (call-with-3 (lambda (x) (* x 2))))))
+
+(with-test-prefix "cached-toplevel"
+  (assert-equal 5.0
+                (let ((get-sqrt-trampoline
+                       (assemble-program
+                        '((begin-program get-sqrt-trampoline)
+                          (assert-nargs-ee/locals 0 1)
+                          (save-current-module 0 sqrt-scope)
+                          (load-static-procedure 0 sqrt-trampoline)
+                          (return 0)
+
+                          (begin-program sqrt-trampoline)
+                          (assert-nargs-ee/locals 1 1)
+                          (cached-toplevel 1 sqrt-scope sqrt)
+                          (tail-call 1 1)))))
+                  ((get-sqrt-trampoline) 25.0))))
