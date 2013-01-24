@@ -63,7 +63,7 @@
        (format (current-error-port) "~a~v:@y\n"
                prefix
                width
-               (frame-local-ref frame (- len 2))))
+               (car values)))
       (else
        ;; this should work, but there appears to be a bug
        ;; "~a~d values:~:{ ~v:@y~}\n"
