@@ -602,11 +602,17 @@
     (reset-asm-start! asm)
     (emit-static-set! asm tmp mod-label 0)))
 
-(define-macro-assembler (cached-toplevel asm dst scope sym)
+(define-macro-assembler (cached-toplevel-ref asm dst scope sym)
   (let ((sym-label (emit-non-immediate asm sym))
         (mod-label (emit-module-cache-cell asm scope))
         (cell-label (emit-cache-cell asm scope sym)))
     (emit-toplevel-ref asm dst cell-label mod-label sym-label)))
+
+(define-macro-assembler (cached-toplevel-set! asm src scope sym)
+  (let ((sym-label (emit-non-immediate asm sym))
+        (mod-label (emit-module-cache-cell asm scope))
+        (cell-label (emit-cache-cell asm scope sym)))
+    (emit-toplevel-set! asm src cell-label mod-label sym-label)))
 
 (define (emit-text asm instructions)
   (for-each (lambda (inst)

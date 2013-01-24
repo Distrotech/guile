@@ -164,7 +164,7 @@
                           (tail-call 1 1)))))
                   (call-with-3 (lambda (x) (* x 2))))))
 
-(with-test-prefix "cached-toplevel"
+(with-test-prefix "cached-toplevel-ref"
   (assert-equal 5.0
                 (let ((get-sqrt-trampoline
                        (assemble-program
@@ -176,6 +176,28 @@
 
                           (begin-program sqrt-trampoline)
                           (assert-nargs-ee/locals 1 1)
-                          (cached-toplevel 1 sqrt-scope sqrt)
+                          (cached-toplevel-ref 1 sqrt-scope sqrt)
                           (tail-call 1 1)))))
                   ((get-sqrt-trampoline) 25.0))))
+
+(define *top-val* 0)
+
+(with-test-prefix "cached-toplevel-set!"
+  (let ((prev *top-val*))
+    (assert-equal (1+ prev)
+                  (let ((make-top-incrementor
+                         (assemble-program
+                          '((begin-program make-top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (save-current-module 0 top-incrementor)
+                            (load-static-procedure 0 top-incrementor)
+                            (return 0)
+
+                            (begin-program top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (cached-toplevel-ref 0 top-incrementor *top-val*)
+                            (add1 0 0)
+                            (cached-toplevel-set! 0 top-incrementor *top-val*)
+                            (return/values 0)))))
+                    ((make-top-incrementor))
+                    *top-val*))))
