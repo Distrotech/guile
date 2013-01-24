@@ -614,6 +614,20 @@
         (cell-label (emit-cache-cell asm scope sym)))
     (emit-toplevel-set! asm src cell-label mod-label sym-label)))
 
+(define-macro-assembler (cached-module-ref asm dst module-name public? sym)
+  (let* ((sym-label (emit-non-immediate asm sym))
+         (key (cons public? module-name))
+         (mod-name-label (intern-constant asm key))
+         (cell-label (emit-cache-cell asm key sym)))
+    (emit-module-ref asm dst cell-label mod-name-label sym-label)))
+
+(define-macro-assembler (cached-module-set! asm src module-name public? sym)
+  (let* ((sym-label (emit-non-immediate asm sym))
+         (key (cons public? module-name))
+         (mod-name-label (emit-non-immediate asm key))
+         (cell-label (emit-cache-cell asm key sym)))
+    (emit-module-set! asm src cell-label mod-name-label sym-label)))
+
 (define (emit-text asm instructions)
   (for-each (lambda (inst)
               (reset-asm-start! asm)

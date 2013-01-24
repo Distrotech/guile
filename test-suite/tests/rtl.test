@@ -209,3 +209,41 @@
                             (end-program)))))
                     ((make-top-incrementor))
                     *top-val*))))
+
+(with-test-prefix "cached-module-ref"
+  (assert-equal 5.0
+                (let ((get-sqrt-trampoline
+                       (assemble-program
+                        '((begin-program get-sqrt-trampoline)
+                          (assert-nargs-ee/locals 0 1)
+                          (load-static-procedure 0 sqrt-trampoline)
+                          (return 0)
+                          (end-program)
+
+                          (begin-program sqrt-trampoline)
+                          (assert-nargs-ee/locals 1 1)
+                          (cached-module-ref 1 (guile) #t sqrt)
+                          (tail-call 1 1)
+                          (end-program)))))
+                  ((get-sqrt-trampoline) 25.0))))
+
+(with-test-prefix "cached-module-set!"
+  (let ((prev *top-val*))
+    (assert-equal (1+ prev)
+                  (let ((make-top-incrementor
+                         (assemble-program
+                          '((begin-program make-top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (load-static-procedure 0 top-incrementor)
+                            (return 0)
+                            (end-program)
+
+                            (begin-program top-incrementor)
+                            (assert-nargs-ee/locals 0 1)
+                            (cached-module-ref 0 (tests rtl) #f *top-val*)
+                            (add1 0 0)
+                            (cached-module-set! 0 (tests rtl) #f *top-val*)
+                            (return 0)
+                            (end-program)))))
+                    ((make-top-incrementor))
+                    *top-val*))))
