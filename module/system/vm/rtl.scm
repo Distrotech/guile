@@ -758,7 +758,8 @@
                         (assert-nargs-ee/locals 0 1)
                         ,@(reverse inits)
                         (load-constant 0 ,*unspecified*)
-                        (return 0)))
+                        (return 0)
+                        (end-program)))
            label))))
 
 (define (link-data asm data name)
