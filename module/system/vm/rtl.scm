@@ -675,7 +675,7 @@
 
 (define (link-text-object asm)
   (let ((buf (make-u32vector (asm-pos asm))))
-    (let lp ((pos 0) (prev (asm-prev asm)))
+    (let lp ((pos 0) (prev (reverse (asm-prev asm))))
       (if (null? prev)
           (let ((byte-size (* (asm-idx asm) 4)))
             (bytevector-copy! (asm-cur asm) 0 buf pos byte-size)
