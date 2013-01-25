@@ -1,54 +1,50 @@
 (use-modules
  (test-suite lib)
  (language cps)
- (language cps compile-rtl))
+ (language cps compile-rtl)
+ (language tree-il compile-cps))
 
+;; a convenient way to write literal CPS code
 (define-syntax-rule (cps x)
   (cps->program (parse-cps 'x)))
 
-;; (lambda () 3)
+;; by-cps: compile a procedure, but by way of CPS instead of the normal
+;; compiler chain
+(define (by-cps x)
+  (cps->program (tree-il->cps (compile x #:to 'tree-il))))
+
 (pass-if "return-three"
   (= 3
-     ((cps (lambda ()
-             (letval (val) (3)
-               (call return #f (val))))))))
+     ((by-cps 3))))
 
 (define (return-three) 3)
 
-;; (lambda (x) (x))
 (pass-if "call-arg"
   (= 3
-     ((cps (lambda (x) (call x return ())))
+     ((by-cps '(lambda (x) (x)))
       return-three)))
 
 (define (add-two x) (+ x 2))
 
-;; (lambda (x y) (x (y)))
 (pass-if "single-value compose"
   (= 5
-     ((cps (lambda (x y)
-             (letcont (c1)
-               ((lambda (r) (call x return (r))))
-               (call y c1 ()))))
+     ((by-cps '(lambda (x y) (x (y))))
       add-two
       return-three)))
 
-;; (lambda (k x) (k x)) <= (lambda (x) x)
 (pass-if "identity function"
   (= 3
-     ((cps (lambda (x) (call return #f (x))))
+     ((by-cps '(lambda (x) x))
       3)))
 
-;; (lambda (x) (if x 1 2))
-(pass-if "if"
-  (= 1
-     ((cps (lambda (x)
-             (letval (one two) (1 2)
-               (letcont (con alt)
-                        ((lambda () (call return #f (one)))
-                         (lambda () (call return #f (two))))
-                 (if x con alt)))))
-      #t)))
+(define if-func
+  (by-cps '(lambda (x) (if x 1 2))))
+
+(pass-if "if true"
+  (= 1 (if-func #t)))
+
+(pass-if "if false"
+  (= 2 (if-func #f)))
 
 ;; (lambda () (+ 2 3))
 (pass-if "+"
