@@ -35,12 +35,17 @@
 ;;  forms represent some subset of the control flow graph in two parts,
 ;;  and control only flows one direction between the parts.
 
-;;  3) every lexical variable gets a unique name, and if it is set!, the
-;;  new value gets a new name! therefore the variable names track
-;;  uniqueness in the eq? sense. also, since every variable gets a
-;;  unique name, we don't have to bother with environment structures
-;;  just to store properties - we just use the variable names as keys to
-;;  a hash table and know that they won't collide.
+;; Interestingly enough, we don't require that all continuations be
+;; described by functions, even though that's the origin of CPS. the
+;; reason is that we can't really convert all continuation captures to
+;; function calls unless we can look inside every function (both Scheme
+;; and C), see whether it captures its continuation, and rewrite it so
+;; that it works with a function instead (or alternatively use a calling
+;; convention where continuations are always reified, but that seems
+;; terrible). we might be able to rewrite certain continuations or
+;; delimited continuations as functions, but we can't assume we'll get
+;; them all. so we really are using the continuations as a way to
+;; represent control flow, and not as real continuations!
 
 (define-type <cps>
   ;; <letval> actually handles multiple constant values, because why
@@ -78,12 +83,16 @@
   ;; is a symbol.
   (<primitive> name)
   ;; the 'if' form is like a Scheme 'if', except that the test must be a
-  ;; lexical variable. the consequent and alternate can be any CPS
-  ;; forms.
+  ;; lexical variable, and the consequent and alternate must be names of
+  ;; continuations. the if will jump to whichever continuation is
+  ;; appropriate. in the future, I'd like to make 'if a primitive
+  ;; procedure and not a special form. that requires having a way for
+  ;; primitive procedures to be inlined, but otherwise might be all
+  ;; right.
   (<if> test consequent alternate)
-  ;; right now we are missing the 'let' from Kennedy's paper. That is
-  ;; used to compose record constructors and field accessors, but we are
-  ;; not attempting to do that yet.
+  ;; we don't have the 'let' form from Kennedy's paper yet. We
+  ;; eventually want to use something like it to compose record
+  ;; constructors and accessors, and also describe mutable variables
   )
 
 (define (parse-cps tree)
@@ -107,9 +116,7 @@
     (('primitive name)
      (make-primitive name))
     (('if test consequent alternate)
-     (make-if test
-              (parse-cps consequent)
-              (parse-cps alternate)))
+     (make-if test consequent alternate))
     (_ (error "couldn't parse CPS" tree))))
 
 (define (unparse-cps cps)
@@ -133,7 +140,5 @@
     (($ <primitive> name)
      (list 'primitive name))
     (($ <if> test consequent alternate)
-     (list 'if test
-           (unparse-cps consequent)
-           (unparse-cps alternate)))
+     (list 'if test consequent alternate))
     (_ (error "couldn't unparse CPS" cps))))

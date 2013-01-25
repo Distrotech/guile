@@ -44,8 +44,10 @@
   (= 1
      ((cps (lambda (x)
              (letval (one two) (1 2)
-               (if x (call return #f (one))
-                   (call return #f (two))))))
+               (letcont (con alt)
+                        ((lambda () (call return #f (one)))
+                         (lambda () (call return #f (two))))
+                 (if x con alt)))))
       #t)))
 
 ;; (lambda () (+ 2 3))
