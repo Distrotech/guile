@@ -70,6 +70,12 @@
                (iter (cdr names) (+ counter 1))))))
       
       ((<letval> names vals body)
+       ;; update the name-value mapping
+       (map (lambda (n c)
+              (set! (name-value n) c))
+            names vals)
+
+       ;; and allocate the registers
        (let iter ((names names)
                   (counter counter))
          (if (null? names)
@@ -131,21 +137,26 @@
 ;; show what registers and labels we've allocated where. use this at the
 ;; REPL: ,pp (with-alloc cps)
 (define (with-alloc cps)
-  ;; return a list that looks like the CPS, but with everyone annotated
-  ;; with a register
-  (define (with-reg s) ;; s must be a symbol
-    (if (eq? s 'return)
-        s
-        (cons s (register s)))) ;; (register s) will be #f if we haven't
-                                ;; allocated s.
+  (define (with-register s) ;; s must be a symbol
+    (cons s (register s))) ;; (register s) will be #f if we haven't
+                           ;; allocated s.
 
-  (define (with-label s)
+  
+  (define (do-value v) ;; v is anything that can be in the 'vals' part
+                       ;; of a <letval> form.
+    (cond ((var? v)
+           (list 'var (var-value v)))
+          ((toplevel-var? v)
+           (list 'toplevel-var (toplevel-var-name v)))
+          (else v)))
+  
+  (define (with-label s) ;; s must be the name of a continuation
     (if (eq? s 'return)
         s
         (cons s (label s))))
 
   (cond ((symbol? cps)
-         (with-reg cps))
+         (do-value cps))
         ((boolean? cps)
          ;; we get a boolean when with-alloc is called on the cont of a
          ;; call to a letcont continuation.
@@ -157,11 +168,12 @@
                    (with-alloc cont)
                    (map with-alloc args)))
            ((<lambda> names body)
-            `(lambda ,(map with-reg names)
+            `(lambda ,(map do-value names)
                ,(with-alloc body)))
            ((<letval> names vals body)
-            `(letval ,(map with-reg names)
-                     ,vals ,(with-alloc body)))
+            `(letval ,(map with-register names)
+                     ,(map do-value vals)
+                     ,(with-alloc body)))
            ((<letcont> names conts body)
             `(letcont ,(map with-label names)
                       ,(map with-alloc conts)
@@ -262,6 +274,31 @@
 ;; This is the main function. cps->rtl compiles a cps form into a list
 ;; of RTL code.
 (define (cps->rtl cps)
+  ;; generate-primitive-call: generate a call to primitive prim with the
+  ;; given args, placing the result in register dst. This is its own
+  ;; function because it is called twice in visit - once in the tail
+  ;; case and once in the non-tail case.
+  (define (generate-primitive-call dst prim args)
+    (if (eq? prim 'ref)
+        ;; ref is the most special primitive of all. I wonder if it
+        ;; should even be a primitive, or if it should have some other
+        ;; container.
+        (let* ((var-value (car args))
+               (var (name-value var-value)))
+          (if (toplevel-var? var)
+              (let ((var-name (toplevel-var-name var)))
+                ;; the scope is 'foo because we don't meaningfully
+                ;; distinguish scopes yet. we should really just cache
+                ;; the current module once per procedure.
+                `((cache-current-module! ,dst foo)
+                  (cached-toplevel-ref ,dst foo ,var-name)))
+              `((box-ref ,dst ,(register var-value)))))
+        (let ((insn (hashq-ref *primitive-insn-table* prim))
+              (arity (hashq-ref *primitive-arity-table* prim)))
+          (if (and insn (= arity (length args)))
+              `((,insn ,dst ,@(map register args)))
+              (error "malformed primitive call" (cons prim args))))))
+  
   (define (visit cps)
     ;; cps is either a let expression or a call
     (match cps
@@ -275,41 +312,40 @@
        ;; whether proc is a continuation or a real function, and do
        ;; something different if it's a continuation.
        (($ <call> proc 'return args)
-        (let ((num-args (length args)))
-          ;; the shuffle here includes the procedure that we're going to
-          ;; call, because we don't want to accidentally overwrite
-          ;; it. this is a bit ugly - maybe there should be a better
-          ;; generate-shuffle procedure that knows that some registers
-          ;; are "protected", meaning that their values have to exist
-          ;; after the shuffle, but don't have to end up in any specific
-          ;; target register.
-          (let ((shuffle
-                 (cons (cons (register proc)
-                             (+ num-args 1))
-                       (let iter ((args args)
-                                  (arg-num 0))
-                         (if (null? args)
-                             '()
-                             (cons
-                              (cons (register (car args))
-                                    arg-num)
-                              (iter (cdr args) (+ arg-num 1))))))))
-            `(,@(apply generate-shuffle (+ num-args 2) shuffle)
-              (tail-call ,num-args ,(+ num-args 1))))))
-       ;; note that because of where this clause is placed, we will only
-       ;; compile calls to primitives with non-return
-       ;; continuations. this is because I don't know how to compile
-       ;; primitive tail calls yet - it might be best to make them into
-       ;; non-tail calls.
-       (($ <call> ($ <primitive> prim) cont args)
-        (let ((insn (hashq-ref *primitive-insn-table* prim))
-              (arity (hashq-ref *primitive-arity-table* prim))
-              (return-reg (register
-                           (car (lambda-names (name-value cont))))))
-          (if (and insn (= arity (length args)))
-              `((,insn ,return-reg ,@(map register args))
-                (br ,(label cont)))
-              (error "malformed primitive call" cps))))
+        (if (primitive? proc)
+            ;; we can't really call primitive procedures in tail
+            ;; position, so we just generate them in non-tail manner and
+            ;; then return. this seems like it might have to change in
+            ;; the future. it's fine to take the maximum register and
+            ;; add one, because the allocator reserved us one extra.
+            (let ((return-reg
+                   (+ 1 (apply max (map register args)))))
+              `(,@(generate-primitive-call
+                   return-reg (primitive-name proc) args)
+                (return ,return-reg)))
+            
+            (let ((num-args (length args)))
+              ;; the shuffle here includes the procedure that we're going to
+              ;; call, because we don't want to accidentally overwrite
+              ;; it. this is a bit ugly - maybe there should be a better
+              ;; generate-shuffle procedure that knows that some registers
+              ;; are "protected", meaning that their values have to exist
+              ;; after the shuffle, but don't have to end up in any specific
+              ;; target register.
+              (let ((shuffle
+                     (cons (cons (register proc)
+                                 (+ num-args 1))
+                           (let iter ((args args)
+                                      (arg-num 0))
+                             (if (null? args)
+                                 '()
+                                 (cons
+                                  (cons (register (car args))
+                                        arg-num)
+                                  (iter (cdr args) (+ arg-num 1))))))))
+                `(,@(apply generate-shuffle (+ num-args 2) shuffle)
+                  (tail-call ,num-args ,(+ num-args 1)))))))
+       
        (($ <call> proc cont args)
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form
@@ -321,12 +357,16 @@
               ;; because anything in scope would already have a reserved
               ;; spot on the stack before return-base, because the
               ;; allocator works that way.
-              `((call ,return-base ,(register proc)
-                      ,(map register args))
-                ;; the RA and MVRA both branch to the continuation. we
-                ;; don't do error checking yet.
-                (br ,(label cont))    ;; MVRA
-                (br ,(label cont)))) ;; RA
+              (if (primitive? proc)
+                  `(,@(generate-primitive-call
+                       return-base (primitive-name proc) args)
+                    (br ,(label cont)))
+                  `((call ,return-base ,(register proc)
+                          ,(map register args))
+                    ;; the RA and MVRA both branch to the continuation. we
+                    ;; don't do error checking yet.
+                    (br ,(label cont))    ;; MVRA
+                    (br ,(label cont))))) ;; RA
             (error "We don't know how to compile" cps)))
        ;; consequent and alternate should both be continuations with no
        ;; arguments, so we call them by just jumping to them.
@@ -336,9 +376,18 @@
         `((br-if-true ,(register test) 1 ,(label alternate))
           (br ,(label consequent))))
        (($ <letval> names vals body)
+        ;; <letval> values can be either constants, <var>s, or
+        ;; <toplevel-var>s. For constants, we intern a constant. For
+        ;; <var>s, we make a box. For <toplevel-var>s, we do nothing.
         `(,@(append-map!
              (lambda (name val)
-               `((load-constant ,(register name) ,val)))
+               (cond ((var? val)
+                      `((box ,(register name)
+                             ,(register (var-value val)))))
+                     ((toplevel-var? val)
+                      `())
+                     (else
+                      `((load-constant ,(register name) ,val)))))
              names vals)
           ,@(visit body)))
        (($ <letcont> names conts body)

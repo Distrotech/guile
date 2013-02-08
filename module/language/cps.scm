@@ -3,6 +3,8 @@
   #:use-module (ice-9 match)
   #:export (<cps> cps?
             <letval> letval? make-letval letval-names letval-vals letval-body
+            <var> var? make-var var-value
+            <toplevel-var> toplevel-var? make-toplevel-var toplevel-var-name
             <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
                       letcont-conts letcont-body
@@ -35,6 +37,14 @@
 ;;  forms represent some subset of the control flow graph in two parts,
 ;;  and control only flows one direction between the parts.
 
+;;  3) all of the values named in the CPS representation are immutable,
+;;  so we can always substitute the definition of a name for that
+;;  name. we handle immutable values by putting them inside box objects
+;;  (as it happens, this is how we have to handle them in the VM, too,
+;;  in the general case). see below for more info.
+
+;; CPS Is Not About Continuations
+
 ;; Interestingly enough, we don't require that all continuations be
 ;; described by functions, even though that's the origin of CPS. the
 ;; reason is that we can't really convert all continuation captures to
@@ -47,10 +57,37 @@
 ;; them all. so we really are using the continuations as a way to
 ;; represent control flow, and not as real continuations!
 
+;; Mutable Variables
+
+;; The handling of mutable variables is interesting. We would eventually
+;; like to handle mutable variables and structs the same way - a
+;; container object that holds some number of mutable values, with a
+;; mutable variable being the special case of holding only one
+;; value. (Ideally we'd also model hash tables like that, but that's
+;; ambitious.) Kennedy's paper handles struct-like objects by having
+;; structure creation in the value part of a letval form, and
+;; introducing a 'let' form to pull the values out. However, the rewrite
+;; rules from his paper won't work if the structures are mutable,
+;; because then you can't just substitute - you have to check the entire
+;; control-flow graph up to that point to make sure it wasn't
+;; modified. So instead of having another form, we just have a special
+;; primitive function 'ref' that pulls the value out of a box, and a
+;; special primitive 'set' that sets the values in boxes. We still make
+;; variable objects part of 'letval' forms, for somewhat arbitrary
+;; reasons.
+
 (define-type <cps>
-  ;; <letval> actually handles multiple constant values, because why
-  ;; not?
+  ;; <letval> values can be either constant values, <var> forms, or
+  ;; <toplevel-var> forms. <var> forms represent variable objects, which
+  ;; are needed for mutable variables. <toplevel-var>s are just <var>
+  ;; objects that have no value, because they refer to a binding that
+  ;; has already been declared.
   (<letval> names vals body)
+  ;; here are the <var> objects. 'value' should be a symbol.
+  (<var> value)
+  ;; for a toplevel-var, we need to save the name we use to look up the
+  ;; variable object at runtime.
+  (<toplevel-var> name)
   ;; Kennedy's paper calls this 'letfun', but 'letrec' is more standard
   ;; in Scheme
   (<letrec> names funcs body)
@@ -89,16 +126,19 @@
   ;; procedure and not a special form. that requires having a way for
   ;; primitive procedures to be inlined, but otherwise might be all
   ;; right.
-  (<if> test consequent alternate)
-  ;; we don't have the 'let' form from Kennedy's paper yet. We
-  ;; eventually want to use something like it to compose record
-  ;; constructors and accessors, and also describe mutable variables
+  (<if> test consequent alternate)  
+  ;; we don't have the 'let' form from Kennedy's paper. see the comments
+  ;; about mutable variables above for the reason.
   )
 
 (define (parse-cps tree)
   (match tree
     (('letval names vals body)
      (make-letval names vals (parse-cps body)))
+    (('var value)
+     (make-var value))
+    (('toplevel-var name)
+     (make-toplevel-var name))
     (('letrec names funcs body)
      (make-letrec names
                   (map parse-cps funcs)
@@ -123,6 +163,10 @@
   (match cps
     (($ <letval> names vals body)
      (list 'letval names vals (unparse-cps body)))
+    (($ <var> value)
+     (list 'var value))
+    (($ <toplevel-var> name)
+     (list 'toplevel-var name))
     (($ <letrec> names funcs body)
      (list 'letrec names
            (map unparse-cps funcs)

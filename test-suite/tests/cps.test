@@ -46,6 +46,11 @@
 (pass-if "if false"
   (= 2 (if-func #f)))
 
+(define *foo* 6)
+(pass-if "toplevel-ref"
+  (= 6
+     ((by-cps '(lambda () *foo*)))))
+
 ;; (lambda () (+ 2 3))
 (pass-if "+"
   (= 5
