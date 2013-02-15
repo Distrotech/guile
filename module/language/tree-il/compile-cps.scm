@@ -13,18 +13,25 @@
   ;; tree, and then calls 'gen-k' to generate more CPS code - but
   ;; 'gen-k' is called with a name which can reference the value of
   ;; tree. the real point is to abstract out the idea of *not*
-  ;; generating extra continuations for lexical variable references. we
-  ;; could always optimize them out later, but it seems easier to just
-  ;; not make them in the first place.
+  ;; generating extra continuations for lexical variable references and
+  ;; constants. we could always optimize them out later, but it seems
+  ;; easier to just not make them in the first place.
   (define (with-value-name gen-k tree env)
-    (if (lexical-ref? tree)
-        (gen-k (lexical-ref-gensym tree))
-        (let ((con (gensym "con-"))
-              (val (gensym "val-")))
-          (cps-make-letcont
-           (list con)
-           (list (cps-make-lambda (list val) (gen-k val)))
-           (visit con tree env)))))
+    (cond ((lexical-ref? tree)
+           (gen-k (lexical-ref-gensym tree)))
+          ((const? tree)
+           (let ((val-name (gensym "val-")))
+             (cps-make-letval
+              (list val-name)
+              (list (const-exp tree))
+              (gen-k val-name))))
+          (else
+           (let ((con (gensym "con-"))
+                 (val (gensym "val-")))
+             (cps-make-letcont
+              (list con)
+              (list (cps-make-lambda (list val) (gen-k val)))
+              (visit con tree env))))))
 
   ;; like with-value-names, but takes a list of trees, and applies gen-k
   ;; to the corresponding list of values. the generated code evaluates
@@ -99,6 +106,18 @@
            (cps-make-primitive 'ref)
            k
            (list var-name)))))
+      (($ <toplevel-set> src name exp)
+       (with-value-name
+        (lambda (set-val)
+          (let ((var-name (gensym "var-")))
+            (cps-make-letval
+             (list var-name)
+             (list (cps-make-toplevel-var name))
+             (cps-make-call
+              (cps-make-primitive 'set)
+              k
+              (list var-name set-val)))))
+        exp env))
       (($ <const> src exp)
        (let ((v (gensym "val-")))
          (cps-make-letval

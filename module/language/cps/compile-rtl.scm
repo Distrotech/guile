@@ -275,29 +275,46 @@
 ;; of RTL code.
 (define (cps->rtl cps)
   ;; generate-primitive-call: generate a call to primitive prim with the
-  ;; given args, placing the result in register dst. This is its own
+  ;; given args, placing the result in register(s) dsts. This is its own
   ;; function because it is called twice in visit - once in the tail
   ;; case and once in the non-tail case.
   (define (generate-primitive-call dst prim args)
-    (if (eq? prim 'ref)
-        ;; ref is the most special primitive of all. I wonder if it
-        ;; should even be a primitive, or if it should have some other
-        ;; container.
-        (let* ((var-value (car args))
-               (var (name-value var-value)))
-          (if (toplevel-var? var)
-              (let ((var-name (toplevel-var-name var)))
-                ;; the scope is 'foo because we don't meaningfully
-                ;; distinguish scopes yet. we should really just cache
-                ;; the current module once per procedure.
-                `((cache-current-module! ,dst foo)
-                  (cached-toplevel-ref ,dst foo ,var-name)))
-              `((box-ref ,dst ,(register var-value)))))
-        (let ((insn (hashq-ref *primitive-insn-table* prim))
-              (arity (hashq-ref *primitive-arity-table* prim)))
-          (if (and insn (= arity (length args)))
-              `((,insn ,dst ,@(map register args)))
-              (error "malformed primitive call" (cons prim args))))))
+    ;; the primitives 'ref and 'set are handled differently than the
+    ;; others because they need to know whether they're setting a
+    ;; toplevel variable or not. I think there's some bad abstraction
+    ;; going on here, but fixing it is hard. The most elegant thing from
+    ;; the CPS point of view is to forget about the toplevel-ref and
+    ;; toplevel-set VM instructions and just use resolve for everything,
+    ;; but that's ugly and probably slow. maybe once we have a peephole
+    ;; optimizer we'll be able to do that.
+
+    (case prim
+      ((ref) (let* ((var-value (car args))
+                    (var (name-value var-value)))
+               (if (toplevel-var? var)
+                   (let ((var-name (toplevel-var-name var)))
+                     ;; the scope is 'foo because we don't meaningfully
+                     ;; distinguish scopes yet. we should really just
+                     ;; cache the current module once per procedure.
+                     `((cache-current-module! ,dst foo)
+                       (cached-toplevel-ref ,dst foo ,var-name)))
+                   `((box-ref ,dst ,(register var-value))))))
+      ((set) (let* ((var-value (car args))
+                    (var (name-value var-value)))
+               (if (toplevel-var? var)
+                   (let ((var-name (toplevel-var-name var)))
+                     `((cache-current-module! ,dst foo)
+                       (cached-toplevel-set! ,(register (cadr args))
+                                             foo ,var-name)))
+                   `((box-set!
+                      ,(register (car args))
+                      ,(register (cadr args)))))))
+      (else
+       (let ((insn (hashq-ref *primitive-insn-table* prim))
+             (arity (hashq-ref *primitive-arity-table* prim)))
+         (if (and insn (= arity (length args)))
+             `((,insn ,dst ,@(map register args)))
+             (error "malformed primitive call" (cons prim args)))))))
   
   (define (visit cps)
     ;; cps is either a let expression or a call

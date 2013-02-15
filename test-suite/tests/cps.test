@@ -51,6 +51,12 @@
   (= 6
      ((by-cps '(lambda () *foo*)))))
 
+(pass-if "toplevel-set"
+  (= 12
+     (begin
+       ((by-cps '(lambda () (set! *foo* 12))))
+       *foo*)))
+
 ;; (lambda () (+ 2 3))
 (pass-if "+"
   (= 5
