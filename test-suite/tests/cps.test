@@ -61,7 +61,7 @@
 (pass-if "+"
   (= 5
      ((cps (lambda ()
-             (letval (x y) (2 3)
+             (letval (x y) ((const 2) (const 3))
                (letcont (c) ((lambda (z) (call return #f (z))))
                  (call (primitive +) c (x y)))))))))
                         

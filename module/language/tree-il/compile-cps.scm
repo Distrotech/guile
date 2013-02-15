@@ -23,7 +23,7 @@
            (let ((val-name (gensym "val-")))
              (cps-make-letval
               (list val-name)
-              (list (const-exp tree))
+              (list (cps-make-const (const-exp tree)))
               (gen-k val-name))))
           (else
            (let ((con (gensym "con-"))
@@ -122,7 +122,7 @@
        (let ((v (gensym "val-")))
          (cps-make-letval
           (list v)
-          (list exp)
+          (list (cps-make-const exp))
           (cps-make-call k #f (list v)))))
       (x (error "Unrecognized tree-il:" x))))
 

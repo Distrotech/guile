@@ -142,13 +142,15 @@
                            ;; allocated s.
 
   
-  (define (do-value v) ;; v is anything that can be in the 'vals' part
-                       ;; of a <letval> form.
+  (define (do-value v) ;; v is a cps-data object
     (cond ((var? v)
            (list 'var (var-value v)))
           ((toplevel-var? v)
            (list 'toplevel-var (toplevel-var-name v)))
-          (else v)))
+          ((const? v)
+           (list 'const (const-value v)))
+          (else
+           (error "Bad cps-data object" v))))
   
   (define (with-label s) ;; s must be the name of a continuation
     (if (eq? s 'return)
@@ -156,7 +158,7 @@
         (cons s (label s))))
 
   (cond ((symbol? cps)
-         (do-value cps))
+         (with-register cps))
         ((boolean? cps)
          ;; we get a boolean when with-alloc is called on the cont of a
          ;; call to a letcont continuation.
@@ -168,7 +170,7 @@
                    (with-alloc cont)
                    (map with-alloc args)))
            ((<lambda> names body)
-            `(lambda ,(map do-value names)
+            `(lambda ,(map with-register names)
                ,(with-alloc body)))
            ((<letval> names vals body)
             `(letval ,(map with-register names)
@@ -403,8 +405,11 @@
                              ,(register (var-value val)))))
                      ((toplevel-var? val)
                       `())
+                     ((const? val)
+                      `((load-constant ,(register name)
+                                       ,(const-value val))))
                      (else
-                      `((load-constant ,(register name) ,val)))))
+                      (error "Bad cps-data object" val))))
              names vals)
           ,@(visit body)))
        (($ <letcont> names conts body)

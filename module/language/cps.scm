@@ -1,9 +1,9 @@
 (define-module (language cps)
   #:use-module (system base syntax) ;; for define-type
   #:use-module (ice-9 match)
-  #:export (<cps> cps?
-            <letval> letval? make-letval letval-names letval-vals letval-body
-            <var> var? make-var var-value
+  #:export (<letval> letval? make-letval letval-names letval-vals letval-body
+            <const> const? make-const const-value
+            <var> var? make-var
             <toplevel-var> toplevel-var? make-toplevel-var toplevel-var-name
             <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
@@ -69,25 +69,26 @@
 ;; introducing a 'let' form to pull the values out. However, the rewrite
 ;; rules from his paper won't work if the structures are mutable,
 ;; because then you can't just substitute - you have to check the entire
-;; control-flow graph up to that point to make sure it wasn't
+;; control-flow graph up to that point to make sure the variable wasn't
 ;; modified. So instead of having another form, we just have a special
 ;; primitive function 'ref' that pulls the value out of a box, and a
-;; special primitive 'set' that sets the values in boxes. We still make
-;; variable objects part of 'letval' forms, for somewhat arbitrary
-;; reasons.
+;; special primitive 'set' that sets the values in boxes.
+
+;; CPS and CPS-Data
+
+;; The data structure is a combination of <cps> and <cps-data>
+;; objects. The only reason to separate them is to be more clear about
+;; what things can go where - <cps-data> objects can only appear as the
+;; value part of a letval, and only <cps-data> objects can be there.
 
 (define-type <cps>
-  ;; <letval> values can be either constant values, <var> forms, or
-  ;; <toplevel-var> forms. <var> forms represent variable objects, which
-  ;; are needed for mutable variables. <toplevel-var>s are just <var>
-  ;; objects that have no value, because they refer to a binding that
-  ;; has already been declared.
+  ;; <letval> values can be anything in the <cps-data> declaration
+  ;; below. I think it's an open question whether we need letvals - we
+  ;; could also imagine having some primitive functions that define
+  ;; constants and variable objects, and then replace letvals with
+  ;; letconts in which the body would have access to the variables or
+  ;; constants.
   (<letval> names vals body)
-  ;; here are the <var> objects. 'value' should be a symbol.
-  (<var> value)
-  ;; for a toplevel-var, we need to save the name we use to look up the
-  ;; variable object at runtime.
-  (<toplevel-var> name)
   ;; Kennedy's paper calls this 'letfun', but 'letrec' is more standard
   ;; in Scheme
   (<letrec> names funcs body)
@@ -131,10 +132,26 @@
   ;; about mutable variables above for the reason.
   )
 
+(define-type <cps-data>
+  ;; const represents constants.
+  (<const> value)
+  ;; var is for lexical variables. these things just map to variable
+  ;; objects in the VM.
+  (<var>)
+  ;; toplevel vars are like pseudo-vars. instead of actually creating a
+  ;; variable object, we'll just remember that there *is* a variable
+  ;; object already in existence and look it up when we need it. we
+  ;; remember the name of the variable so that we can look it up.
+  (<toplevel-var> name))
+
 (define (parse-cps tree)
   (match tree
     (('letval names vals body)
-     (make-letval names vals (parse-cps body)))
+     (make-letval names
+                  (map parse-cps vals)
+                  (parse-cps body)))
+    (('const value)
+     (make-const value))
     (('var value)
      (make-var value))
     (('toplevel-var name)
@@ -163,6 +180,8 @@
   (match cps
     (($ <letval> names vals body)
      (list 'letval names vals (unparse-cps body)))
+    (($ <const> value)
+     (list 'const value))
     (($ <var> value)
      (list 'var value))
     (($ <toplevel-var> name)
