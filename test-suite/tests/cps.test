@@ -57,11 +57,6 @@
        ((by-cps '(lambda () (set! *foo* 12))))
        *foo*)))
 
-;; (lambda () (+ 2 3))
-(pass-if "+"
-  (= 5
-     ((cps (lambda ()
-             (letval (x y) ((const 2) (const 3))
-               (letcont (c) ((lambda (z) (call return #f (z))))
-                 (call (primitive +) c (x y)))))))))
-                        
+(pass-if "addition"
+  (= 7
+     ((by-cps '(lambda () (+ 3 4))))))
