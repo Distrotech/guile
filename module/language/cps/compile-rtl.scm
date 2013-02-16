@@ -29,13 +29,15 @@
     (set! label-counter (+ label-counter 1))
     label))
 
-;; this lets us find the values of names bound in 'let...' forms. right
-;; now it only holds continuations, but there's no barrier to it holding
-;; other things, because all of the CPS names are distinct symbols. we
-;; don't have to worry about scoping, either. it might be better to get
-;; rid of this and replace names with direct links to their values, but
-;; that's a bigger project.
-(define name-value (make-object-property))
+;; the name-defn map lets us find the definitions of names bound in
+;; 'let...'  forms. right now it only holds things from 'letval' and
+;; 'letcont' forms, but there's no barrier to adding 'letrec' too. it
+;; might be better to get rid of this and replace names with direct
+;; links to their values, but that's a bigger project.
+
+;; bikeshedding note: what's the correct naming convention here?
+;; "name-defn"? "name->defn"? "definition"? "lookup-defn"?
+(define name-defn (make-object-property))
 
 ;; this holds the number of local variable slots needed by every 'lambda'
 ;; form, so we can allocate them with the 'nlocals or
@@ -45,7 +47,7 @@
 (define nlocals (make-object-property))
 
 ;; This function walks some CPS and allocates registers and labels for
-;; it. It's certainly not optimal yet. It also sets the name-value
+;; it. It's certainly not optimal yet. It also sets the name-defn
 ;; property for continuations
 (define (allocate-registers-and-labels! cps)
   (define (visit cps counter)
@@ -70,9 +72,9 @@
                (iter (cdr names) (+ counter 1))))))
       
       ((<letval> names vals body)
-       ;; update the name-value mapping
+       ;; update the name-defn mapping
        (map (lambda (n c)
-              (set! (name-value n) c))
+              (set! (name-defn n) c))
             names vals)
 
        ;; and allocate the registers
@@ -96,9 +98,9 @@
        (map (lambda (n)
               (set! (label n) (next-label!)))
             names)
-       ;; then the name-value mapping
+       ;; then the name-defn mapping
        (map (lambda (n c)
-              (set! (name-value n) c))
+              (set! (name-defn n) c))
             names conts)
        ;; then local variables. we need to return the maximum of the
        ;; register numbers used so that whatever procedure we're part of
@@ -292,7 +294,7 @@
 
     (case prim
       ((ref) (let* ((var-value (car args))
-                    (var (name-value var-value)))
+                    (var (name-defn var-value)))
                (if (toplevel-var? var)
                    (let ((var-name (toplevel-var-name var)))
                      ;; the scope is 'foo because we don't meaningfully
@@ -302,7 +304,7 @@
                        (cached-toplevel-ref ,dst foo ,var-name)))
                    `((box-ref ,dst ,(register var-value))))))
       ((set) (let* ((var-value (car args))
-                    (var (name-value var-value)))
+                    (var (name-defn var-value)))
                (if (toplevel-var? var)
                    (let ((var-name (toplevel-var-name var)))
                      `((cache-current-module! ,dst foo)
@@ -369,7 +371,7 @@
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form
             (let ((return-base (register
-                                (car (lambda-names (name-value cont))))))
+                                (car (lambda-names (name-defn cont))))))
               ;; return-base is the stack offset where we want to put
               ;; the return values of this function. there can't be
               ;; anything important on the stack past return-base,
