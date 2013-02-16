@@ -288,7 +288,7 @@
   ;; given args, placing the result in register(s) dsts. This is its own
   ;; function because it is called twice in visit - once in the tail
   ;; case and once in the non-tail case.
-  (define (generate-primitive-call dst prim args)
+  (define (generate-primitive-call dsts prim args)
     ;; the primitives 'ref and 'set are handled differently than the
     ;; others because they need to know whether they're setting a
     ;; toplevel variable or not. I think there's some bad abstraction
@@ -300,7 +300,8 @@
 
     (case prim
       ((ref) (let* ((var-value (car args))
-                    (var (name-defn var-value)))
+                    (var (name-defn var-value))
+                    (dst (car dsts)))
                (if (toplevel-var? var)
                    (let ((var-name (toplevel-var-name var)))
                      ;; the scope is 'foo because we don't meaningfully
@@ -310,19 +311,25 @@
                        (cached-toplevel-ref ,dst foo ,var-name)))
                    `((box-ref ,dst ,(register var-value))))))
       ((set) (let* ((var-value (car args))
-                    (var (name-defn var-value)))
+                    (var (name-defn var-value))
+                    (dst (car dsts)))
                (if (toplevel-var? var)
                    (let ((var-name (toplevel-var-name var)))
                      `((cache-current-module! ,dst foo)
                        (cached-toplevel-set! ,(register (cadr args))
-                                             foo ,var-name)))
+                                             foo ,var-name)
+                       (mov ,dst ,(register (cadr args)))))
                    `((box-set!
                       ,(register (car args))
                       ,(register (cadr args)))))))
       (else
        (let ((insn (hashq-ref *primitive-insn-table* prim))
-             (arity (hashq-ref *primitive-arity-table* prim)))
-         (if (and insn (= arity (length args)))
+             (in-arity (hashq-ref *primitive-in-arity-table* prim))
+             (out-arity (hashq-ref *primitive-out-arity-table* prim))
+             (dst (car dsts)))
+         (if (and insn
+                  (= in-arity (length args))
+                  (= out-arity 1)) ;; we don't support n-ary outputs yet
              `((,insn ,dst ,@(map register args)))
              (error "malformed primitive call" (cons prim args)))))))
   
@@ -345,10 +352,13 @@
             ;; then return. this seems like it might have to change in
             ;; the future. it's fine to take the maximum register and
             ;; add one, because the allocator reserved us one extra.
+
+            ;; note: this only handles primitives that return exactly
+            ;; one value.
             (let ((return-reg
                    (+ 1 (apply max (map register args)))))
               `(,@(generate-primitive-call
-                   return-reg (primitive-name proc) args)
+                   (list return-reg) (primitive-name proc) args)
                 (return ,return-reg)))
             
             (let ((num-args (length args)))
@@ -376,8 +386,8 @@
        (($ <call> proc cont args)
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form
-            (let ((return-base (register
-                                (car (lambda-names (name-defn cont))))))
+            (let* ((dsts (map register (lambda-names (name-defn cont))))
+                   (return-base (car dsts)))
               ;; return-base is the stack offset where we want to put
               ;; the return values of this function. there can't be
               ;; anything important on the stack past return-base,
@@ -386,7 +396,7 @@
               ;; allocator works that way.
               (if (primitive? proc)
                   `(,@(generate-primitive-call
-                       return-base (primitive-name proc) args)
+                       dsts (primitive-name proc) args)
                     (br ,(label cont)))
                   `((call ,return-base ,(register proc)
                           ,(map register args))

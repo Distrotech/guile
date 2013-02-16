@@ -1,6 +1,7 @@
 (define-module (language cps primitives)
   #:export (*primitive-insn-table*
-            *primitive-arity-table*))
+            *primitive-in-arity-table*
+            *primitive-out-arity-table*))
 
 ;; the "primitives" in this file are the operations which are supported
 ;; by VM opcodes. Each primitive has more than one name - there is its
@@ -9,7 +10,7 @@
 ;; name as a VM instruction, which may be different from the first two.
 
 ;; this list holds information about the primitive VM operations. The
-;; current fields are (Scheme name, VM name, arity). We don't handle
+;; current fields are (Scheme name, VM name, in-arity). We don't handle
 ;; folds, reductions, or variable-arity instructions yet.
 (define *primitive-insn-data*
   '((string-length string-length 1)
@@ -46,19 +47,27 @@
 
 (define *primitive-insn-table* (make-hash-table))
 
-;; this table maps our names to the instruction arities. We assume that
-;; each instruction takes its destination first and the remaining
-;; arguments in order. We don't handle folds or reductions right now.
+;; We assume that each instruction takes its destination first and the
+;; remaining arguments in order. We don't handle folds or reductions
+;; right now.
 
-(define *primitive-arity-table* (make-hash-table))
+;; this table holds the number of inputs each primitive function takes
+(define *primitive-in-arity-table* (make-hash-table))
+
+;; and this one holds the number of outputs. this will always be 1 right
+;; now, but there are cases where that won't be true - for instance,
+;; divmod.
+(define *primitive-out-arity-table* (make-hash-table))
 
 (define (fill-insn-tables!)
   (for-each
    (lambda (entry)
      (hashq-set! *primitive-insn-table*
                  (car entry) (cadr entry))
-     (hashq-set! *primitive-arity-table*
-                 (car entry) (caddr entry)))
+     (hashq-set! *primitive-in-arity-table*
+                 (car entry) (caddr entry))
+     (hashq-set! *primitive-out-arity-table*
+                 (car entry) 1))
    *primitive-insn-data*))
 
 (fill-insn-tables!)
