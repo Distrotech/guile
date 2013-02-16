@@ -54,22 +54,23 @@
     ;; counter is the number of local variables we've already allocated.
     (record-case cps
       ((<call>) counter)
-                 
+
       ((<lambda> names body)
        ;; TO DO: record which variables will be closure variables.
-       (let iter ((names names)
-                  (counter counter))
-         (if (null? names)
-             (let ((total (visit body counter)))
-               ;; we reserve one more than whatever number of variables
-               ;; we have because we might need an extra space to move
-               ;; variables around. see generate-shuffle below. this
-               ;; doesn't really feel elegant, but I don't have a better
-               ;; solution right now.
-               (set! (nlocals cps) (+ total 1)))
-             (begin
-               (set! (register (car names)) counter)
-               (iter (cdr names) (+ counter 1))))))
+       (let* ((after-names
+               ;; assign register numbers to each argument, starting
+               ;; with 0 and counting up.
+               (fold (lambda (name counter)
+                       (set! (register name) counter)
+                       (1+ counter))
+                     counter names))
+              (total
+               (visit body after-names)))
+         ;; we reserve one more than whatever number of variables we
+         ;; have because we might need an extra space to move variables
+         ;; around. see generate-shuffle below. this doesn't really feel
+         ;; elegant, but I don't have a better solution right now.
+         (set! (nlocals cps) (+ total 1))))
       
       ((<letval> names vals body)
        ;; update the name-defn mapping
@@ -77,14 +78,16 @@
               (set! (name-defn n) c))
             names vals)
 
-       ;; and allocate the registers
-       (let iter ((names names)
-                  (counter counter))
-         (if (null? names)
-             (visit body counter)
-             (begin
-               (set! (register (car names)) counter)
-               (iter (cdr names) (+ counter 1))))))
+       ;; allocate the registers
+       (let ((counter
+              (fold
+               (lambda (name counter)
+                 (set! (register name) counter)
+                 (1+ counter))
+               counter names)))
+
+         ;; and visit the body of the letval
+         (visit body counter)))
       
       ;; an important scoping point: none of the arguments to any of the
       ;; <letcont>'s continuations are in scope for any of the other
@@ -94,18 +97,18 @@
       ;; should try to set up our allocation to avoid unnecessary
       ;; moves.)
       ((<letcont> names conts body)
-       ;; first, allocate some labels
+       ;; allocate labels for the continuations
        (map (lambda (n)
               (set! (label n) (next-label!)))
             names)
-       ;; then the name-defn mapping
+       ;; update the name-defn mapping
        (map (lambda (n c)
               (set! (name-defn n) c))
             names conts)
-       ;; then local variables. we need to return the maximum of the
-       ;; register numbers used so that whatever procedure we're part of
-       ;; will allocate the right number of local variable slots on the
-       ;; stack.
+       ;; then allocate registers for all of the continuations and the
+       ;; body. we need to return the maximum of the register numbers
+       ;; used so that whatever procedure we're part of will allocate
+       ;; the right number of local variable slots on the stack.
        (apply max (visit body counter)
               (map (lambda (c) (visit c counter)) conts)))
       
@@ -115,20 +118,25 @@
       ;; also reference each other, so we should allocate labels for
       ;; them too.
       ((<letrec> names funcs body)
-       (let alloc-funcs ((names names)
-                         (counter counter))
-         (if (not (null? names))
-             (begin
-               (set! (register (car names)) counter)
-               (set! (label (car names)) (next-label!))
-               (alloc-funcs (cdr names) (+ counter 1)))
-             ;; the counter resets to zero for a new lambda because when it's
-             ;; called, only its arguments will be on the stack -
-             ;; everything else will be a closure variable.
-             (let ((alloc-func (lambda (f) (visit f 0))))
-               (map alloc-func funcs)
-               (visit body counter)))))
+       ;; allocate labels for the functions
+       (map
+        (lambda (name)
+          (set! (label name) (next-label!)))
+        names)
 
+       ;; allocate registers *within* the functions
+       (map (lambda (f) (visit f 0)) funcs)
+
+       ;; and allocate registers for the functions and the body
+       (let ((total
+              (fold
+               (lambda (name counter)
+                 (set! (register name) counter)
+                 (1+ counter))
+               0 names)))
+         (visit body counter)
+         counter))
+      
       ;; an if has no interesting content, so we don't need to do
       ;; anything here.
       ((<if> test consequent alternate)
@@ -184,8 +192,6 @@
                       ,(with-alloc body)))
            ((<primitive> name)
             `(primitive ,name))
-           ;; this is sort of an ugly way to show the labels of the
-           ;; if-branches, but I don't have a better one right now.
            ((<if> test consequent alternate)
             `(if ,test ,consequent ,alternate))))))
 
