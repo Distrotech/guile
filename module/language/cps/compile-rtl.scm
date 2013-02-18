@@ -17,6 +17,10 @@
 ;; always be a symbol)
 (define register (make-object-property))
 
+;; when we make a call, we need to know where to put the new stack
+;; frame. this holds that information.
+(define call-frame-start (make-object-property))
+
 ;; and every contination gets a label, so we can jump to it. this is
 ;; indexed by the names of the continuations, not the actual lambda objects.
 (define label (make-object-property))
@@ -53,7 +57,12 @@
   (define (visit cps counter)
     ;; counter is the number of local variables we've already allocated.
     (record-case cps
-      ((<call>) counter)
+      ;; call is kind of a weird case, because although it doesn't need
+      ;; any extra registers, the new frame needs to be on top of the
+      ;; stack. so we save that information in its own property.
+      ((<call>)
+       (set! (call-frame-start cps) (+ counter))
+       counter)
 
       ((<lambda> names body)
        ;; TO DO: record which variables will be closure variables.
@@ -176,7 +185,9 @@
         (else
          (record-case cps
            ((<call> proc cont args)
-            (cons* (with-alloc proc)
+            (cons* 'call
+                   (call-frame-start cps)
+                   (with-alloc proc)
                    (with-alloc cont)
                    (map with-alloc args)))
            ((<lambda> names body)
@@ -204,6 +215,12 @@
   (set-cdr! (cdr q) (car r))
   (set-cdr! q (cdr r))
   q)
+
+;; and this is some sort of general utility
+(define (int-range start end)
+  (if (< start end)
+      (cons start (int-range (+ start 1) end))
+      '()))
 
 ;; this function returns a list of `mov' instructions that accomplish a
 ;; shuffle in the stack. each tail argument is a pair (from . to) that
@@ -387,23 +404,29 @@
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form
             (let* ((dsts (map register (lambda-names (name-defn cont))))
-                   (return-base (car dsts)))
-              ;; return-base is the stack offset where we want to put
-              ;; the return values of this function. there can't be
-              ;; anything important on the stack past return-base,
-              ;; because anything in scope would already have a reserved
-              ;; spot on the stack before return-base, because the
-              ;; allocator works that way.
+                   (return-start (call-frame-start cps))
+                   ;; perm is the permutation we have to execute to put
+                   ;; the results of the call in their destinations
+                   (perm (map cons (int-range return-start
+                                              (+ return-start (length dsts)))
+                              dsts))
+                   (perm-label (next-label!)))
               (if (primitive? proc)
                   `(,@(generate-primitive-call
                        dsts (primitive-name proc) args)
                     (br ,(label cont)))
-                  `((call ,return-base ,(register proc)
+                  `((call ,(call-frame-start cps) ,(register proc)
                           ,(map register args))
+                    ;; shuffle the return values into their place. we
+                    ;; pass #f as our swap point because this
+                    ;; permutation should never need swap space.
+                    (br ,perm-label) ;; MVRA
+                    (br ,perm-label) ;; RA
+                    (label ,perm-label)
+                    ,@(apply generate-shuffle #f perm)
                     ;; the RA and MVRA both branch to the continuation. we
                     ;; don't do error checking yet.
-                    (br ,(label cont))    ;; MVRA
-                    (br ,(label cont))))) ;; RA
+                    (br ,(label cont)))))
             (error "We don't know how to compile" cps)))
        ;; consequent and alternate should both be continuations with no
        ;; arguments, so we call them by just jumping to them.
