@@ -4,8 +4,16 @@
                 #:renamer (symbol-prefix-proc 'cps-))
   #:use-module (ice-9 match)
   #:use-module (ice-9 vlist)
+  #:use-module (srfi srfi-1)
   #:export (tree-il->cps))
 
+;; this should probably be a general utility. it simply executes a
+;; function n times and returns a list of the results
+(define (sample f n)
+  (if (< n 1)
+      '()
+      (cons (f)
+            (sample f (- n 1)))))
 
 ;; k is the continuation
 (define (tree-il->cps tree)
@@ -13,13 +21,11 @@
   ;; tree, and then calls 'gen-k' to generate more CPS code - but
   ;; 'gen-k' is called with a name which can reference the value of
   ;; tree. the real point is to abstract out the idea of *not*
-  ;; generating extra continuations for lexical variable references and
-  ;; constants. we could always optimize them out later, but it seems
-  ;; easier to just not make them in the first place.
+  ;; generating extra continuations for constants. we could always
+  ;; optimize them out later, but it seems easier to just not make them
+  ;; in the first place.
   (define (with-value-name gen-k tree env)
-    (cond ((lexical-ref? tree)
-           (gen-k (lexical-ref-gensym tree)))
-          ((const? tree)
+    (cond ((const? tree)
            (let ((val-name (gensym "val-")))
              (cps-make-letval
               (list val-name)
@@ -50,16 +56,17 @@
   ;; the given variables and then calls 'gen-k' with a new environment
   ;; in which the given names are mapped to the names of their boxes.
   (define (with-variable-boxes gen-k vars env)
-    (let iter ((vars vars)
-               (env env))
-      (if (null? vars)
-          (gen-k env)
-          (let ((var-name (gensym "var-")))
-            (cps-make-letval
-             (list var-name)
-             (list (cps-make-var (car vars)))
-             (iter (car vars)
-                   (vhash-consq (car vars) var-name env)))))))
+    (let ((var-names (sample (lambda () (gensym "var-"))
+                             (length vars))))
+      (cps-make-letval
+       var-names
+       (map (lambda (var-name val)
+              (cps-make-var val))
+            var-names vars)
+       (gen-k
+        (fold vhash-consq
+              env
+              vars var-names)))))
   
   ;; visit returns a CPS version of tree which ends by calling
   ;; continuation k. 'env' is a vhash that maps Tree-IL variable gensyms
@@ -72,7 +79,11 @@
       (($ <lambda> src meta
           ($ <lambda-case> src req opt rest kw inits gensyms body alternate))
        (cps-make-lambda gensyms
-         (visit 'return body env)))
+                   (with-variable-boxes
+                    (lambda (env)
+                      (visit 'return body env))
+                    gensyms
+                    env)))
       (($ <call> src proc args)
        (with-value-names
         (lambda (proc . args)
@@ -96,7 +107,10 @@
            test
            env))))
       (($ <lexical-ref> src name gensym)
-       (cps-make-call k #f (list gensym)))
+       (cps-make-call
+        (cps-make-primitive 'ref)
+        k
+        (list (cdr (vhash-assq gensym env)))))
       (($ <toplevel-ref> src name)
        (let ((var-name (gensym "var-")))
          (cps-make-letval

@@ -3,7 +3,7 @@
   #:use-module (ice-9 match)
   #:export (<letval> letval? make-letval letval-names letval-vals letval-body
             <const> const? make-const const-value
-            <var> var? make-var
+            <var> var? make-var var-value
             <toplevel-var> toplevel-var? make-toplevel-var toplevel-var-name
             <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
@@ -136,8 +136,9 @@
   ;; const represents constants.
   (<const> value)
   ;; var is for lexical variables. these things just map to variable
-  ;; objects in the VM.
-  (<var>)
+  ;; objects in the VM. value is the value it is initialized to. it
+  ;; should be a CPS variable (which is a symbol).
+  (<var> value)
   ;; toplevel vars are like pseudo-vars. instead of actually creating a
   ;; variable object, we'll just remember that there *is* a variable
   ;; object already in existence and look it up when we need it. we
