@@ -61,7 +61,7 @@
 
 ;; The handling of mutable variables is interesting. We would eventually
 ;; like to handle mutable variables and structs the same way - a
-;; container object that holds some number of mutable values, with a
+;; container object that holds some number of mutable slots, with a
 ;; mutable variable being the special case of holding only one
 ;; value. (Ideally we'd also model hash tables like that, but that's
 ;; ambitious.) Kennedy's paper handles struct-like objects by having
@@ -81,6 +81,15 @@
 ;; what things can go where - <cps-data> objects can only appear as the
 ;; value part of a letval, and only <cps-data> objects can be there.
 
+;; Naming Conventions
+
+;; The things that would normally be thought of as "variables" in CPS
+;; (i.e. the things that symbols refer to) are very different than the
+;; "variable objects" that we use to represent mutable variables. To
+;; keep things straight, we try to use "value" for the things that
+;; symbols refer to, since they are constant values, and "variable" for
+;; the variable objects, since they vary.
+
 (define-type <cps>
   ;; <letval> values can be anything in the <cps-data> declaration
   ;; below. I think it's an open question whether we need letvals - we
@@ -96,8 +105,8 @@
   ;; is that they can always be compiled as jumps. this is information
   ;; that was in the program itself, but would be lost if we compiled
   ;; everything to lambdas without distinguishing them in some
-  ;; way. also, continuations can never be referenced by variables, so
-  ;; we don't need to worry about packaging them up.
+  ;; way. also, continuations can never be referenced, so we don't need
+  ;; to worry about packaging them up.
   (<letcont> names conts body)
   ;; the 'lambda' form appears in the 'funcs' list of a letrec form, the
   ;; 'conts' list of a letcont form, and as the outermost form of a
@@ -117,8 +126,8 @@
   ;; the 'primitive' form represents a primitive procedure. it will
   ;; probably appear in the 'proc' field of a <call> record, so maybe we
   ;; should have a merged 'primcall' record like Tree-IL does, but it
-  ;; could also appear in a <letval> vals list. the name of a primitive
-  ;; is a symbol.
+  ;; could also appear in a <letval> values list. the name of a
+  ;; primitive is a symbol.
   (<primitive> name)
   ;; the 'if' form is like a Scheme 'if', except that the test must be a
   ;; lexical variable, and the consequent and alternate must be names of
@@ -135,9 +144,9 @@
 (define-type <cps-data>
   ;; const represents constants.
   (<const> value)
-  ;; var is for lexical variables. these things just map to variable
-  ;; objects in the VM. value is the value it is initialized to. it
-  ;; should be a CPS variable (which is a symbol).
+  ;; var is for lexical variables. these things map to variable objects
+  ;; in the VM. value is the value it is initialized to. it should be a
+  ;; CPS value (which is a symbol).
   (<var> value)
   ;; toplevel vars are like pseudo-vars. instead of actually creating a
   ;; variable object, we'll just remember that there *is* a variable

@@ -53,24 +53,24 @@
            env))))
 
   ;; with-variable-boxes generates CPS that makes variable objects for
-  ;; the given variables and then calls 'gen-k' with a new environment
+  ;; the given CPS values and then calls 'gen-k' with a new environment
   ;; in which the given names are mapped to the names of their boxes.
-  (define (with-variable-boxes gen-k vars env)
+  (define (with-variable-boxes gen-k vals env)
     (let ((var-names (sample (lambda () (gensym "var-"))
-                             (length vars))))
+                             (length vals))))
       (cps-make-letval
        var-names
        (map (lambda (var-name val)
               (cps-make-var val))
-            var-names vars)
+            var-names vals)
        (gen-k
         (fold vhash-consq
               env
-              vars var-names)))))
+              vals var-names)))))
   
   ;; visit returns a CPS version of tree which ends by calling
   ;; continuation k. 'env' is a vhash that maps Tree-IL variable gensyms
-  ;; to CPS variable names.
+  ;; to CPS value names.
   (define (visit k tree env)
     (match tree
       ;; note: 1. we only support lambdas with one case right now, and

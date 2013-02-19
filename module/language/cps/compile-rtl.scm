@@ -13,7 +13,7 @@
 ;; into a program and call that program. Therefore, all code that we
 ;; compile will look like a lambda expression, maybe with no arguments.
 
-;; we associate a register number with every CPS variable (which will
+;; we associate a register number with every CPS value (which will
 ;; always be a symbol)
 (define register (make-object-property))
 
@@ -43,11 +43,10 @@
 ;; "name-defn"? "name->defn"? "definition"? "lookup-defn"?
 (define name-defn (make-object-property))
 
-;; this holds the number of local variable slots needed by every 'lambda'
-;; form, so we can allocate them with the 'nlocals or
-;; 'assert-nargs-ee/nlocals instructions. this is set by
-;; allocate-registers-and-labels!, because it has all the register
-;; information.
+;; this holds the number of registers needed by every 'lambda' form, so we
+;; can allocate them with the reserve-locals or assert-nargs-ee/nlocals
+;; instructions. this is set by allocate-registers-and-labels!, because
+;; it has all the register information.
 (define nlocals (make-object-property))
 
 ;; This function walks some CPS and allocates registers and labels for
@@ -55,17 +54,17 @@
 ;; property for continuations
 (define (allocate-registers-and-labels! cps)
   (define (visit cps counter)
-    ;; counter is the number of local variables we've already allocated.
+    ;; counter is the number of registers we've already allocated.
     (record-case cps
       ;; call is kind of a weird case, because although it doesn't need
       ;; any extra registers, the new frame needs to be on top of the
-      ;; stack. so we save that information in its own property.
+      ;; stack. so we save the end of the stack in its own property.
       ((<call>)
-       (set! (call-frame-start cps) (+ counter))
+       (set! (call-frame-start cps) counter)
        counter)
 
       ((<lambda> names body)
-       ;; TO DO: record which variables will be closure variables.
+       ;; TO DO: record which values will be closure values.
        (let* ((after-names
                ;; assign register numbers to each argument, starting
                ;; with 0 and counting up.
@@ -75,9 +74,9 @@
                      counter names))
               (total
                (visit body after-names)))
-         ;; we reserve one more than whatever number of variables we
-         ;; have because we might need an extra space to move variables
-         ;; around. see generate-shuffle below. this doesn't really feel
+         ;; we reserve one more than whatever number of values we have
+         ;; because we might need an extra space to move values
+         ;; around. see generate-shuffle. this doesn't really feel
          ;; elegant, but I don't have a better solution right now.
          (set! (nlocals cps) (+ total 1))))
       
@@ -117,7 +116,7 @@
        ;; then allocate registers for all of the continuations and the
        ;; body. we need to return the maximum of the register numbers
        ;; used so that whatever procedure we're part of will allocate
-       ;; the right number of local variable slots on the stack.
+       ;; the right number of registers.
        (apply max (visit body counter)
               (map (lambda (c) (visit c counter)) conts)))
       
@@ -161,7 +160,7 @@
                            ;; allocated s.
 
   
-  (define (do-value v) ;; v is a cps-data object
+  (define (do-data v) ;; v is a cps-data object
     (cond ((var? v)
            (list 'var (var-value v)))
           ((toplevel-var? v)
@@ -195,7 +194,7 @@
                ,(with-alloc body)))
            ((<letval> names vals body)
             `(letval ,(map with-register names)
-                     ,(map do-value vals)
+                     ,(map do-data vals)
                      ,(with-alloc body)))
            ((<letcont> names conts body)
             `(letcont ,(map with-label names)
@@ -317,28 +316,31 @@
 
     (case prim
       ((ref) (let* ((var-value (car args))
+                    ;; var-value is the value holding the variable
+                    ;; object
                     (var (name-defn var-value))
+                    ;; var is the actual variable object
                     (dst (car dsts)))
                (if (toplevel-var? var)
-                   (let ((var-name (toplevel-var-name var)))
-                     ;; the scope is 'foo because we don't meaningfully
-                     ;; distinguish scopes yet. we should really just
-                     ;; cache the current module once per procedure.
-                     `((cache-current-module! ,dst foo)
-                       (cached-toplevel-ref ,dst foo ,var-name)))
+                   ;; the scope is 'foo because we don't meaningfully
+                   ;; distinguish scopes yet. we should really just
+                   ;; cache the current module once per procedure.
+                   `((cache-current-module! ,dst foo)
+                     (cached-toplevel-ref ,dst foo
+                                          ,(toplevel-var-name var)))
                    `((box-ref ,dst ,(register var-value))))))
       ((set) (let* ((var-value (car args))
+                    (new-value (cadr args))
                     (var (name-defn var-value))
                     (dst (car dsts)))
                (if (toplevel-var? var)
-                   (let ((var-name (toplevel-var-name var)))
-                     `((cache-current-module! ,dst foo)
-                       (cached-toplevel-set! ,(register (cadr args))
-                                             foo ,var-name)
-                       (mov ,dst ,(register (cadr args)))))
+                   `((cache-current-module! ,dst foo)
+                     (cached-toplevel-set! ,(register new-value) foo
+                                           ,(toplevel-var-name var))
+                     (mov ,dst ,(register new-value)))
                    `((box-set!
-                      ,(register (car args))
-                      ,(register (cadr args)))))))
+                      ,(register var-value)
+                      ,(register new-value))))))
       (else
        (let ((insn (hashq-ref *primitive-insn-table* prim))
              (in-arity (hashq-ref *primitive-in-arity-table* prim))
