@@ -1,13 +1,12 @@
 (define-module (language cps compile-rtl)
   #:use-module (language cps)
   #:use-module (language cps primitives)
-  #:use-module (system vm rtl) ;; for assemble-program
   #:use-module (system base syntax) ;; for record-case
   #:use-module (ice-9 match)
   #:use-module (ice-9 q) ;; used in generate-shuffle
   #:use-module (srfi srfi-1)
   #:export (cps->rtl allocate-registers-and-labels! with-alloc show-alloc!
-            cps->program generate-suffle))
+            generate-suffle))
 
 ;; currently, the only way we have to run RTL code is to package it up
 ;; into a program and call that program. Therefore, all code that we
@@ -469,9 +468,4 @@
           ,@(visit body)
           (end-program)))))
 
-  (allocate-registers-and-labels! cps)
   (visit cps))
-
-(define (cps->program cps)
-  (assemble-program
-   (cps->rtl cps)))

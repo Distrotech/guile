@@ -1,44 +1,33 @@
 (use-modules
  (test-suite lib)
- (language cps)
- (language cps compile-rtl)
- (language tree-il compile-cps))
-
-;; a convenient way to write literal CPS code
-(define-syntax-rule (cps x)
-  (cps->program (parse-cps 'x)))
-
-;; by-cps: compile a procedure, but by way of CPS instead of the normal
-;; compiler chain
-(define (by-cps x)
-  (cps->program (tree-il->cps (compile x #:to 'tree-il))))
+ (language cps spec))
 
 (pass-if "return-three"
   (= 3
-     ((by-cps 3))))
+     ((cps-compile 3))))
 
 (define (return-three) 3)
 
 (pass-if "call-arg"
   (= 3
-     ((by-cps '(lambda (x) (x)))
+     ((cps-compile '(lambda (x) (x)))
       return-three)))
 
 (define (add-two x) (+ x 2))
 
 (pass-if "single-value compose"
   (= 5
-     ((by-cps '(lambda (x y) (x (y))))
+     ((cps-compile '(lambda (x y) (x (y))))
       add-two
       return-three)))
 
 (pass-if "identity function"
   (= 3
-     ((by-cps '(lambda (x) x))
+     ((cps-compile '(lambda (x) x))
       3)))
 
 (define if-func
-  (by-cps '(lambda (x) (if x 1 2))))
+  (cps-compile '(lambda (x) (if x 1 2))))
 
 (pass-if "if true"
   (= 1 (if-func #t)))
@@ -49,14 +38,14 @@
 (define *foo* 6)
 (pass-if "toplevel-ref"
   (= 6
-     ((by-cps '(lambda () *foo*)))))
+     ((cps-compile '(lambda () *foo*)))))
 
 (pass-if "toplevel-set"
   (= 12
      (begin
-       ((by-cps '(lambda () (set! *foo* 12))))
+       ((cps-compile '(lambda () (set! *foo* 12))))
        *foo*)))
 
 (pass-if "addition"
   (= 7
-     ((by-cps '(lambda () (+ 3 4))))))
+     ((cps-compile '(lambda () (+ 3 4))))))
