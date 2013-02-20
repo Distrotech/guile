@@ -1,6 +1,6 @@
 (use-modules
  (test-suite lib)
- (language cps spec))
+ (language cps compile-rtl))
 
 (pass-if "return-three"
   (= 3
