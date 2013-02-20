@@ -111,6 +111,15 @@
         (cps-make-primitive 'ref)
         k
         (list (cdr (vhash-assq gensym env)))))
+      (($ <lexical-set> src name gensym exp)
+       (with-value-name
+        (lambda (val-name)
+          (cps-make-call
+           (cps-make-primitive 'set)
+           k
+           (list (cdr (vhash-assq gensym env))
+                 val-name)))
+        exp env))
       (($ <toplevel-ref> src name)
        (let ((var-name (gensym "var-")))
          (cps-make-letval

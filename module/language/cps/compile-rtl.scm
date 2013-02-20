@@ -339,7 +339,8 @@
                      (mov ,dst ,(register new-value)))
                    `((box-set!
                       ,(register var-value)
-                      ,(register new-value))))))
+                      ,(register new-value))
+                     (mov ,dst ,(register new-value))))))
       (else
        (let ((insn (hashq-ref *primitive-insn-table* prim))
              (in-arity (hashq-ref *primitive-in-arity-table* prim))
