@@ -52,21 +52,50 @@
            (car trees)
            env))))
 
+  ;; the next two are variants on with-value-name and with-value-names
+  ;; in which I know what names I want the values to have, and I just
+  ;; need to wrap them in the appropriate CPS construct. in that case,
+  ;; we don't even need to pass a continuation closure - we just
+  ;; pass in the code to run next.
+  (define (with-value-named next tree name env)
+    (cond ((const? tree)
+           (cps-make-letval
+            (list name)
+            (list (cps-make-const (const-exp tree)))
+            next))
+          (else
+           (let ((con (gensym "con-")))
+             (cps-make-letcont
+              (list con)
+              (list (cps-make-lambda (list name) #f next))
+              (visit con tree env))))))
+
+  (define (with-values-named next trees names env)
+    (if (null? trees)
+        next
+        (with-value-named
+         (with-values-named next (cdr trees) (cdr names) env)
+         (car trees) (car names) env)))
+
   ;; with-variable-boxes generates CPS that makes variable objects for
   ;; the given CPS values and then calls 'gen-k' with a new environment
-  ;; in which the given names are mapped to the names of their boxes.
+  ;; in which the given names are mapped to the names of their boxes. TO
+  ;; DO: let the names that will be in the environment be different than
+  ;; the current CPS names of the values?
   (define (with-variable-boxes gen-k vals env)
-    (let ((var-names (sample (lambda () (gensym "var-"))
-                             (length vals))))
-      (cps-make-letval
-       var-names
-       (map (lambda (var-name val)
-              (cps-make-var val))
-            var-names vals)
-       (gen-k
-        (fold vhash-consq
-              env
-              vals var-names)))))
+    (if (null? vals)
+        (gen-k env)
+        (let ((var-names (sample (lambda () (gensym "var-"))
+                                 (length vals))))
+          (cps-make-letval
+           var-names
+           (map (lambda (var-name val)
+                  (cps-make-var val))
+                var-names vals)
+           (gen-k
+            (fold vhash-consq
+                  env
+                  vals var-names))))))
   
   ;; visit returns a CPS version of tree which ends by calling
   ;; continuation k. 'env' is a vhash that maps Tree-IL variable gensyms
@@ -129,6 +158,13 @@
           (list (cps-make-lambda '() rest
                             (visit k tail env)))
           (visit con head env))))
+      (($ <let> src names gensyms vals exp)
+       (with-values-named
+        (with-variable-boxes
+         (lambda (env)
+           (visit k exp env))
+         gensyms env)
+        vals gensyms env))
       (($ <toplevel-ref> src name)
        (let ((var-name (gensym "var-")))
          (cps-make-letval
