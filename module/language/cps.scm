@@ -90,6 +90,10 @@
 ;; symbols refer to, since they are constant values, and "variable" for
 ;; the variable objects, since they vary.
 
+;; print-cps has to be defined before the define-type that uses it
+(define (print-cps exp port)
+  (format port "#<cps ~S>" (unparse-cps exp)))
+
 (define-type (<cps> #:printer print-cps)
   ;; <letval> values can be anything in the <cps-data> declaration
   ;; below. I think it's an open question whether we need letvals - we
@@ -219,6 +223,3 @@
     (($ <if> test consequent alternate)
      (list 'if test consequent alternate))
     (_ (error "couldn't unparse CPS" cps))))
-
-(define (print-cps exp port)
-  (format port "#<cps ~S>" (unparse-cps exp)))
