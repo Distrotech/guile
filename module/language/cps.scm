@@ -90,7 +90,7 @@
 ;; symbols refer to, since they are constant values, and "variable" for
 ;; the variable objects, since they vary.
 
-(define-type <cps>
+(define-type (<cps> #:printer print-cps)
   ;; <letval> values can be anything in the <cps-data> declaration
   ;; below. I think it's an open question whether we need letvals - we
   ;; could also imagine having some primitive functions that define
@@ -191,7 +191,9 @@
 (define (unparse-cps cps)
   (match cps
     (($ <letval> names vals body)
-     (list 'letval names vals (unparse-cps body)))
+     (list 'letval names
+           (map unparse-cps vals)
+           (unparse-cps body)))
     (($ <const> value)
      (list 'const value))
     (($ <var> value)
@@ -217,3 +219,6 @@
     (($ <if> test consequent alternate)
      (list 'if test consequent alternate))
     (_ (error "couldn't unparse CPS" cps))))
+
+(define (print-cps exp port)
+  (format port "#<cps ~S>" (unparse-cps exp)))
