@@ -4,6 +4,7 @@
   #:use-module (system base syntax) ;; for record-case
   #:use-module (ice-9 match)
   #:use-module (ice-9 q) ;; used in generate-shuffle
+  #:use-module (ice-9 receive)
   #:use-module (srfi srfi-1)
   #:export (cps->rtl allocate-registers-and-labels! with-alloc show-alloc!
             generate-suffle))
@@ -19,6 +20,12 @@
 ;; when we make a call, we need to know where to put the new stack
 ;; frame. this holds that information.
 (define call-frame-start (make-object-property))
+
+;; when we have a continuation that can accept any number of values, it
+;; needs to know where to put them on the stack. this holds that
+;; information. TO DO: could this be combined with the previous
+;; property?
+(define rest-args-start (make-object-property))
 
 ;; and every contination gets a label, so we can jump to it. this is
 ;; indexed by the names of the continuations, not the actual lambda objects.
@@ -62,17 +69,24 @@
        (set! (call-frame-start cps) counter)
        counter)
 
-      ((<lambda> names body)
-       ;; TO DO: record which values will be closure values.
+      ((<lambda> names rest body)
+       ;; we can't actually handle continuations with any number of
+       ;; values (except in some special cases), because we wouldn't be
+       ;; able to allocate registers for an subsequent instructions
+       ;; without knowing how many registers this will use. so if we get
+       ;; a rest arg, we remember where the top of the stack is and then
+       ;; emit either a bind-rest or drop-values instruction.
        (let* ((after-names
-               ;; assign register numbers to each argument, starting
-               ;; with 0 and counting up.
+               ;; assign register numbers to each name
                (fold (lambda (name counter)
                        (set! (register name) counter)
                        (1+ counter))
                      counter names))
               (total
                (visit body after-names)))
+         (when rest
+               (set! (rest-args-start rest) total)
+               (set! total (+ total 1)))
          ;; we reserve one more than whatever number of values we have
          ;; because we might need an extra space to move values
          ;; around. see generate-shuffle. this doesn't really feel
@@ -186,10 +200,11 @@
             (cons* 'call
                    (call-frame-start cps)
                    (with-alloc proc)
-                   (with-alloc cont)
+                   (with-label cont)
                    (map with-alloc args)))
-           ((<lambda> names body)
+           ((<lambda> names rest body)
             `(lambda ,(map with-register names)
+               ,(cons rest (rest-args-start rest))
                ,(with-alloc body)))
            ((<letval> names vals body)
             `(letval ,(map with-register names)
@@ -300,10 +315,12 @@
 ;; of RTL code.
 (define (cps->rtl cps)
   ;; generate-primitive-call: generate a call to primitive prim with the
-  ;; given args, placing the result in register(s) dsts. This is its own
-  ;; function because it is called twice in visit - once in the tail
-  ;; case and once in the non-tail case.
-  (define (generate-primitive-call dsts prim args)
+  ;; given args, placing the result in register(s) dsts. rest is either
+  ;; #f or the location of the rest arguments of the destination
+  ;; continuation (if it has rest arguments). This is its own function
+  ;; because it is called twice in visit - once in the tail case and
+  ;; once in the non-tail case.
+  (define (generate-primitive-call dsts rest prim args)
     ;; the primitives 'ref and 'set are handled differently than the
     ;; others because they need to know whether they're setting a
     ;; toplevel variable or not. I think there's some bad abstraction
@@ -319,7 +336,9 @@
                     ;; object
                     (var (name-defn var-value))
                     ;; var is the actual variable object
-                    (dst (car dsts)))
+                    (dst (if (pair? dsts)
+                             (car dsts)
+                             rest)))
                (if (toplevel-var? var)
                    ;; the scope is 'foo because we don't meaningfully
                    ;; distinguish scopes yet. we should really just
@@ -331,7 +350,9 @@
       ((set) (let* ((var-value (car args))
                     (new-value (cadr args))
                     (var (name-defn var-value))
-                    (dst (car dsts)))
+                    (dst (if (pair? dsts)
+                             (car dsts)
+                             rest)))
                (if (toplevel-var? var)
                    `((cache-current-module! ,dst foo)
                      (cached-toplevel-set! ,(register new-value) foo
@@ -345,7 +366,9 @@
        (let ((insn (hashq-ref *primitive-insn-table* prim))
              (in-arity (hashq-ref *primitive-in-arity-table* prim))
              (out-arity (hashq-ref *primitive-out-arity-table* prim))
-             (dst (car dsts)))
+             (dst (if (pair? dsts)
+                      (car dsts)
+                      rest)))
          (if (and insn
                   (= in-arity (length args))
                   (= out-arity 1)) ;; we don't support n-ary outputs yet
@@ -377,7 +400,7 @@
             (let ((return-reg
                    (+ 1 (apply max (map register args)))))
               `(,@(generate-primitive-call
-                   (list return-reg) (primitive-name proc) args)
+                   (list return-reg) #f (primitive-name proc) args)
                 (return ,return-reg)))
             
             (let ((num-args (length args)))
@@ -406,6 +429,7 @@
         (if (label cont) ;; a call whose continuation is bound in a
                          ;; letcont form
             (let* ((dsts (map register (lambda-names (name-defn cont))))
+                   (rest (rest-args-start (lambda-rest (name-defn cont))))
                    (return-start (call-frame-start cps))
                    ;; perm is the permutation we have to execute to put
                    ;; the results of the call in their destinations
@@ -415,7 +439,7 @@
                    (perm-label (next-label!)))
               (if (primitive? proc)
                   `(,@(generate-primitive-call
-                       dsts (primitive-name proc) args)
+                       dsts rest (primitive-name proc) args)
                     (br ,(label cont)))
                   `((call ,(call-frame-start cps) ,(register proc)
                           ,(map register args))
@@ -462,7 +486,7 @@
                       `((label ,(label n))
                         ,@(visit (lambda-body c))))
                     names conts)))
-       (($ <lambda> names body)
+       (($ <lambda> names rest body)
         ;; TO DO: save the names of the lambdas
         `((begin-program foo)
           (assert-nargs-ee/locals ,(length names) ,(nlocals cps))

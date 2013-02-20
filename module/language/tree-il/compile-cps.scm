@@ -36,7 +36,7 @@
                  (val (gensym "val-")))
              (cps-make-letcont
               (list con)
-              (list (cps-make-lambda (list val) (gen-k val)))
+              (list (cps-make-lambda (list val) #f (gen-k val)))
               (visit con tree env))))))
 
   ;; like with-value-names, but takes a list of trees, and applies gen-k
@@ -79,6 +79,7 @@
       (($ <lambda> src meta
           ($ <lambda-case> src req opt rest kw inits gensyms body alternate))
        (cps-make-lambda gensyms
+                   #f
                    (with-variable-boxes
                     (lambda (env)
                       (visit 'return body env))
@@ -99,8 +100,8 @@
          (cps-make-letcont
           (list con alt)
           (list
-           (cps-make-lambda '() (visit k consequent env))
-           (cps-make-lambda '() (visit k alternate env)))
+           (cps-make-lambda '() #f (visit k consequent env))
+           (cps-make-lambda '() #f (visit k alternate env)))
           (with-value-name
            (lambda (test-val)
              (cps-make-if test-val con alt))
@@ -120,6 +121,14 @@
            (list (cdr (vhash-assq gensym env))
                  val-name)))
         exp env))
+      (($ <seq> src head tail)
+       (let ((con (gensym "con-"))
+             (rest (gensym "rest-")))
+         (cps-make-letcont
+          (list con)
+          (list (cps-make-lambda '() rest
+                            (visit k tail env)))
+          (visit con head env))))
       (($ <toplevel-ref> src name)
        (let ((var-name (gensym "var-")))
          (cps-make-letval

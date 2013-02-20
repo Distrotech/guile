@@ -8,7 +8,7 @@
             <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
                       letcont-conts letcont-body
-            <lambda> lambda? make-lambda lambda-names lambda-body
+            <lambda> lambda? make-lambda lambda-names lambda-rest lambda-body
             <call> call? make-call call-proc call-cont call-args
             <primitive> primitive? make-primitive primitive-name
             <if> if? make-if if-test if-consequent if-alternate
@@ -111,8 +111,10 @@
   ;; the 'lambda' form appears in the 'funcs' list of a letrec form, the
   ;; 'conts' list of a letcont form, and as the outermost form of a
   ;; compilation unit (when we're compiling a procedure at a time) to
-  ;; distinguish procedure arguments from top-level variables.
-  (<lambda> names body)
+  ;; distinguish procedure arguments from top-level variables. names is
+  ;; a proper list of symbols, and rest is either #f or a single symbol
+  ;; naming a rest argument.
+  (<lambda> names rest body)
   ;; the 'call' form literally represents a call. the procedure will be
   ;; a variable bound by either a lambda form, a letval, a letrec, or a
   ;; letcont, or the special value 'return (which means to return from
@@ -174,8 +176,8 @@
      (make-letcont names
                    (map parse-cps conts)
                    (parse-cps body)))
-    (('lambda names body)
-     (make-lambda names (parse-cps body)))
+    (('lambda names rest body)
+     (make-lambda names rest (parse-cps body)))
     (('call ('primitive prim) cont args)
      (make-call (make-primitive prim) cont args))
     (('call proc cont args)
@@ -204,8 +206,8 @@
      (list 'letcont names
            (map unparse-cps conts)
            (unparse-cps body)))
-    (($ <lambda> names body)
-     (list 'lambda names (unparse-cps body)))
+    (($ <lambda> names rest body)
+     (list 'lambda names rest (unparse-cps body)))
     (($ <call> ($ <primitive> prim) cont args)
      (list 'call (list 'primitive prim) cont args))
     (($ <call> proc cont args)

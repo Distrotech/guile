@@ -50,6 +50,10 @@
   (= 5
      ((cps-compile '(lambda (x) (set! x 5))) 3)))
 
+(pass-if "sequences"
+  (= 5
+     ((cps-compile '(lambda (x) (set! x 5) x)) 3)))
+
 (pass-if "addition"
   (= 7
      ((cps-compile '(lambda () (+ 3 4))))))
