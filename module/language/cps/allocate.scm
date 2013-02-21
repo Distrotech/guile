@@ -2,8 +2,10 @@
   #:use-module (language cps)
   #:use-module (system base syntax) ; for record-case
   #:use-module (srfi srfi-1)
+  #:use-module (ice-9 receive)
+  #:use-module (language cps annotate)
   #:export (allocate-registers-and-labels
-            with-alloc show-alloc))
+            show-regs show-labels))
 
 ;; This function walks some CPS and allocates registers and labels for
 ;; it. It's certainly not optimal yet.
@@ -147,65 +149,14 @@
           label
           next-label!))
 
-;; show what registers and labels we've allocated where. use this at the
-;; REPL: ,pp (with-alloc cps)
-(define (with-alloc cps register call-frame-start rest-args-start
-                    nlocals label next-label!)
-  (define (with-register s) ;; s must be a symbol
-    (cons s (register s))) ;; (register s) will be #f if we haven't
-                           ;; allocated s.
+(define (show-regs cps)
+  (receive (register call-frame-start rest-args-start
+            nlocals label next-label!)
+    (allocate-registers-and-labels cps)
+    (annotate-cps cps register)))
 
-  
-  (define (do-data v) ;; v is a cps-data object
-    (cond ((var? v)
-           (list 'var (var-value v)))
-          ((toplevel-var? v)
-           (list 'toplevel-var (toplevel-var-name v)))
-          ((const? v)
-           (list 'const (const-value v)))
-          (else
-           (error "Bad cps-data object" v))))
-  
-  (define (with-label s) ;; s must be the name of a continuation
-    (if (eq? s 'return)
-        s
-        (cons s (label s))))
-
-  (define (visit cps)
-    (cond ((symbol? cps)
-           (with-register cps))
-          ((boolean? cps)
-           ;; we get a boolean when with-alloc is called on the cont of a
-           ;; call to a letcont continuation.
-           cps)
-          (else
-           (record-case cps
-                        ((<call> proc cont args)
-                         (cons* 'call
-                                (call-frame-start cps)
-                                (visit proc)
-                                (with-label cont)
-                                (map visit args)))
-                        ((<lambda> names rest body)
-                         `(lambda ,(map with-register names)
-                            ,(cons rest (rest-args-start rest))
-                            ,(visit body)))
-                        ((<letval> names vals body)
-                         `(letval ,(map with-register names)
-                                  ,(map do-data vals)
-                                  ,(visit body)))
-                        ((<letcont> names conts body)
-                         `(letcont ,(map with-label names)
-                                   ,(map visit conts)
-                                   ,(visit body)))
-                        ((<primitive> name)
-                         `(primitive ,name))
-                        ((<if> test consequent alternate)
-                         `(if ,test ,consequent ,alternate))))))
-
-  (visit cps))
-
-(define (show-alloc cps)
-  (call-with-values
-      (lambda () (allocate-registers-and-labels cps))
-    (lambda args (apply with-alloc cps args))))
+(define (show-labels cps)
+  (receive (register call-frame-start rest-args-start
+            nlocals label next-label!)
+    (allocate-registers-and-labels cps)
+    (annotate-cps cps label)))
