@@ -342,14 +342,14 @@
     (receive (register
               call-frame-start
               rest-args-start
-              nlocals
-              label
-              next-label!)
-      (allocate-registers-and-labels cps)
-      (generate-rtl cps name-defn register
-                    call-frame-start
-                    rest-args-start nlocals
-                    label next-label!))))
+              nlocals)
+      (allocate-registers cps)
+      (receive (label next-label!)
+        (allocate-labels cps)
+        (generate-rtl cps name-defn register
+                      call-frame-start
+                      rest-args-start nlocals
+                      label next-label!)))))
 
 ;; since CPS isn't complete yet, we don't want to make it part of the
 ;; system compiler graph, so we have our own compile function.

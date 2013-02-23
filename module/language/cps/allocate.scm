@@ -4,12 +4,13 @@
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 receive)
   #:use-module (language cps annotate)
-  #:export (allocate-registers-and-labels
+  #:export (allocate-registers
+            allocate-labels
             show-regs show-labels))
 
 ;; This function walks some CPS and allocates registers and labels for
 ;; it. It's certainly not optimal yet.
-(define (allocate-registers-and-labels cps)
+(define (allocate-registers cps)
   ;; we associate a register number with every CPS value (which will
   ;; always be a symbol)
   (define register (make-object-property))
@@ -28,21 +29,6 @@
   ;; can allocate them with the reserve-locals or
   ;; assert-nargs-ee/nlocals instructions.
   (define nlocals (make-object-property))
-
-  ;; and every contination gets a label, so we can jump to it. this is
-  ;; indexed by the names of the continuations, not the actual lambda
-  ;; objects.
-  (define label (make-object-property))
-
-  (define next-label!
-    (let ((label-counter 0))
-      (lambda ()
-        (let ((label
-               (string->symbol
-                (string-append
-                 "l-" (number->string label-counter)))))
-          (set! label-counter (+ label-counter 1))
-          label))))
 
   ;; visit walks the CPS
   (define (visit cps counter)
@@ -99,11 +85,7 @@
       ;; should try to set up our allocation to avoid unnecessary
       ;; moves.)
       ((<letcont> names conts body)
-       ;; allocate labels for the continuations
-       (map (lambda (n)
-              (set! (label n) (next-label!)))
-            names)
-       ;; then allocate registers for all of the continuations and the
+       ;; allocate registers for all of the continuations and the
        ;; body. we need to return the maximum of the register numbers
        ;; used so that whatever procedure we're part of will allocate
        ;; the right number of registers.
@@ -112,16 +94,8 @@
       
       ;; in a letrec, unlike a letcont, we do have to allocate registers
       ;; to hold the actual functions, because they could be used as
-      ;; values instead of just as static jump targets. but they can
-      ;; also reference each other, so we should allocate labels for
-      ;; them too.
+      ;; values instead of just as static jump targets.
       ((<letrec> names funcs body)
-       ;; allocate labels for the functions
-       (map
-        (lambda (name)
-          (set! (label name) (next-label!)))
-        names)
-
        ;; allocate registers *within* the functions
        (map (lambda (f) (visit f 0)) funcs)
 
@@ -145,18 +119,63 @@
   (values register
           call-frame-start
           rest-args-start
-          nlocals
-          label
-          next-label!))
+          nlocals))
+
+(define (allocate-labels cps)
+  ;; every contination gets a label, so we can jump to it. this is
+  ;; indexed by the names of the continuations, not the actual lambda
+  ;; objects.
+  (define label (make-object-property))
+
+  (define next-label!
+    (let ((label-counter 0))
+      (lambda ()
+        (let ((label
+               (string->symbol
+                (string-append
+                 "l-" (number->string label-counter)))))
+          (set! label-counter (+ label-counter 1))
+          label))))
+
+  (define (visit cps)
+    (record-case cps
+      ((<call>))
+      ((<lambda> names rest body)
+       (visit body))
+      ((<letval> names vals body)
+       (visit body))
+
+      ((<letcont> names conts body)
+       (map (lambda (n)
+              (set! (label n) (next-label!)))
+            names)
+
+       (map visit conts)
+       (visit body))
+
+      ((<letrec> names funcs body)
+       (map
+        (lambda (name)
+          (set! (label name) (next-label!)))
+        names)
+
+       (map visit funcs)
+       (visit body))
+
+      ((<if>))))
+
+  (visit cps)
+
+  (values label next-label!))
+
 
 (define (show-regs cps)
-  (receive (register call-frame-start rest-args-start
-            nlocals label next-label!)
-    (allocate-registers-and-labels cps)
+  (receive (register call-frame-start
+            rest-args-start nlocals)
+    (allocate-registers cps)
     (annotate-cps cps register)))
 
 (define (show-labels cps)
-  (receive (register call-frame-start rest-args-start
-            nlocals label next-label!)
-    (allocate-registers-and-labels cps)
+  (receive (label next-label!)
+    (allocate-labels cps)
     (annotate-cps cps label)))
