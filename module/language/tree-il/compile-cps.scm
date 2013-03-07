@@ -102,18 +102,26 @@
   ;; to CPS value names.
   (define (visit k tree env)
     (match tree
-      ;; note: 1. we only support lambdas with one case right now, and
-      ;; totally ignore optional, rest and keyword arguments. 2. we only
-      ;; support lambda forms as the outermost part of the Tree-IL.
+      ;; we handle lambdas by converting them to letrec forms. this
+      ;; seems inelegant. the other option is to allow plain lambdas in
+      ;; CPS code, but then you could use them to construct letrecs,
+      ;; which is redundant. so we'll do this for now, but maybe
+      ;; reconsider later. note: we only support lambdas with one case
+      ;; right now, and totally ignore optional, rest and keyword
+      ;; arguments.
       (($ <lambda> src meta
           ($ <lambda-case> src req opt rest kw inits gensyms body alternate))
-       (cps-make-lambda gensyms
-                   #f
-                   (with-variable-boxes
-                    (lambda (env)
-                      (visit 'return body env))
-                    gensyms
-                    env)))
+       (let ((name (gensym "fun-")))
+         (cps-make-letrec
+          (list name)
+          (list (cps-make-lambda gensyms
+                                 #f
+                                 (with-variable-boxes
+                                  (lambda (env)
+                                    (visit 'return body env))
+                                  gensyms
+                                  env)))
+          (cps-make-call k #f (list name)))))
       (($ <call> src proc args)
        (with-value-names
         (lambda (proc . args)
@@ -194,4 +202,15 @@
           (cps-make-call k #f (list v)))))
       (x (error "Unrecognized tree-il:" x))))
 
-  (visit 'return tree vlist-null))
+  ;; the CPS will be surrounded by an outer lambda. We handle it
+  ;; specially.
+  (match tree
+    (($ <lambda> src meta
+        ($ <lambda-case> src req opt rest kw inits gensyms body alternate))
+     (cps-make-lambda gensyms
+                      #f
+                      (with-variable-boxes
+                       (lambda (env)
+                         (visit 'return body env))
+                       gensyms
+                       vlist-null)))))

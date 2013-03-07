@@ -4,7 +4,7 @@
 
 (pass-if "return-three"
   (= 3
-     ((cps-compile 3))))
+     ((cps-compile '(lambda () 3)))))
 
 (define (return-three) 3)
 
