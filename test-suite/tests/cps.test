@@ -61,3 +61,7 @@
 (pass-if "addition"
   (= 7
      ((cps-compile '(lambda () (+ 3 4))))))
+
+(pass-if "closures"
+  (= 12
+     (((cps-compile '(lambda (x) (lambda () x))) 12))))

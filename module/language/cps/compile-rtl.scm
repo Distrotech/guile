@@ -2,6 +2,7 @@
   #:use-module (language cps)
   #:use-module (language cps primitives)
   #:use-module (language cps allocate)
+  #:use-module (language cps closure-conversion)
   #:use-module (system base syntax) ;; for record-case
   #:use-module (ice-9 match)
   #:use-module (ice-9 q) ;; used in generate-shuffle
@@ -10,7 +11,8 @@
   #:use-module (system base compile)
   #:use-module (language tree-il compile-cps)
   #:use-module (system vm rtl)
-  #:export (cps->rtl generate-shuffle generate-rtl cps-compile))
+  #:export (cps->rtl generate-shuffle generate-rtl cps-compile
+                     calculate-free-values))
 
 ;; currently, the only way we have to run RTL code is to package it up
 ;; into a program and call that program. Therefore, all code that we
@@ -62,6 +64,80 @@
   (visit cps)
 
   name-defn)
+
+;; free values are the values that an expression uses but doesn't define
+;; itself, so they must be provided by its environments. we have
+;; different kinds of values (registers and continuations) and it's most
+;; useful to think of them separately. this function only deals with
+;; things that could be stored in variables - i.e. things introduced by
+;; lambda, letrec, and letval forms, but not those introduced by
+;; letconts.
+(define (calculate-free-values cps)
+  (define free-vals (make-object-property))
+
+  ;; return the free values of the cps form
+  (define (visit cps)
+    (record-case cps
+      ((<letval> names vals body)
+       (let* ((body-vals (visit body))
+              (val-vals
+               (filter-map (lambda (x)
+                             (if (var? x)
+                                 (begin
+                                   (set! (free-vals x)
+                                         (list (var-value x)))
+                                   (var-value x))
+                                 #f))
+                           vals))
+              (our-vals (lset-union eq?
+                                    val-vals
+                                    (lset-difference eq? body-vals names))))
+         (set! (free-vals cps) our-vals)
+         our-vals))
+      ((<letrec> names funcs body)
+       (let* ((body-vals (visit body))
+              (func-vals (map visit funcs))
+              (our-vals
+               (lset-difference eq?
+                 (apply lset-union eq? body-vals func-vals)
+                 names)))
+         (set! (free-vals cps) our-vals)
+         our-vals))
+      ((<letcont> names conts body)
+       ;; we don't remove the names from the value list, because we're
+       ;; not tracking continuations
+       (let* ((body-vals (visit body))
+              (cont-vals (map visit conts))
+              (our-vals
+               (apply lset-union eq? body-vals cont-vals)))
+         (set! (free-vals cps) our-vals)
+         our-vals))
+      ((<lambda> names rest body)
+       (let ((vals
+              (lset-difference eq?
+                (visit body)
+                (if rest (cons rest names) names))))
+         (set! (free-vals cps) vals)
+         vals))
+      ((<call> proc cont args)
+       (let ((vals
+              (if (or (primitive? proc)
+                      (eq? proc 'return))
+                  args
+                  (cons proc args))))
+         (set! (free-vals cps) vals)
+         vals))
+      ((<if> test consequent alternate)
+       ;; consequent and alternate are continuations, so we ignore them.
+       (let ((vals (list test)))
+         (set! (free-vals cps) vals)
+         vals))
+      ;; we should never be called on a <primitive>
+      ))
+
+  (visit cps)
+
+  free-vals)
 
 ;; this function should probably be in (ice-9 q)
 (define (append-qs! q r)
@@ -161,14 +237,31 @@
   ;; because it is called twice in visit - once in the tail case and
   ;; once in the non-tail case.
   (define (generate-primitive-call dsts rest prim args)
-    ;; the primitives 'ref and 'set are handled differently than the
-    ;; others because they need to know whether they're setting a
-    ;; toplevel variable or not. I think there's some bad abstraction
-    ;; going on here, but fixing it is hard. The most elegant thing from
-    ;; the CPS point of view is to forget about the toplevel-ref and
-    ;; toplevel-set VM instructions and just use resolve for everything,
-    ;; but that's ugly and probably slow. maybe once we have a peephole
-    ;; optimizer we'll be able to do that.
+    ;; some of the primitives have special handling. this probably
+    ;; points to a bad abstraction, but I don't know where yet. the
+    ;; distinction is whether the primitives require information that is
+    ;; part of the CPS or not. A "regular" primitive takes Scheme values
+    ;; from registers and returns Scheme values to registers. These
+    ;; primitives are handled in the primitive instruction tables in
+    ;; (language cps primitives). However, other primitives are
+    ;; different, in different ways:
+
+    ;; ref and set need to know if they're handling a toplevel variable
+    ;; or not. I think there's some bad abstraction going on here, but
+    ;; fixing it is hard. The most elegant thing from the CPS point of
+    ;; view is to forget about the toplevel-ref and toplevel-set VM
+    ;; instructions and just use resolve for everything, but that might
+    ;; be slow until we have a tiling code generator.
+
+    ;; closure-ref needs to know the value of its argument at compile
+    ;; time, so it has to look that up in the name-defn table.
+
+    ;; make-closure's first argument is a label, not a register.
+
+    ;; in the future, things like prompt and dynwind will take arguments
+    ;; that are lambdas in Scheme, but are actually continuations in CPS
+    ;; world, so they'll have to know how to turn them into
+    ;; continuations.
 
     (case prim
       ((ref) (let* ((var-value (car args))
@@ -202,6 +295,27 @@
                       ,(register var-value)
                       ,(register new-value))
                      (mov ,dst ,(register new-value))))))
+
+      ((closure-ref) (let* ((dst (if (pair? dsts)
+                                     (car dsts)
+                                     rest))
+                            (defn (name-defn (car args))))
+                       (when (not (const? defn))
+                         (error
+                          "closure-ref must be called with a constant argument"))
+                       `((free-ref
+                          ,dst
+                          ,(const-value defn)))))
+
+      ((make-closure) (let ((dst (if (pair? dsts)
+                                     (car dsts)
+                                     rest))
+                            (func (car args))
+                            (vals (cdr args)))
+                        `((make-closure
+                           ,dst
+                           ,(label func)
+                           ,(map register vals)))))
       (else
        (let ((insn (hashq-ref *primitive-insn-table* prim))
              (in-arity (hashq-ref *primitive-in-arity-table* prim))
@@ -244,13 +358,13 @@
                 (return ,return-reg)))
             
             (let ((num-args (length args)))
-              ;; the shuffle here includes the procedure that we're going to
-              ;; call, because we don't want to accidentally overwrite
-              ;; it. this is a bit ugly - maybe there should be a better
-              ;; generate-shuffle procedure that knows that some registers
-              ;; are "protected", meaning that their values have to exist
-              ;; after the shuffle, but don't have to end up in any specific
-              ;; target register.
+              ;; the shuffle here includes the procedure that we're
+              ;; going to call, because we don't want to accidentally
+              ;; overwrite it. this is a bit ugly - maybe there should
+              ;; be a better generate-shuffle procedure that knows that
+              ;; some registers are "protected", meaning that their
+              ;; values have to exist after the shuffle, but don't have
+              ;; to end up in any specific target register.
               (let ((shuffle
                      (cons (cons (register proc)
                                  (+ num-args 1))
@@ -326,6 +440,13 @@
                       `((label ,(label n))
                         ,@(visit (lambda-body c))))
                     names conts)))
+       (($ <letrec> names funcs body)
+        (apply append
+               (visit body)
+               (map (lambda (n f)
+                      `((label ,(label n))
+                        ,@(visit (lambda-body f))))
+                    names funcs)))
        (($ <lambda> names rest body)
         ;; TO DO: save the names of the lambdas
         `((begin-program foo)
@@ -338,15 +459,19 @@
 ;; this is a wrapper function for the CPS->RTL transformation. Its job
 ;; is to know about all of the passes that we do.
 (define (cps->rtl cps)
-  (let ((name-defn (name-defn-mapping cps)))
+  (let* ((free-vals (calculate-free-values cps))
+         (converted (closure-convert cps free-vals))
+         ;; after here, there are no references to the CPS - only to the
+         ;; closure-converted CPS.
+         (name-defn (name-defn-mapping converted)))
     (receive (register
               call-frame-start
               rest-args-start
               nlocals)
-      (allocate-registers cps)
+      (allocate-registers converted)
       (receive (label next-label!)
-        (allocate-labels cps)
-        (generate-rtl cps name-defn register
+        (allocate-labels converted)
+        (generate-rtl converted name-defn register
                       call-frame-start
                       rest-args-start nlocals
                       label next-label!)))))

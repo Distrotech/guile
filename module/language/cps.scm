@@ -90,6 +90,19 @@
 ;; symbols refer to, since they are constant values, and "variable" for
 ;; the variable objects, since they vary.
 
+;; 1.5 Languages in One
+
+;; CPS is really one and a half languages for the price of one. In one
+;; language, lambdas have their usual Scheme semantics, with lexical
+;; scoping. In the other, scope doesn't extend past the nearest letrec
+;; form, and if you want to access a variable outside of that form, you
+;; have to pass it as an explicit argument. We go from the first
+;; language to the second via closure conversion. I thought about making
+;; them actually separate languages, or at least adding some alternative
+;; to 'lambda' to make the difference more explicit. It would catch some
+;; errors, but might make us duplicate some analyses. It's not clear to
+;; me what's best, but this would be easy to change later.
+
 ;; print-cps has to be defined before the define-type that uses it
 (define (print-cps exp port)
   (format port "#<cps ~S>" (unparse-cps exp)))
