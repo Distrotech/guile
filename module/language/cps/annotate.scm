@@ -6,14 +6,19 @@
 ;; return CPS annotated with the given function. a name n will be
 ;; replaced with (cons n (annotator n)). if the annotation is #f, it
 ;; won't be shown. use like this at the REPL: ,pp (annotate-cps cps
-;; cool-annotator-function)
+;; cool-annotator-function). as a special case, if the annotator itself
+;; is #f, pretty-print the CPS code (just like if the annotator returned
+;; #f for every CPS element).
 (define (annotate-cps cps annotator)  
   (define (visit cps)
-    (define (maybe-cons-ann n)
-      (let ((ann (annotator cps)))
-        (if ann
-            (cons n ann)
-            n)))
+    (define maybe-cons-ann
+      (if annotator
+          (lambda (n)
+            (let ((ann (annotator cps)))
+              (if ann
+                  (cons n ann)
+                  n)))
+          (lambda (n) n)))
     
     (cond ((symbol? cps)
            (maybe-cons-ann cps))
@@ -42,6 +47,11 @@
                          `(,(maybe-cons-ann 'letcont)
                            ,(map visit names)
                            ,(map visit conts)
+                           ,(visit body)))
+                        ((<letrec> names funcs body)
+                         `(,(maybe-cons-ann 'letrec)
+                           ,(map visit names)
+                           ,(map visit funcs)
                            ,(visit body)))
                         ((<primitive> name)
                          `(,(maybe-cons-ann 'primitive)
