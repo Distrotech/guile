@@ -156,7 +156,7 @@ dropped silently"
           src (make-primitive-ref src 'return/values)
           (if (list? exp) (map-compile exp #t) (list (compile exp))))))
 
-    ((ast-function src name arguments argument-gensyms variable-arguments? body)
+    ((ast-function src name arguments argument-gensyms variable-arguments? vararg-gensym body)
      ;; ... is always attached because lua functions must ignore
      ;; variable arguments; the parser will catch it if ... is used in a
      ;; function that doesn't have ... in the parameter list
@@ -165,7 +165,7 @@ dropped silently"
         src meta
         (make-lambda-case src '() arguments '... #f
                           (map (lambda (x) (make-const src #nil)) arguments)
-                          (append argument-gensyms (list (gensym "...")))
+                          (append argument-gensyms (list vararg-gensym))
                           (compile body)
                           #f))))
 
@@ -476,7 +476,12 @@ dropped silently"
                 (make-lexical-ref src 'and-tmp tmp)
                 right
                 (make-lexical-ref src 'and-tmp tmp)))))
-         (else (error #:COMPILE "unknown binary operator" operator)))))))
+         (else (error #:COMPILE "unknown binary operator" operator)))))
+    ((ast-variable-arguments src gensym)
+     (make-application src
+                       (make-primitive-ref src 'apply)
+                       (list (make-primitive-ref src 'values)
+                             (make-lexical-ref src '... gensym))))))
 
 ;; exported compiler function
 (define (compile-tree-il exp env opts)

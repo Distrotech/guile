@@ -106,10 +106,10 @@
    (numeric-for-loop named initial limit step body)
    (list-for-loop names gs-names exps body)
    (break)
-   (function name arguments argument-gensyms variable-arguments? body)
+   (function name arguments argument-gensyms variable-arguments? vararg-gensym body)
    (function-call operator operands)
    (binary-operation operator left right)
-   (variable-arguments))
+   (variable-arguments gensym))
 
   ) ; letrec-syntax
 
@@ -218,6 +218,9 @@
 
   ;; True if inside a function and the function accepts variable arguments
   (define *vararg-function* #f)
+
+  ;; refers to the gensym for '...' in a function that accepts variable arguments
+  (define *vararg-gensym* #f)
 
   ;;;;; ENVIRONMENTS
   (define (enter-environment!)
@@ -482,8 +485,10 @@
     (enforce-next! #\()
     ;; parameter-list
     (receive (parameters variable-arguments?) (parameter-list name)
-      (let* ((old-vararg-function *vararg-function*))
+      (let* ((old-vararg-function *vararg-function*)
+             (old-vararg-gensym *vararg-gensym*))
         (set! *vararg-function* variable-arguments?)
+        (set! *vararg-gensym* (and variable-arguments? (gensym "...")))
         (enforce-next! #\))
         ;; create function
         (enter-environment!)
@@ -504,11 +509,13 @@
                              (list (environment-lookup-gensym 'self)))
                      parameter-gensyms)
                  variable-arguments?
+                 *vararg-gensym*
                  (if (null? body) *void-literal* body))))
           (leave-environment!)
           ;; END
           (enforce-next! #:end)
           (set! *vararg-function* old-vararg-function)
+          (set! *vararg-gensym* old-vararg-gensym)
           result))))
 
   ;; expression-list -> expression { ',' expression }
@@ -535,7 +542,7 @@
         ((#:varargs)
          (unless *vararg-function*
            (syntax-error src "cannot use '...' outside of a variable arguments function"))
-         (advance! (make-ast-variable-arguments src)))
+         (advance! (make-ast-variable-arguments src *vararg-gensym*)))
         ;; FUNCTION function-body
         ((#:function) (advance!) (function-body src))
         ;; primary-expression

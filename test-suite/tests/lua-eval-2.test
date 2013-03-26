@@ -99,7 +99,7 @@
     (test "print \"hello world\"; return true")
 
     ;; variable arguments
-    (test "function test(...) print(...) end test(1,2)")
+    (test "function test(...) print(...) end return test(1,2)" #nil)
 
     ;; numeric for loop
     (test "for x = 1,2,1 do print(true) end return true")
