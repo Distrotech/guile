@@ -341,73 +341,73 @@
        ;; that's the only escaping continuation so far). TO DO: check
        ;; whether proc is a continuation or a real function, and do
        ;; something different if it's a continuation.
-       (($ <call> proc 'return args)
-        (if (primitive? proc)
-            ;; we can't really call primitive procedures in tail
-            ;; position, so we just generate them in non-tail manner and
-            ;; then return. this seems like it might have to change in
-            ;; the future. it's fine to take the maximum register and
-            ;; add one, because the allocator reserved us one extra.
-
-            ;; note: this only handles primitives that return exactly
-            ;; one value.
-            (let ((return-reg
-                   (+ 1 (apply max (map register args)))))
-              `(,@(generate-primitive-call
-                   (list return-reg) #f (primitive-name proc) args)
-                (return ,return-reg)))
-            
-            (let ((num-args (length args)))
-              ;; the shuffle here includes the procedure that we're
-              ;; going to call, because we don't want to accidentally
-              ;; overwrite it. this is a bit ugly - maybe there should
-              ;; be a better generate-shuffle procedure that knows that
-              ;; some registers are "protected", meaning that their
-              ;; values have to exist after the shuffle, but don't have
-              ;; to end up in any specific target register.
-              (let ((shuffle
-                     (cons (cons (register proc)
-                                 (+ num-args 1))
-                           (let iter ((args args)
-                                      (arg-num 0))
-                             (if (null? args)
-                                 '()
-                                 (cons
-                                  (cons (register (car args))
-                                        arg-num)
-                                  (iter (cdr args) (+ arg-num 1))))))))
-                `(,@(apply generate-shuffle (+ num-args 2) shuffle)
-                  (tail-call ,num-args ,(+ num-args 1)))))))
+      (($ <call> (? primitive? proc) 'return args)
+       ;; we can't really call primitive procedures in tail position,
+       ;; so we just generate them in non-tail manner and then
+       ;; return. this seems like it might have to change in the
+       ;; future. it's fine to take the maximum register and add one,
+       ;; because the allocator reserved us one extra.
        
-       (($ <call> proc cont args)
-        (if (label cont) ;; a call whose continuation is bound in a
-                         ;; letcont form
-            (let* ((dsts (map register (lambda-names (name-defn cont))))
-                   (rest (rest-args-start (lambda-rest (name-defn cont))))
-                   (return-start (call-frame-start cps))
-                   ;; perm is the permutation we have to execute to put
-                   ;; the results of the call in their destinations
-                   (perm (map cons (int-range return-start
-                                              (+ return-start (length dsts)))
-                              dsts))
-                   (perm-label (next-label!)))
-              (if (primitive? proc)
-                  `(,@(generate-primitive-call
-                       dsts rest (primitive-name proc) args)
-                    (br ,(label cont)))
-                  `((call ,(call-frame-start cps) ,(register proc)
-                          ,(map register args))
-                    ;; shuffle the return values into their place. we
-                    ;; pass #f as our swap point because this
-                    ;; permutation should never need swap space.
-                    (br ,perm-label) ;; MVRA
-                    (br ,perm-label) ;; RA
-                    (label ,perm-label)
-                    ,@(apply generate-shuffle #f perm)
-                    ;; the RA and MVRA both branch to the continuation. we
-                    ;; don't do error checking yet.
-                    (br ,(label cont)))))
-            (error "We don't know how to compile" cps)))
+       ;; note: this only handles primitives that return exactly one
+       ;; value.
+       (let ((return-reg
+              (+ 1 (apply max (map register args)))))
+         `(,@(generate-primitive-call
+              (list return-reg) #f (primitive-name proc) args)
+           (return ,return-reg))))
+
+       (($ <call> proc 'return args)
+        (let ((num-args (length args)))
+          ;; the shuffle here includes the procedure that we're going to
+          ;; call, because we don't want to accidentally overwrite
+          ;; it. this is a bit ugly - maybe there should be a better
+          ;; generate-shuffle procedure that knows that some registers
+          ;; are "protected", meaning that their values have to exist
+          ;; after the shuffle, but don't have to end up in any specific
+          ;; target register.
+          (let ((shuffle
+                 (cons (cons (register proc)
+                             (+ num-args 1))
+                       (let iter ((args args)
+                                  (arg-num 0))
+                         (if (null? args)
+                             '()
+                             (cons
+                              (cons (register (car args))
+                                    arg-num)
+                              (iter (cdr args) (+ arg-num 1))))))))
+            `(,@(apply generate-shuffle (+ num-args 2) shuffle)
+              (tail-call ,num-args ,(+ num-args 1))))))
+
+       ;; we use label to check that cont is a continuation (i.e. bound
+       ;; in a letcont form). TO DO: write a real continuation-checking
+       ;; function.
+       (($ <call> proc (? label cont) args)
+        (let* ((dsts (map register (lambda-names (name-defn cont))))
+               (rest (rest-args-start (lambda-rest (name-defn cont))))
+               (return-start (call-frame-start cps))
+               ;; perm is the permutation we have to execute to put
+               ;; the results of the call in their destinations
+               (perm (map cons (int-range return-start
+                                          (+ return-start (length dsts)))
+                          dsts))
+               (perm-label (next-label!)))
+          (if (primitive? proc)
+              `(,@(generate-primitive-call
+                   dsts rest (primitive-name proc) args)
+                (br ,(label cont)))
+              `((call ,(call-frame-start cps) ,(register proc)
+                      ,(map register args))
+                ;; shuffle the return values into their place. we
+                ;; pass #f as our swap point because this
+                ;; permutation should never need swap space.
+                (br ,perm-label) ;; MVRA
+                (br ,perm-label) ;; RA
+                (label ,perm-label)
+                ,@(apply generate-shuffle #f perm)
+                ;; the RA and MVRA both branch to the continuation. we
+                ;; don't do error checking yet.
+                (br ,(label cont))))))
        ;; consequent and alternate should both be continuations with no
        ;; arguments, so we call them by just jumping to them.
        (($ <if> test consequent alternate)
@@ -452,7 +452,8 @@
         `((begin-program foo)
           (assert-nargs-ee/locals ,(length names) ,(nlocals cps))
           ,@(visit body)
-          (end-program)))))
+          (end-program)))
+       (x (error "We don't know how to compile" x))))
 
   (visit cps))
 
