@@ -1,6 +1,7 @@
 (use-modules
  (test-suite lib)
- (language cps compile-rtl))
+ (language cps compile-rtl)
+ (srfi srfi-8)) ;; receive
 
 (pass-if "return-three"
   (= 3
@@ -50,6 +51,34 @@
   (= 5
      ((cps-compile '(lambda (x) (set! x 5))) 3)))
 
+(pass-if "call 0"
+  (= 0
+     ((cps-compile '(lambda () (+))))))
+
+(pass-if "call 1"
+  (= 1
+     ((cps-compile '(lambda () (+ 1))))))
+
+(pass-if "call 2"
+  (= 3
+     ((cps-compile '(lambda () (+ 1 2))))))
+
+(pass-if "call 3"
+  (= 6
+     ((cps-compile '(lambda () (+ 1 2 3))))))
+
+(pass-if "call 4"
+  (= 10
+     ((cps-compile '(lambda () (+ 1 2 3 4))))))
+
+(pass-if "call 5"
+  (= 15
+     ((cps-compile '(lambda () (+ 1 2 3 4 5))))))
+
+(pass-if "call 6"
+  (= 21
+     ((cps-compile '(lambda () (+ 1 2 3 4 5 6))))))
+
 (pass-if "sequences"
   (= 5
      ((cps-compile '(lambda (x) (set! x 5) x)) 3)))
@@ -58,10 +87,19 @@
   (= 1
      ((cps-compile '(lambda () (let ((x 1) (y 2)) x))))))
 
-(pass-if "addition"
-  (= 7
-     ((cps-compile '(lambda () (+ 3 4))))))
-
-(pass-if "closures"
+(pass-if "closure-ref"
   (= 12
      (((cps-compile '(lambda (x) (lambda () x))) 12))))
+
+(pass-if "closure-ref from let"
+  (= 12
+     (((cps-compile '(lambda () (let ((x 12)) (lambda () x))))))))
+
+(pass-if "closure-set!"
+  (= 12
+     (((cps-compile '(lambda ()
+                       (let ((x 5))
+                         (lambda ()
+                           (set! x 12)
+                           x))))))))
+
