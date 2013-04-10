@@ -34,6 +34,26 @@
             link-assembly
             assemble-program))
 
+;;; TODO:
+;;;
+;;; * Make it possible to disassemble a function
+;;; ** Writing function ranges into an ELF section
+;;; ** Being able to determine the bounds of a function
+;;; ** Applying the existing disassemble-buffer function
+;;; ** Making disassemble-buffer better
+;;;
+;;; * Provide function names
+;;; ** Write function names to ELF string table
+;;; ** Write table mapping function IP to name
+;;;
+;;; * Provide line number information
+;;; ** Provide additional macro-assembly for this
+;;; ** Write to separate ELF section; use DWARF???
+;;;
+;;; * Provide for arity map
+;;;
+;;; * Provide for other literal procedure metadata
+
 (define-syntax-rule (pack-u8-u24 x y)
   (logior x (ash y 8)))
 
