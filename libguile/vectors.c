@@ -47,14 +47,7 @@
 int
 scm_is_vector (SCM obj)
 {
-  if (SCM_I_IS_VECTOR (obj))
-    return 1;
-  if  (SCM_I_ARRAYP (obj) && SCM_I_ARRAY_NDIM (obj) == 1)
-    {
-      SCM v = SCM_I_ARRAY_V (obj);
-      return SCM_I_IS_VECTOR (v);
-    }
-  return 0;
+  return SCM_I_IS_VECTOR (obj);
 }
 
 int

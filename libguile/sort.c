@@ -77,18 +77,25 @@ SCM_DEFINE (scm_restricted_vector_sort_x, "restricted-vector-sort!", 4, 0, 0,
 #define FUNC_NAME s_scm_restricted_vector_sort_x
 {
   size_t vlen, spos, len;
-  ssize_t vinc;
   scm_t_array_handle handle;
+  scm_t_array_dim *dim;
+
   SCM *velts;
 
-  velts = scm_vector_writable_elements (vec, &handle, &vlen, &vinc);
+  if (!scm_is_array (vec) || 1 != scm_c_array_rank (vec))
+      SCM_WRONG_TYPE_ARG (1, vec);
+
+  scm_array_get_handle (vec, &handle);
+  velts = scm_array_handle_writable_elements (&handle);
+  dim = scm_array_handle_dims (&handle);
+  vlen = dim->ubnd - dim->lbnd + 1;
   spos = scm_to_unsigned_integer (startpos, 0, vlen);
   len = scm_to_unsigned_integer (endpos, spos, vlen) - spos;
 
-  if (vinc == 1)
-    quicksort1 (velts + spos*vinc, len, less);
+  if (dim->inc == 1)
+    quicksort1 (velts + spos, len, less);
   else
-    quicksort (velts + spos*vinc, len, vinc, less);
+    quicksort (velts + spos*dim->inc, len, dim->inc, less);
 
   scm_array_handle_release (&handle);
 
@@ -377,12 +384,12 @@ SCM_DEFINE (scm_sort_x, "sort!", 2, 0, 0,
       SCM_VALIDATE_LIST_COPYLEN (1, items, len);
       return scm_merge_list_step (&items, less, len);
     }
-  else if (scm_is_vector (items))
+  else if (scm_is_array (items))
     {
       scm_restricted_vector_sort_x (items,
 				    less,
 				    scm_from_int (0),
-				    scm_vector_length (items));
+				    scm_array_length (items));
       return items;
     }
   else
@@ -403,7 +410,7 @@ SCM_DEFINE (scm_sort, "sort", 2, 0, 0,
 
   if (scm_is_pair (items))
     return scm_sort_x (scm_list_copy (items), less);
-  else if (scm_is_vector (items))
+  else if (scm_is_array (items) && 1 == scm_c_array_rank (items))
     return scm_sort_x (scm_vector_copy (items), less);
   else
     SCM_WRONG_TYPE_ARG (1, items);
@@ -489,28 +496,30 @@ SCM_DEFINE (scm_stable_sort_x, "stable-sort!", 2, 0, 0,
       SCM_VALIDATE_LIST_COPYLEN (1, items, len);
       return scm_merge_list_step (&items, less, len);
     }
-  else if (scm_is_vector (items))
+  else if (scm_is_array (items) && 1 == scm_c_array_rank (items))
     {
-      scm_t_array_handle temp_handle, vec_handle;
-      SCM temp, *temp_elts, *vec_elts;
+      scm_t_array_handle temp_handle, items_handle;
+      scm_t_array_dim *dim;
+      SCM temp, *temp_elts, *items_elts;
       size_t len;
-      ssize_t inc;
-      
-      vec_elts = scm_vector_writable_elements (items, &vec_handle,
-					       &len, &inc);
+
+      scm_array_get_handle (items, &items_handle);
+      items_elts = scm_array_handle_writable_elements (&items_handle);
+      dim = scm_array_handle_dims (&items_handle);
+      len = dim->ubnd - dim->lbnd + 1;
       if (len == 0) {
-        scm_array_handle_release (&vec_handle);
+        scm_array_handle_release (&items_handle);
         return items;
       }
-      
-      temp = scm_c_make_vector (len, SCM_UNDEFINED);
-      temp_elts = scm_vector_writable_elements (temp, &temp_handle,
-						NULL, NULL);
 
-      scm_merge_vector_step (vec_elts, temp_elts, less, 0, len-1, inc);
+      temp = scm_c_make_vector (len, SCM_UNDEFINED);
+      scm_array_get_handle (temp, &temp_handle);
+      temp_elts = scm_array_handle_writable_elements (&temp_handle);
+
+      scm_merge_vector_step (items_elts, temp_elts, less, 0, len-1, dim->inc);
 
       scm_array_handle_release (&temp_handle);
-      scm_array_handle_release (&vec_handle);
+      scm_array_handle_release (&items_handle);
 
       return items;
     }
@@ -532,15 +541,13 @@ SCM_DEFINE (scm_stable_sort, "stable-sort", 2, 0, 0,
 
   if (scm_is_pair (items))
     return scm_stable_sort_x (scm_list_copy (items), less);
-  else if (scm_is_vector (items))
-    return scm_stable_sort_x (scm_vector_copy (items), less);
   else
-    SCM_WRONG_TYPE_ARG (1, items);
+    return scm_stable_sort_x (scm_vector_copy (items), less);
 }
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_sort_list_x, "sort-list!", 2, 0, 0, 
+SCM_DEFINE (scm_sort_list_x, "sort-list!", 2, 0, 0,
             (SCM items, SCM less),
 	    "Sort the list @var{items}, using @var{less} for comparing the\n"
 	    "list elements. The sorting is destructive, that means that the\n"
