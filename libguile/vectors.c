@@ -166,30 +166,6 @@ SCM_DEFINE (scm_vector, "vector", 0, 0, 1,
 }
 #undef FUNC_NAME
 
-SCM_GPROC (s_vector_ref, "vector-ref", 2, 0, 0, scm_vector_ref, g_vector_ref);
-
-/*
-           "@var{k} must be a valid index of @var{vector}.\n"
-	   "@samp{Vector-ref} returns the contents of element @var{k} of\n"
-	   "@var{vector}.\n\n"
-	   "@lisp\n"
-	   "(vector-ref '#(1 1 2 3 5 8 13 21) 5) @result{} 8\n"
-	   "(vector-ref '#(1 1 2 3 5 8 13 21)\n"
-	   "    (let ((i (round (* 2 (acos -1)))))\n"
-	   "      (if (inexact? i)\n"
-	   "        (inexact->exact i)\n"
-	   "           i))) @result{} 13\n"
-	   "@end lisp"
-*/
-
-SCM
-scm_vector_ref (SCM v, SCM k)
-#define FUNC_NAME s_vector_ref
-{
-  return scm_c_vector_ref (v, scm_to_size_t (k));
-}
-#undef FUNC_NAME
-
 SCM
 scm_c_vector_ref (SCM v, size_t k)
 {
@@ -202,29 +178,25 @@ scm_c_vector_ref (SCM v, size_t k)
   else if (SCM_I_WVECTP (v))
     return scm_c_weak_vector_ref (v, k);
   else
-    return scm_wta_dispatch_2 (g_vector_ref, v, scm_from_size_t (k), 2,
-                               "vector-ref");
+    scm_wrong_type_arg_msg (NULL, 0, v, "vector");
 }
 
-SCM_GPROC (s_vector_set_x, "vector-set!", 3, 0, 0, scm_vector_set_x, g_vector_set_x);
-
-/* "@var{k} must be a valid index of @var{vector}.\n"
-   "@code{Vector-set!} stores @var{obj} in element @var{k} of @var{vector}.\n"
-   "The value returned by @samp{vector-set!} is unspecified.\n"
-   "@lisp\n"
-   "(let ((vec (vector 0 '(2 2 2 2) "Anna")))\n"
-   "  (vector-set! vec 1 '("Sue" "Sue"))\n"
-   "  vec) @result{}  #(0 ("Sue" "Sue") "Anna")\n"
-   "(vector-set! '#(0 1 2) 1 "doe") @result{} @emph{error} ; constant vector\n"
-   "@end lisp"
-*/
-
-SCM
-scm_vector_set_x (SCM v, SCM k, SCM obj)
-#define FUNC_NAME s_vector_set_x
+SCM_DEFINE (scm_vector_ref, "vector-ref", 2, 0, 0,
+	    (SCM v, SCM k),
+            "@var{k} must be a valid index of @var{vector}.\n"
+            "@samp{vector-ref} returns the contents of element @var{k} of\n"
+            "@var{vector}.\n\n"
+            "@lisp\n"
+            "(vector-ref '#(1 1 2 3 5 8 13 21) 5) @result{} 8\n"
+            "(vector-ref '#(1 1 2 3 5 8 13 21)\n"
+            "    (let ((i (round (* 2 (acos -1)))))\n"
+            "      (if (inexact? i)\n"
+            "        (inexact->exact i)\n"
+            "           i))) @result{} 13\n"
+            "@end lisp")
+#define FUNC_NAME s_scm_vector_ref
 {
-  scm_c_vector_set_x (v, scm_to_size_t (k), obj);
-  return SCM_UNSPECIFIED;
+  return scm_c_vector_ref (v, scm_to_size_t (k));
 }
 #undef FUNC_NAME
 
@@ -240,16 +212,26 @@ scm_c_vector_set_x (SCM v, size_t k, SCM obj)
   else if (SCM_I_WVECTP (v))
     scm_c_weak_vector_set_x (v, k, obj);
   else
-    {
-      if (SCM_UNPACK (g_vector_set_x))
-	scm_wta_dispatch_n (g_vector_set_x,
-                            scm_list_3 (v, scm_from_size_t (k), obj),
-                            0,
-                            "vector-set!");
-      else
-	scm_wrong_type_arg_msg (NULL, 0, v, "vector");
-    }
+    scm_wrong_type_arg_msg (NULL, 0, v, "vector");
 }
+
+SCM_DEFINE (scm_vector_set_x, "vector-set!", 3, 0, 0,
+            (SCM v, SCM k, SCM obj),
+            "@var{k} must be a valid index of @var{vector}.\n"
+            "@code{Vector-set!} stores @var{obj} in element @var{k} of @var{vector}.\n"
+            "The value returned by @samp{vector-set!} is unspecified.\n"
+            "@lisp\n"
+            "(let ((vec (vector 0 '(2 2 2 2) \"Anna\")))\n"
+            "  (vector-set! vec 1 '(\"Sue\" \"Sue\"))\n"
+            "  vec) @result{}  #(0 (\"Sue\" \"Sue\") \"Anna\")\n"
+            "(vector-set! '#(0 1 2) 1 \"doe\") @result{} @emph{error} ; constant vector\n"
+            "@end lisp")
+#define FUNC_NAME s_scm_vector_set_x
+{
+  scm_c_vector_set_x (v, scm_to_size_t (k), obj);
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
 
 SCM_DEFINE (scm_make_vector, "make-vector", 1, 1, 0,
             (SCM k, SCM fill),
