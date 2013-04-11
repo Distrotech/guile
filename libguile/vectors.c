@@ -100,30 +100,28 @@ SCM_DEFINE (scm_vector_p, "vector?", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_GPROC (s_vector_length, "vector-length", 1, 0, 0, scm_vector_length, g_vector_length);
-/* Returns the number of elements in @var{vector} as an exact integer.  */
-SCM
-scm_vector_length (SCM v)
-{
-  if (SCM_I_IS_VECTOR (v))
-    return scm_from_size_t (SCM_I_VECTOR_LENGTH (v));
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      return scm_from_size_t (dim->ubnd - dim->lbnd + 1);
-    }
-  else
-    return scm_wta_dispatch_1 (g_vector_length, v, 1, "vector-length");
-}
-
 size_t
 scm_c_vector_length (SCM v)
 {
   if (SCM_I_IS_VECTOR (v))
     return SCM_I_VECTOR_LENGTH (v);
   else
-    return scm_to_size_t (scm_vector_length (v));
+    scm_wrong_type_arg_msg (NULL, 0, v, "vector");
 }
+
+SCM_DEFINE (scm_vector_length, "vector-length", 1, 0, 0,
+	    (SCM v),
+            "Return the number of elements in vector @var{v} as an exact\n"
+            "integer.\n"
+	    "\n"
+	    "@lisp\n"
+	    "(vector-length #(a b c)) @result{} 3\n"
+	    "@end lisp")
+#define FUNC_NAME s_scm_vector_length
+{
+  return scm_from_size_t (scm_c_vector_length (v));
+}
+#undef FUNC_NAME
 
 SCM_REGISTER_PROC (s_list_to_vector, "list->vector", 1, 0, 0, scm_vector);
 /*
