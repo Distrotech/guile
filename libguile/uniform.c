@@ -87,11 +87,10 @@ scm_is_uniform_vector (SCM obj)
   scm_t_array_handle h;
   int ret = 0;
 
-  if (scm_is_array (obj))
+  if (scm_is_array (obj) && !SCM_I_ARRAYP (obj))
     {
       scm_array_get_handle (obj, &h);
-      ret = (scm_array_handle_rank (&h) == 1
-             && SCM_ARRAY_ELEMENT_TYPE_IS_UNBOXED (h.element_type));
+      ret = SCM_ARRAY_ELEMENT_TYPE_IS_UNBOXED (h.element_type);
       scm_array_handle_release (&h);
     }
   return ret;
