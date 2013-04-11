@@ -110,27 +110,15 @@ scm_c_generalized_vector_length (SCM v)
 }
 
 SCM
-scm_c_generalized_vector_ref (SCM v, size_t idx)
+scm_c_generalized_vector_ref (SCM v, ssize_t idx)
 {
-  scm_t_array_handle h;
-  size_t pos;
-  SCM ret;
-  scm_generalized_vector_get_handle (v, &h);
-  pos = h.base + h.dims[0].lbnd + idx * h.dims[0].inc;
-  ret = h.impl->vref (&h, pos);
-  scm_array_handle_release (&h);
-  return ret;
+  return scm_c_array_ref_1(v, idx);
 }
 
 void
-scm_c_generalized_vector_set_x (SCM v, size_t idx, SCM val)
+scm_c_generalized_vector_set_x (SCM v, ssize_t idx, SCM val)
 {
-  scm_t_array_handle h;
-  size_t pos;
-  scm_generalized_vector_get_handle (v, &h);
-  pos = h.base + h.dims[0].lbnd + idx * h.dims[0].inc;
-  h.impl->vset (&h, pos, val);
-  scm_array_handle_release (&h);
+  scm_c_array_set_1_x(v, val, idx);
 }
 
 void

@@ -836,6 +836,12 @@ array_get_handle (SCM array, scm_t_array_handle *h)
 {
   scm_t_array_handle vh;
   scm_array_get_handle (SCM_I_ARRAY_V (array), &vh);
+  if (vh.dims[0].inc != 1 || vh.dims[0].lbnd != 0 || vh.base != 0)
+    {
+      fprintf(stderr, "INC %ld, %ld", vh.dims[0].inc, vh.dims[0].lbnd);
+      fflush(stderr);
+      abort();
+    }
   h->element_type = vh.element_type;
   h->elements = vh.elements;
   h->writable_elements = vh.writable_elements;
