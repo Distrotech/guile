@@ -38,21 +38,25 @@
 ;;;
 ;;; * Make it possible to disassemble a function
 ;;; ** Writing function ranges into an ELF section
+;;; *** sorted .symtab section, writing ELF symbols
 ;;; ** Being able to determine the bounds of a function
 ;;; ** Applying the existing disassemble-buffer function
-;;; ** Making disassemble-buffer better
-;;;
-;;; * Provide function names
-;;; ** Write function names to ELF string table
 ;;; ** Write table mapping function IP to name
+;;; ** Making disassemble-buffer better
 ;;;
 ;;; * Provide line number information
 ;;; ** Provide additional macro-assembly for this
-;;; ** Write to separate ELF section; use DWARF???
+;;; ** Write to separate ELF section: .debug_lines
 ;;;
-;;; * Provide for arity map
+;;; * More metadata
+;;; Arities, local variable names and ranges, other literal procedure
+;;; metadata
+;;; ** Write to separate ELF section: .debug_info
 ;;;
-;;; * Provide for other literal procedure metadata
+;;; .symtab and .debug_info (and to an extent, .debug_aranges et al) are
+;;; redundant, but since .symtab is so much smaller and easier it's
+;;; probably OK to duplicate the information, at least while we
+;;; bootstrap the new tools.
 
 (define-syntax-rule (pack-u8-u24 x y)
   (logior x (ash y 8)))
