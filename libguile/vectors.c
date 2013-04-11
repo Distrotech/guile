@@ -203,22 +203,6 @@ scm_c_vector_ref (SCM v, size_t k)
     }
   else if (SCM_I_WVECTP (v))
     return scm_c_weak_vector_ref (v, k);
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      SCM vv = SCM_I_ARRAY_V (v);
-
-      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-      if (k >= dim->ubnd - dim->lbnd + 1)
-        scm_out_of_range (NULL, scm_from_size_t (k));
-
-      if (SCM_I_IS_NONWEAK_VECTOR (vv))
-        return SCM_SIMPLE_VECTOR_REF (vv, k);
-      else if (SCM_I_WVECTP (vv))
-        return scm_c_weak_vector_ref (vv, k);
-      else
-        scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
-    }
   else
     return scm_wta_dispatch_2 (g_vector_ref, v, scm_from_size_t (k), 2,
                                "vector-ref");
@@ -252,27 +236,11 @@ scm_c_vector_set_x (SCM v, size_t k, SCM obj)
   if (SCM_I_IS_NONWEAK_VECTOR (v))
     {
       if (k >= SCM_I_VECTOR_LENGTH (v))
-        scm_out_of_range (NULL, scm_from_size_t (k)); 
+        scm_out_of_range (NULL, scm_from_size_t (k));
       SCM_SIMPLE_VECTOR_SET (v, k, obj);
     }
   else if (SCM_I_WVECTP (v))
     scm_c_weak_vector_set_x (v, k, obj);
-  else if (SCM_I_ARRAYP (v) && SCM_I_ARRAY_NDIM (v) == 1)
-    {
-      scm_t_array_dim *dim = SCM_I_ARRAY_DIMS (v);
-      SCM vv = SCM_I_ARRAY_V (v);
-
-      k = SCM_I_ARRAY_BASE (v) + k*dim->inc;
-      if (k >= dim->ubnd - dim->lbnd + 1)
-        scm_out_of_range (NULL, scm_from_size_t (k));
-
-      if (SCM_I_IS_NONWEAK_VECTOR (vv))
-        SCM_SIMPLE_VECTOR_SET (vv, k, obj);
-      else if (SCM_I_WVECTP (vv))
-        scm_c_weak_vector_set_x (vv, k, obj);
-      else
-	scm_wrong_type_arg_msg (NULL, 0, v, "non-uniform vector");
-    }
   else
     {
       if (SCM_UNPACK (g_vector_set_x))
