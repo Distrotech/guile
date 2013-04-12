@@ -62,19 +62,32 @@ scm_i_array_implementation_for_obj (SCM obj)
 void
 scm_array_get_handle (SCM array, scm_t_array_handle *h)
 {
-  scm_t_array_implementation *impl = scm_i_array_implementation_for_obj (array);
-  if (!impl)
-    scm_wrong_type_arg_msg (NULL, 0, array, "array");
-  h->array = array;
-  h->impl = impl;
-  h->base = 0;
-  h->ndims = 0;
-  h->dims = NULL;
-  h->element_type = SCM_ARRAY_ELEMENT_TYPE_SCM; /* have to default to
-                                                   something... */
-  h->elements = NULL;
-  h->writable_elements = NULL;
-  h->impl->get_handle (array, h);
+  scm_t_array_implementation *impl;
+  if (SCM_I_ARRAYP (array))
+    {
+      SCM v = SCM_I_ARRAY_V (array);
+      impl = scm_i_array_implementation_for_obj (v);
+      h->impl = impl;
+      h->impl->get_handle (v, h);
+      /* this works because the v's impl NEVER uses dims/ndims/base */
+      h->dims = SCM_I_ARRAY_DIMS (array);
+      h->ndims = SCM_I_ARRAY_NDIM (array);
+      h->base = SCM_I_ARRAY_BASE (array);
+    }
+  else
+    {
+      impl = scm_i_array_implementation_for_obj (array);
+      if (impl)
+        {
+          h->impl = impl;
+          /* see bitvector_get_handle, string_get_handle,
+             bytevector_get_handle, vector_get_handle, only ever called
+             from here */
+          h->impl->get_handle (array, h);
+        }
+      else
+        scm_wrong_type_arg_msg (NULL, 0, array, "array");
+    }
 }
 
 ssize_t

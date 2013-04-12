@@ -436,7 +436,7 @@ SCM_DEFINE (scm_vector_move_right_x, "vector-move-right!", 5, 0, 0,
 static SCM
 vector_handle_ref (scm_t_array_handle *h, size_t idx)
 {
-  if (idx > h->dims[0].ubnd)
+  if (idx > h->dim0.ubnd)
     scm_out_of_range ("vector-handle-ref", scm_from_size_t (idx));
   return ((SCM*)h->elements)[idx];
 }
@@ -444,7 +444,7 @@ vector_handle_ref (scm_t_array_handle *h, size_t idx)
 static void
 vector_handle_set (scm_t_array_handle *h, size_t idx, SCM val)
 {
-  if (idx > h->dims[0].ubnd)
+  if (idx > h->dim0.ubnd)
     scm_out_of_range ("vector-handle-set!", scm_from_size_t (idx));
   ((SCM*)h->writable_elements)[idx] = val;
 }
@@ -452,6 +452,7 @@ vector_handle_set (scm_t_array_handle *h, size_t idx, SCM val)
 static void
 vector_get_handle (SCM v, scm_t_array_handle *h)
 {
+  h->base = 0;
   h->array = v;
   h->ndims = 1;
   h->dims = &h->dim0;

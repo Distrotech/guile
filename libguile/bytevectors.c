@@ -2232,6 +2232,7 @@ bv_handle_set_x (scm_t_array_handle *h, size_t index, SCM val)
 static void
 bytevector_get_handle (SCM v, scm_t_array_handle *h)
 {
+  h->base = 0;
   h->array = v;
   h->ndims = 1;
   h->dims = &h->dim0;

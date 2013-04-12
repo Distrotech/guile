@@ -868,6 +868,7 @@ bitvector_handle_set (scm_t_array_handle *h, size_t pos, SCM val)
 static void
 bitvector_get_handle (SCM bv, scm_t_array_handle *h)
 {
+  h->base = 0;
   h->array = bv;
   h->ndims = 1;
   h->dims = &h->dim0;

@@ -788,7 +788,7 @@ array_index_map_1 (SCM ra, SCM proc)
   v = h.array;
   inc = h.dims[0].inc;
   for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
-    h.impl->vset (&h, p, scm_call_1 (proc, scm_from_ulong (i)));
+    h.impl->vset (h.array, p, scm_call_1 (proc, scm_from_ulong (i)));
   scm_array_handle_release (&h);
 }
 

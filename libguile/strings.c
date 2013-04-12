@@ -2475,6 +2475,7 @@ string_handle_set (scm_t_array_handle *h, size_t index, SCM val)
 static void
 string_get_handle (SCM v, scm_t_array_handle *h)
 {
+  h->base = 0;
   h->array = v;
   h->ndims = 1;
   h->dims = &h->dim0;
