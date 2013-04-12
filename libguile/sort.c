@@ -77,25 +77,18 @@ SCM_DEFINE (scm_restricted_vector_sort_x, "restricted-vector-sort!", 4, 0, 0,
 #define FUNC_NAME s_scm_restricted_vector_sort_x
 {
   size_t vlen, spos, len;
+  ssize_t vinc;
   scm_t_array_handle handle;
-  scm_t_array_dim *dim;
-
   SCM *velts;
 
-  if (!scm_is_array (vec) || 1 != scm_c_array_rank (vec))
-      SCM_WRONG_TYPE_ARG (1, vec);
-
-  scm_array_get_handle (vec, &handle);
-  velts = scm_array_handle_writable_elements (&handle);
-  dim = scm_array_handle_dims (&handle);
-  vlen = dim->ubnd - dim->lbnd + 1;
+  velts = scm_vector_writable_elements (vec, &handle, &vlen, &vinc);
   spos = scm_to_unsigned_integer (startpos, 0, vlen);
   len = scm_to_unsigned_integer (endpos, spos, vlen) - spos;
 
-  if (dim->inc == 1)
-    quicksort1 (velts + spos, len, less);
+  if (vinc == 1)
+    quicksort1 (velts + spos*vinc, len, less);
   else
-    quicksort (velts + spos*dim->inc, len, dim->inc, less);
+    quicksort (velts + spos*vinc, len, vinc, less);
 
   scm_array_handle_release (&handle);
 
@@ -151,25 +144,19 @@ SCM_DEFINE (scm_sorted_p, "sorted?", 2, 0, 0,
       size_t i, len;
       ssize_t inc;
       const SCM *elts;
-      SCM result = SCM_BOOL_T;
 
       elts = scm_vector_elements (items, &handle, &len, &inc);
-
       for (i = 1; i < len; i++, elts += inc)
 	{
 	  if (scm_is_true (scm_call_2 (less, elts[inc], elts[0])))
 	    {
-	      result = SCM_BOOL_F;
-	      break;
+              scm_array_handle_release (&handle);
+	      return SCM_BOOL_F;
 	    }
 	}
-
       scm_array_handle_release (&handle);
-
-      return result;
+      return SCM_BOOL_T;
     }
-
-  return SCM_BOOL_F;
 }
 #undef FUNC_NAME
 
@@ -496,40 +483,36 @@ SCM_DEFINE (scm_stable_sort_x, "stable-sort!", 2, 0, 0,
       SCM_VALIDATE_LIST_COPYLEN (1, items, len);
       return scm_merge_list_step (&items, less, len);
     }
-  else if (scm_is_array (items) && 1 == scm_c_array_rank (items))
+  else
     {
-      scm_t_array_handle temp_handle, items_handle;
-      scm_t_array_dim *dim;
-      SCM temp, *temp_elts, *items_elts;
+      scm_t_array_handle temp_handle, vec_handle;
+      SCM temp, *temp_elts, *vec_elts;
       size_t len;
+      ssize_t inc;
 
-      scm_array_get_handle (items, &items_handle);
-      items_elts = scm_array_handle_writable_elements (&items_handle);
-      dim = scm_array_handle_dims (&items_handle);
-      len = dim->ubnd - dim->lbnd + 1;
+      vec_elts = scm_vector_writable_elements (items, &vec_handle,
+					       &len, &inc);
       if (len == 0) {
-        scm_array_handle_release (&items_handle);
+        scm_array_handle_release (&vec_handle);
         return items;
       }
 
       temp = scm_c_make_vector (len, SCM_UNDEFINED);
-      scm_array_get_handle (temp, &temp_handle);
-      temp_elts = scm_array_handle_writable_elements (&temp_handle);
+      temp_elts = scm_vector_writable_elements (temp, &temp_handle,
+						NULL, NULL);
 
-      scm_merge_vector_step (items_elts, temp_elts, less, 0, len-1, dim->inc);
+      scm_merge_vector_step (vec_elts, temp_elts, less, 0, len-1, inc);
 
       scm_array_handle_release (&temp_handle);
-      scm_array_handle_release (&items_handle);
+      scm_array_handle_release (&vec_handle);
 
       return items;
     }
-  else
-    SCM_WRONG_TYPE_ARG (1, items);
 }
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_stable_sort, "stable-sort", 2, 0, 0, 
+SCM_DEFINE (scm_stable_sort, "stable-sort", 2, 0, 0,
             (SCM items, SCM less),
 	    "Sort the sequence @var{items}, which may be a list or a\n"
 	    "vector. @var{less} is used for comparing the sequence elements.\n"

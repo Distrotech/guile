@@ -56,23 +56,6 @@ scm_is_simple_vector (SCM obj)
   return SCM_I_IS_VECTOR (obj);
 }
 
-const SCM *
-scm_vector_elements (SCM vec, scm_t_array_handle *h,
-		     size_t *lenp, ssize_t *incp)
-{
-  if (SCM_I_WVECTP (vec))
-    scm_wrong_type_arg_msg (NULL, 0, vec, "non-weak vector");
-
-  scm_generalized_vector_get_handle (vec, h);
-  if (lenp)
-    {
-      scm_t_array_dim *dim = scm_array_handle_dims (h);
-      *lenp = dim->ubnd - dim->lbnd + 1;
-      *incp = dim->inc;
-    }
-  return scm_array_handle_elements (h);
-}
-
 SCM *
 scm_vector_writable_elements (SCM vec, scm_t_array_handle *h,
 			      size_t *lenp, ssize_t *incp)
@@ -80,7 +63,9 @@ scm_vector_writable_elements (SCM vec, scm_t_array_handle *h,
   if (SCM_I_WVECTP (vec))
     scm_wrong_type_arg_msg (NULL, 0, vec, "non-weak vector");
 
-  scm_generalized_vector_get_handle (vec, h);
+  if (!scm_is_array (vec) || 1 != scm_c_array_rank (vec))
+    scm_wrong_type_arg_msg (NULL, 0, vec, "rank 1 array");
+  scm_array_get_handle (vec, h);
   if (lenp)
     {
       scm_t_array_dim *dim = scm_array_handle_dims (h);
@@ -90,7 +75,14 @@ scm_vector_writable_elements (SCM vec, scm_t_array_handle *h,
   return scm_array_handle_writable_elements (h);
 }
 
-SCM_DEFINE (scm_vector_p, "vector?", 1, 0, 0, 
+const SCM *
+scm_vector_elements (SCM vec, scm_t_array_handle *h,
+		     size_t *lenp, ssize_t *incp)
+{
+  return scm_vector_writable_elements (vec, h, lenp, incp);
+}
+
+SCM_DEFINE (scm_vector_p, "vector?", 1, 0, 0,
 	    (SCM obj),
 	    "Return @code{#t} if @var{obj} is a vector, otherwise return\n"
 	    "@code{#f}.")
