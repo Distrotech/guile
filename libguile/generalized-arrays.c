@@ -94,16 +94,15 @@ SCM_DEFINE (scm_typed_array_p, "typed-array?", 2, 0, 0,
 size_t
 scm_c_array_rank (SCM array)
 {
-  scm_t_array_handle handle;
-  size_t res;
-
-  scm_array_get_handle (array, &handle);
-  res = scm_array_handle_rank (&handle);
-  scm_array_handle_release (&handle);
-  return res;
+  if (SCM_I_ARRAYP (array))
+    return SCM_I_ARRAY_NDIM (array);
+  else if (scm_i_array_implementation_for_obj (array))
+    return 1;
+  else
+    scm_wrong_type_arg_msg (NULL, 0, array, "array");
 }
 
-SCM_DEFINE (scm_array_rank, "array-rank", 1, 0, 0, 
+SCM_DEFINE (scm_array_rank, "array-rank", 1, 0, 0,
            (SCM array),
 	    "Return the number of dimensions of the array @var{array.}\n")
 #define FUNC_NAME s_scm_array_rank
