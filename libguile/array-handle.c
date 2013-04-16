@@ -59,6 +59,8 @@ scm_i_array_implementation_for_obj (SCM obj)
   return NULL;
 }
 
+/* see bitvector_get_handle, string_get_handle, bytevector_get_handle,
+   vector_get_handle, only ever called from here */
 void
 scm_array_get_handle (SCM array, scm_t_array_handle *h)
 {
@@ -77,16 +79,10 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
   else
     {
       impl = scm_i_array_implementation_for_obj (array);
-      if (impl)
-        {
-          h->impl = impl;
-          /* see bitvector_get_handle, string_get_handle,
-             bytevector_get_handle, vector_get_handle, only ever called
-             from here */
-          h->impl->get_handle (array, h);
-        }
-      else
+      if (!impl)
         scm_wrong_type_arg_msg (NULL, 0, array, "array");
+      h->impl = impl;
+      h->impl->get_handle (array, h);
     }
 }
 
