@@ -112,6 +112,13 @@ SCM_API SCM scm_utf8_to_string (SCM);
 SCM_API SCM scm_utf16_to_string (SCM, SCM);
 SCM_API SCM scm_utf32_to_string (SCM, SCM);
 
+typedef SCM (*scm_t_bytevector_ref_fn)(SCM, SCM);
+SCM_INTERNAL const scm_t_bytevector_ref_fn
+bytevector_ref_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1];
+
+typedef SCM (*scm_t_bytevector_set_fn)(SCM, SCM, SCM);
+SCM_INTERNAL const scm_t_bytevector_set_fn
+bytevector_set_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1];
 
 
 /* Internal API.  */
@@ -128,6 +135,8 @@ SCM_API SCM scm_utf32_to_string (SCM, SCM);
   (SCM_BYTEVECTOR_FLAGS (_bv) & 0xffUL)
 #define SCM_BYTEVECTOR_CONTIGUOUS_P(_bv)	\
   (SCM_BYTEVECTOR_FLAGS (_bv) >> 8UL)
+#define SCM_BYTEVECTOR_TYPE_SIZE(var)                           \
+  (scm_i_array_element_type_sizes[SCM_BYTEVECTOR_ELEMENT_TYPE (var)]/8)
 
 /* Hint that is passed to `scm_gc_malloc ()' and friends.  */
 #define SCM_GC_BYTEVECTOR "bytevector"

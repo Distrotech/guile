@@ -252,7 +252,8 @@ SCM_DEFINE (scm_make_srfi_4_vector, "make-srfi-4-vector", 2, 1, 0,
     case SCM_ARRAY_ELEMENT_TYPE_C32:
     case SCM_ARRAY_ELEMENT_TYPE_C64:
       {
-        SCM ret = scm_i_make_typed_bytevector (scm_to_size_t (len), i);
+        size_t clen = scm_to_size_t (len);
+        SCM ret = scm_i_make_typed_bytevector (clen, i);
 
         if (SCM_UNBNDP (fill) || scm_is_eq (len, SCM_INUM0))
           ; /* pass */
@@ -261,19 +262,12 @@ SCM_DEFINE (scm_make_srfi_4_vector, "make-srfi-4-vector", 2, 1, 0,
                   SCM_BYTEVECTOR_LENGTH (ret));
         else
           {
-            scm_t_array_handle h;
-            size_t len;
-            ssize_t pos, inc;
-
-            scm_uniform_vector_writable_elements (ret, &h, &len, &inc);
-
-            for (pos = 0; pos != h.dims[0].ubnd; pos += inc)
-              scm_array_handle_set (&h, pos, fill);
-
-	    /* Initialize the last element.  */
-	    scm_array_handle_set (&h, pos, fill);
-
-            scm_array_handle_release (&h);
+            scm_t_bytevector_set_fn set_fn =
+              bytevector_set_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (ret)];
+            size_t step = SCM_BYTEVECTOR_TYPE_SIZE (ret);
+            size_t pos = 0;
+            for (pos = 0, clen *= step; pos < clen; pos += step)
+              set_fn(ret, scm_from_size_t (pos), fill);
           }
         return ret;
       }

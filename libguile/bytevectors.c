@@ -195,8 +195,6 @@
 #define SCM_BYTEVECTOR_SET_PARENT(_bv, _parent)	\
   SCM_SET_CELL_OBJECT_3 ((_bv), (_parent))
 
-#define SCM_BYTEVECTOR_TYPE_SIZE(var)                           \
-  (scm_i_array_element_type_sizes[SCM_BYTEVECTOR_ELEMENT_TYPE (var)]/8)
 #define SCM_BYTEVECTOR_TYPED_LENGTH(var)                        \
   (SCM_BYTEVECTOR_LENGTH (var) / SCM_BYTEVECTOR_TYPE_SIZE (var))
 
@@ -2129,9 +2127,7 @@ bytevector_ref_c64 (SCM bv, SCM index)
 }
 #undef FUNC_NAME
 
-typedef SCM (*scm_t_bytevector_ref_fn)(SCM, SCM);
-
-static const scm_t_bytevector_ref_fn
+const scm_t_bytevector_ref_fn
 bytevector_ref_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] =
 {
   NULL, /* SCM */
@@ -2157,10 +2153,10 @@ bv_handle_ref (scm_t_array_handle *h, size_t index)
 {
   SCM byte_index;
   scm_t_bytevector_ref_fn ref_fn;
-  
+
   ref_fn = bytevector_ref_fns[h->element_type];
   byte_index =
-    scm_from_size_t (index * scm_array_handle_uniform_element_size (h));
+    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
   return ref_fn (h->array, byte_index);
 }
 
@@ -2195,9 +2191,7 @@ bytevector_set_c64 (SCM bv, SCM index, SCM value)
 }
 #undef FUNC_NAME
 
-typedef SCM (*scm_t_bytevector_set_fn)(SCM, SCM, SCM);
-
-const scm_t_bytevector_set_fn bytevector_set_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] = 
+const scm_t_bytevector_set_fn bytevector_set_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] =
 {
   NULL, /* SCM */
   NULL, /* CHAR */
@@ -2222,10 +2216,10 @@ bv_handle_set_x (scm_t_array_handle *h, size_t index, SCM val)
 {
   SCM byte_index;
   scm_t_bytevector_set_fn set_fn;
-  
+
   set_fn = bytevector_set_fns[h->element_type];
   byte_index =
-    scm_from_size_t (index * scm_array_handle_uniform_element_size (h));
+    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
   set_fn (h->array, byte_index, val);
 }
 
