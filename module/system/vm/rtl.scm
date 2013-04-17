@@ -22,6 +22,7 @@
   #:use-module (system base target)
   #:use-module (system vm instruction)
   #:use-module (system vm elf)
+  #:use-module (system vm linker)
   #:use-module (system vm program)
   #:use-module (system vm objcode)
   #:use-module (rnrs bytevectors)
@@ -129,12 +130,12 @@
             '() '()
             word-size endianness
             vlist-null '()
-            (make-elf-string-table)
+            (make-string-table)
             '()))
 
 (define (intern-string! asm string)
   (call-with-values
-      (lambda () (elf-string-table-intern (asm-string-table asm) string))
+      (lambda () (string-table-intern (asm-string-table asm) string))
     (lambda (table idx)
       (set-asm-string-table! asm table)
       idx)))
@@ -672,7 +673,8 @@
               (let ((rel (- abs (caddr reloc))))
                 (s32-set! buf dst rel)
                 tail)
-              (cons (make-elf-reloc 'rel32/4 (* dst 4) (cadddr reloc) (cadr reloc))
+              (cons (make-linker-reloc
+                     'rel32/4 (* dst 4) (cadddr reloc) (cadr reloc))
                     tail)))
          ((x8-s24)
           (unless abs
@@ -687,7 +689,7 @@
 
 (define (process-labels labels)
   (map (lambda (pair)
-         (make-elf-symbol (car pair) (* (cdr pair) 4)))
+         (make-linker-symbol (car pair) (* (cdr pair) 4)))
        labels))
 
 (define (swap-bytes! buf)
@@ -704,12 +706,12 @@
 
 (define (make-object asm name bv relocs labels . kwargs)
   (let ((name-idx (intern-string! asm (symbol->string name))))
-    (make-elf-object (apply make-elf-section
-                            #:name name-idx
-                            #:size (bytevector-length bv)
-                            kwargs)
-                     bv relocs
-                     (cons (make-elf-symbol name 0) labels))))
+    (make-linker-object (apply make-elf-section
+                               #:name name-idx
+                               #:size (bytevector-length bv)
+                               kwargs)
+                        bv relocs
+                        (cons (make-linker-symbol name 0) labels))))
 
 (define (link-text-object asm)
   (let ((buf (make-u32vector (asm-pos asm))))
@@ -738,8 +740,8 @@
            (relocs '())
            (set-label!
             (lambda (i label)
-              (set! relocs (cons (make-elf-reloc 'reloc-type
-                                                 (* i word-size) 0 label)
+              (set! relocs (cons (make-linker-reloc 'reloc-type
+                                                    (* i word-size) 0 label)
                                  relocs))
               (%set-uword! bv (* i word-size) 0 endianness))))
       (set-uword! 0 DT_GUILE_RTL_VERSION)
@@ -752,7 +754,7 @@
         (set-uword! 4 DT_GUILE_GC_ROOT)
         (set-label! 5 '.data)
         (set-uword! 6 DT_GUILE_GC_ROOT_SZ)
-        (set-uword! 7 (bytevector-length (elf-object-bv rw)))
+        (set-uword! 7 (bytevector-length (linker-object-bv rw)))
         (cond
          (rw-init
           (set-uword! 8 DT_INIT)        ; constants
@@ -775,7 +777,7 @@
 (define (link-string-table asm)
   (intern-string! asm ".shstrtab")
   (make-object asm '.shstrtab
-               (link-elf-string-table (asm-string-table asm))
+               (link-string-table (asm-string-table asm))
                '() '()
                #:type SHT_STRTAB #:flags 0))
 
@@ -945,7 +947,7 @@
                 (write buf pos obj)
                 (lp (1+ i)
                     (align (+ (byte-length obj) pos) 8)
-                    (cons (make-elf-symbol obj-label pos) labels)))
+                    (cons (make-linker-symbol obj-label pos) labels)))
               (make-object asm name buf '() labels))))))))
 
 ;; Hummm
