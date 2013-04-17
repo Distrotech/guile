@@ -142,27 +142,7 @@
       return ((ctype*)h->writable_elements) + h->base*width;            \
     /* otherwise... */                                                  \
     else                                                                \
-      {                                                                 \
-        size_t sfrom, sto, lfrom, lto;                                  \
-        if (h->dims != &h->dim0)                                        \
-          {                                                             \
-            h->dim0 = h->dims[0];                                       \
-            h->dims = &h->dim0;                                         \
-          }                                                             \
-        sfrom = scm_i_array_element_type_sizes [h->element_type];       \
-        sto = scm_i_array_element_type_sizes [ETYPE (TAG)];             \
-        lfrom = h->dim0.ubnd - h->dim0.lbnd + 1;                        \
-        lto = lfrom * sfrom / sto;                                      \
-        if (lto * sto != lfrom * sfrom)                                 \
-          {                                                             \
-            scm_array_handle_release (h);                               \
-            scm_wrong_type_arg (#tag"vector-elements", SCM_ARG1, uvec); \
-          }                                                             \
-        h->dim0.ubnd = h->dim0.lbnd + lto;                              \
-        h->base = h->base * sto / sfrom;                                \
-        h->element_type = ETYPE (TAG);                                  \
-        return ((ctype*)h->writable_elements) + h->base*width;          \
-      }                                                                 \
+      scm_wrong_type_arg_msg (NULL, 0, h->array, #tag "vector");        \
   }
 
 
