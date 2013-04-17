@@ -436,17 +436,17 @@ SCM_DEFINE (scm_vector_move_right_x, "vector-move-right!", 5, 0, 0,
 static SCM
 vector_handle_ref (scm_t_array_handle *h, size_t idx)
 {
-  if (idx > h->dim0.ubnd)
+  if (idx >= SCM_I_VECTOR_LENGTH (h->array))
     scm_out_of_range ("vector-handle-ref", scm_from_size_t (idx));
-  return ((SCM*)h->elements)[idx];
+  return SCM_I_VECTOR_WELTS(h->array)[idx];
 }
 
 static void
 vector_handle_set (scm_t_array_handle *h, size_t idx, SCM val)
 {
-  if (idx > h->dim0.ubnd)
+  if (idx >= SCM_I_VECTOR_LENGTH (h->array))
     scm_out_of_range ("vector-handle-set!", scm_from_size_t (idx));
-  ((SCM*)h->writable_elements)[idx] = val;
+  SCM_I_VECTOR_WELTS(h->array)[idx] = val;
 }
 
 static void

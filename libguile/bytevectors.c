@@ -2154,7 +2154,7 @@ bv_handle_ref (scm_t_array_handle *h, size_t index)
   SCM byte_index;
   scm_t_bytevector_ref_fn ref_fn;
 
-  ref_fn = bytevector_ref_fns[h->element_type];
+  ref_fn = bytevector_ref_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (h->array)];
   byte_index =
     scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
   return ref_fn (h->array, byte_index);
@@ -2217,7 +2217,7 @@ bv_handle_set_x (scm_t_array_handle *h, size_t index, SCM val)
   SCM byte_index;
   scm_t_bytevector_set_fn set_fn;
 
-  set_fn = bytevector_set_fns[h->element_type];
+  set_fn = bytevector_set_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (h->array)];
   byte_index =
     scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
   set_fn (h->array, byte_index, val);
