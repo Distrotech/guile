@@ -328,6 +328,9 @@ SCM_DEFINE (scm_array_fill_x, "array-fill!", 2, 0, 0,
 #undef FUNC_NAME
 
 
+/* FIXME src-dst is the wrong order for scm_ra_matchp, but scm_ramapc
+   doesn't send SCM_I_ARRAYP for both src and dst, and this segfaults
+   with the 'right' order. */
 static int
 racp (SCM src, SCM dst)
 {
@@ -337,16 +340,24 @@ racp (SCM src, SCM dst)
   ssize_t inc_s, inc_d;
 
   dst = SCM_CAR (dst);
-  scm_array_get_handle (SCM_I_ARRAY_V (src), &h_s);
-  scm_array_get_handle (SCM_I_ARRAY_V (dst), &h_d);
-
   i_s = SCM_I_ARRAY_BASE (src);
   i_d = SCM_I_ARRAY_BASE (dst);
   inc_s = SCM_I_ARRAY_DIMS (src)->inc;
   inc_d = SCM_I_ARRAY_DIMS (dst)->inc;
 
-  for (; n-- > 0; i_s += inc_s, i_d += inc_d)
-    h_d.impl->vset (SCM_I_ARRAY_V (dst), i_d, h_s.impl->vref (SCM_I_ARRAY_V (src), i_s));
+  scm_array_get_handle (SCM_I_ARRAY_V (src), &h_s);
+  scm_array_get_handle (SCM_I_ARRAY_V (dst), &h_d);
+
+  if (scm_is_vector (SCM_I_ARRAY_V (src)) && scm_is_vector (SCM_I_ARRAY_V (dst)))
+    {
+      SCM const * el_s = h_s.elements;
+      SCM * el_d = h_d.writable_elements;
+      for (; n-- > 0; i_s += inc_s, i_d += inc_d)
+        el_d[i_d] = el_s[i_s];
+    }
+  else
+    for (; n-- > 0; i_s += inc_s, i_d += inc_d)
+      h_d.impl->vset (SCM_I_ARRAY_V (dst), i_d, h_s.impl->vref (SCM_I_ARRAY_V (src), i_s));
 
   scm_array_handle_release (&h_d);
   scm_array_handle_release (&h_s);
