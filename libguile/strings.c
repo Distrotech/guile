@@ -2459,17 +2459,19 @@ scm_i_get_substring_spec (size_t len,
   else
     *cend = scm_to_unsigned_integer (end, *cstart, len);
 }
-		  
+
+/* FIXME: We know that bitvector is such, so can skip the checks in
+   scm_c_string_... */
 static SCM
-string_handle_ref (scm_t_array_handle *h, size_t index)
+string_handle_ref (SCM string, size_t index)
 {
-  return scm_c_string_ref (h->array, index);
+  return scm_c_string_ref (string, index);
 }
 
 static void
-string_handle_set (scm_t_array_handle *h, size_t index, SCM val)
+string_handle_set (SCM string, size_t index, SCM val)
 {
-  scm_c_string_set_x (h->array, index, val);
+  scm_c_string_set_x (string, index, val);
 }
 
 static void

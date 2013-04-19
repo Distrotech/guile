@@ -845,24 +845,25 @@ scm_istr2bve (SCM str)
 	    goto exit;
 	  }
     }
-  
+
  exit:
   scm_array_handle_release (&handle);
   scm_remember_upto_here_1 (str);
   return res;
 }
 
-/* FIXME: h->array should be h->vector */
+/* FIXME: We know that bitvector is such, so can skip the checks in
+   scm_c_bitvector_... */
 static SCM
-bitvector_handle_ref (scm_t_array_handle *h, size_t pos)
+bitvector_handle_ref (SCM bitvector, size_t pos)
 {
-  return scm_c_bitvector_ref (h->array, pos);
+  return scm_c_bitvector_ref (bitvector, pos);
 }
 
 static void
-bitvector_handle_set (scm_t_array_handle *h, size_t pos, SCM val)
+bitvector_handle_set (SCM bitvector, size_t pos, SCM val)
 {
-  scm_c_bitvector_set_x (h->array, pos, val);
+  scm_c_bitvector_set_x (bitvector, pos, val);
 }
 
 static void

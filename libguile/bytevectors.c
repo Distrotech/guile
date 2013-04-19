@@ -402,31 +402,6 @@ scm_c_bytevector_set_x (SCM bv, size_t index, scm_t_uint8 value)
 }
 #undef FUNC_NAME
 
-
-
-int
-scm_i_print_bytevector (SCM bv, SCM port, scm_print_state *pstate SCM_UNUSED)
-{
-  ssize_t ubnd, inc, i;
-  scm_t_array_handle h;
-  
-  scm_array_get_handle (bv, &h);
-
-  scm_putc_unlocked ('#', port);
-  scm_write (scm_array_handle_element_type (&h), port);
-  scm_putc_unlocked ('(', port);
-  for (i = h.dims[0].lbnd, ubnd = h.dims[0].ubnd, inc = h.dims[0].inc;
-       i <= ubnd; i += inc)
-    {
-      if (i > 0)
-	scm_putc_unlocked (' ', port);
-      scm_write (scm_array_handle_ref (&h, i), port);
-    }
-  scm_putc_unlocked (')', port);
-
-  return 1;
-}
-
 
 /* General operations.  */
 
@@ -2149,15 +2124,17 @@ bytevector_ref_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1] =
 };
 
 static SCM
-bv_handle_ref (scm_t_array_handle *h, size_t index)
+bv_handle_ref (SCM bv, size_t index)
 {
   SCM byte_index;
   scm_t_bytevector_ref_fn ref_fn;
 
-  ref_fn = bytevector_ref_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (h->array)];
+  assert (SCM_BYTEVECTOR_P (bv));
+
+  ref_fn = bytevector_ref_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (bv)];
   byte_index =
-    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
-  return ref_fn (h->array, byte_index);
+    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (bv));
+  return ref_fn (bv, byte_index);
 }
 
 /* Template for native modification of complex numbers of type TYPE.  */
@@ -2212,15 +2189,15 @@ const scm_t_bytevector_set_fn bytevector_set_fns[SCM_ARRAY_ELEMENT_TYPE_LAST + 1
 };
 
 static void
-bv_handle_set_x (scm_t_array_handle *h, size_t index, SCM val)
+bv_handle_set_x (SCM bytevector, size_t index, SCM val)
 {
   SCM byte_index;
   scm_t_bytevector_set_fn set_fn;
 
-  set_fn = bytevector_set_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (h->array)];
+  set_fn = bytevector_set_fns[SCM_BYTEVECTOR_ELEMENT_TYPE (bytevector)];
   byte_index =
-    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (h->array));
-  set_fn (h->array, byte_index, val);
+    scm_from_size_t (index * SCM_BYTEVECTOR_TYPE_SIZE (bytevector));
+  set_fn (bytevector, byte_index, val);
 }
 
 static void
@@ -2235,6 +2212,25 @@ bytevector_get_handle (SCM v, scm_t_array_handle *h)
   h->dim0.inc = 1;
   h->element_type = SCM_BYTEVECTOR_ELEMENT_TYPE (v);
   h->elements = h->writable_elements = SCM_BYTEVECTOR_CONTENTS (v);
+}
+
+
+int
+scm_i_print_bytevector (SCM bv, SCM port, scm_print_state *pstate SCM_UNUSED)
+{
+  size_t len, i;
+
+  scm_putc_unlocked ('#', port);
+  scm_write (scm_i_array_element_types[SCM_BYTEVECTOR_ELEMENT_TYPE (bv)], port);
+  scm_putc_unlocked ('(', port);
+  for (i = 0, len = SCM_BYTEVECTOR_TYPED_LENGTH (bv); i < len; ++i)
+    {
+      if (i > 0)
+	scm_putc_unlocked (' ', port);
+      scm_write (bv_handle_ref (bv, i), port);
+    }
+  scm_putc_unlocked (')', port);
+  return 1;
 }
 
 

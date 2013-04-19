@@ -32,8 +32,8 @@
 
 struct scm_t_array_handle;
 
-typedef SCM (*scm_i_t_array_ref) (struct scm_t_array_handle *, size_t);
-typedef void (*scm_i_t_array_set) (struct scm_t_array_handle *, size_t, SCM);
+typedef SCM (*scm_i_t_array_ref) (SCM, size_t);
+typedef void (*scm_i_t_array_set) (SCM, size_t, SCM);
 
 typedef struct
 {
@@ -135,7 +135,7 @@ scm_array_handle_ref (scm_t_array_handle *h, ssize_t p)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  return h->impl->vref (h, h->base + p);
+  return h->impl->vref (h->array, h->base + p);
 }
 
 SCM_INLINE_IMPLEMENTATION void
@@ -145,7 +145,7 @@ scm_array_handle_set (scm_t_array_handle *h, ssize_t p, SCM v)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  h->impl->vset (h, h->base + p, v);
+  h->impl->vset (h->array, h->base + p, v);
 }
 
 #endif
