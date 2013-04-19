@@ -807,7 +807,11 @@ array_index_map_n (SCM ra, SCM proc)
                                      indices_gc_hint);
 
   for (k = 0; k <= kmax; k++)
-    vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+    {
+      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd;
+      if (vinds[k] > SCM_I_ARRAY_DIMS (ra)[k].ubnd)
+        return SCM_UNSPECIFIED;
+    }
   k = kmax;
   do
     {
@@ -823,16 +827,17 @@ array_index_map_n (SCM ra, SCM proc)
               i += SCM_I_ARRAY_DIMS (ra)[k].inc;
             }
           k--;
-          continue;
         }
-      if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
+      else if (vinds[k] < SCM_I_ARRAY_DIMS (ra)[k].ubnd)
         {
           vinds[k]++;
           k++;
-          continue;
         }
-      vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
-      k--;
+      else
+        {
+          vinds[k] = SCM_I_ARRAY_DIMS (ra)[k].lbnd - 1;
+          k--;
+        }
     }
   while (k >= 0);
 }
