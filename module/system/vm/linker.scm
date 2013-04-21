@@ -263,6 +263,8 @@
   (fold1 (lambda (symbol symtab)
            (let ((name (linker-symbol-name symbol))
                  (addr (linker-symbol-address symbol)))
+             (when (vhash-assq name symtab)
+               (error "duplicate symbol" name))
              (vhash-consq name (make-linker-symbol name (+ addr offset)) symtab)))
          symbols
          symtab))
