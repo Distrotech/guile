@@ -16,6 +16,52 @@
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+;;; Commentary:
+;;;
+;;; A linker combines several linker objects into an executable or a
+;;; loadable library.
+;;;
+;;; There are several common formats for libraries out there.  Since
+;;; Guile includes its own linker and loader, we are free to choose any
+;;; format, or make up our own.
+;;;
+;;; There are essentially two requirements for a linker format:
+;;; libraries should be able to be loaded with the minimal amount of
+;;; work; and they should support introspection in some way, in order to
+;;; enable good debugging.
+;;;
+;;; These requirements are somewhat at odds, as loading should not have
+;;; to stumble over features related to introspection.  It so happens
+;;; that a lot of smart people have thought about this situation, and
+;;; the ELF format embodies the outcome of their thinking.  Guile uses
+;;; ELF as its format, regardless of the platform's native library
+;;; format.  It's not inconceivable that Guile could interoperate with
+;;; the native dynamic loader at some point, but it's not a near-term
+;;; goal.
+;;;
+;;; Guile's linker takes a list of objects, sorts them according to
+;;; similarity from the perspective of the loader, then writes them out
+;;; into one big bytevector in ELF format.
+;;;
+;;; It is often the case that different parts of a library need to refer
+;;; to each other.  For example, program text may need to refer to a
+;;; constant from writable memory.  When the linker places sections
+;;; (linker objects) into specific locations in the linked bytevector,
+;;; it needs to fix up those references.  This process is called
+;;; /relocation/.  References needing relocations are recorded in
+;;; "linker-reloc" objects, and collected in a list in each
+;;; "linker-object".  The actual definitions of the references are
+;;; stored in "linker-symbol" objects, also collected in a list in each
+;;; "linker-object".
+;;;
+;;; By default, the ELF files created by the linker include some padding
+;;; so that different parts of the file can be loaded in with different
+;;; permissions.  For example, some parts of the file are read-only and
+;;; thus can be shared between processes.  Some parts of the file don't
+;;; need to be loaded at all.  However this padding can be too much for
+;;; interactive compilation, when the code is never written out to disk;
+;;; in that case, pass #:page-aligned? #f to `link-elf'.
+;;;
 ;;; Code:
 
 (define-module (system vm linker)
