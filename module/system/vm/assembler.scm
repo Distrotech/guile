@@ -29,6 +29,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-9)
+  #:use-module (srfi srfi-11)
   #:export (make-assembler
             emit-text
             link-assembly
@@ -803,18 +804,52 @@
                 (lp (1+ i) (vhash-consq (car pair) (cdr pair) ro) rw)
                 (lp (1+ i) ro (vhash-consq (car pair) (cdr pair) rw))))))))
 
+(define (link-symtab text-section asm)
+  (let* ((endianness (asm-endianness asm))
+         (word-size (asm-word-size asm))
+         (size (elf-symbol-len word-size))
+         (meta (reverse (asm-meta asm)))
+         (n (length meta))
+         (strtab (make-string-table))
+         (bv (make-bytevector (* n size) 0)))
+    (define (intern-string! name)
+      (call-with-values
+          (lambda () (string-table-intern strtab (symbol->string name)))
+        (lambda (table idx)
+          (set! strtab table)
+          idx)))
+    (for-each
+     (lambda (meta n)
+       (let ((name (intern-string! (meta-name meta))))
+         (write-elf-symbol bv (* n size) endianness word-size
+                           (make-elf-symbol
+                            #:name name
+                            #:value (meta-low-pc meta)
+                            #:size (- (meta-high-pc meta) (meta-low-pc meta))
+                            #:type STT_FUNC
+                            #:visibility STV_HIDDEN
+                            #:shndx (elf-section-index text-section)))))
+     meta (iota n))
+    (values (make-object asm '.symtab
+                         bv
+                         '() '()
+                         #:type SHT_SYMTAB #:flags 0)
+            (make-object asm '.strtab
+                         (link-string-table strtab)
+                         '() '()
+                         #:type SHT_STRTAB #:flags 0))))
+
 (define (link-objects asm)
-  (call-with-values (lambda () (link-constants asm))
-    (lambda (ro rw rw-init)
-      (let* (;; Link text object after constants, so that the constants
-             ;; initializer gets included.
-             (text (link-text-object asm))
-             (dt (link-dynamic-section asm text ro rw rw-init))
-             ;; This needs to be linked last, because linking other
-             ;; sections adds entries to the string table.
-             (shstrtab (link-shstrtab asm)))
-        (filter identity
-                (list text ro rw dt shstrtab))))))
+  (let*-values (((ro rw rw-init) (link-constants asm))
+                ;; Link text object after constants, so that the
+                ;; constants initializer gets included.
+                ((text) (link-text-object asm))
+                ((dt) (link-dynamic-section asm text ro rw rw-init))
+                ((symtab strtab) (link-symtab (linker-object-section text) asm))
+                ;; This needs to be linked last, because linking other
+                ;; sections adds entries to the string table.
+                ((shstrtab) (link-shstrtab asm)))
+    (filter identity (list text ro rw dt symtab strtab shstrtab))))
 
 (define (link-assembly asm)
   (link-elf (link-objects asm)))
