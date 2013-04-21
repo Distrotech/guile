@@ -104,7 +104,8 @@
             word-size endianness
             constants inits
             string-table
-            meta)
+            meta
+            next-section-number)
   asm?
   (cur asm-cur set-asm-cur!)
   (idx asm-idx set-asm-idx!)
@@ -119,7 +120,8 @@
   (constants asm-constants set-asm-constants!)
   (inits asm-inits set-asm-inits!)
   (string-table asm-string-table set-asm-string-table!)
-  (meta asm-meta set-asm-meta!))
+  (meta asm-meta set-asm-meta!)
+  (next-section-number asm-next-section-number set-asm-next-section-number!))
 
 (define-inlinable (fresh-block)
   (make-u32vector *block-size*))
@@ -131,7 +133,8 @@
             word-size endianness
             vlist-null '()
             (make-string-table)
-            '()))
+            '()
+            1))
 
 (define (intern-string! asm string)
   (call-with-values
@@ -704,9 +707,15 @@
          (endianness little))
         (lp (+ pos 4))))))
 
+(define (next-section-number! asm)
+  (let ((n (asm-next-section-number asm)))
+    (set-asm-next-section-number! asm (1+ n))
+    n))
+
 (define (make-object asm name bv relocs labels . kwargs)
   (let ((name-idx (intern-string! asm (symbol->string name))))
     (make-linker-object (apply make-elf-section
+                               #:index (next-section-number! asm)
                                #:name name-idx
                                #:size (bytevector-length bv)
                                kwargs)

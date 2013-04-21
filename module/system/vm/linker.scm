@@ -68,15 +68,13 @@
   #:use-module (rnrs bytevectors)
   #:use-module (system foreign)
   #:use-module (system base target)
+  #:use-module ((srfi srfi-1) #:select (append-map))
   #:use-module (srfi srfi-9)
   #:use-module (ice-9 receive)
   #:use-module (ice-9 vlist)
+  #:use-module (ice-9 match)
   #:use-module (system vm elf)
-  #:export (make-string-table
-            string-table-intern
-            link-string-table
-
-            make-linker-reloc
+  #:export (make-linker-reloc
             make-linker-symbol
 
             make-linker-object
@@ -85,6 +83,10 @@
             linker-object-bv
             linker-object-relocs
             linker-object-symbols
+
+            make-string-table
+            string-table-intern
+            link-string-table
 
             link-elf))
 
@@ -222,13 +224,6 @@
         s0
         (lp (cdr ls) (proc (car ls) s0)))))
 
-(define (fold2 proc ls s0 s1)
-  (let lp ((ls ls) (s0 s0) (s1 s1))
-    (if (null? ls)
-        (values s0 s1)
-        (receive (s0 s1) (proc (car ls) s0 s1)
-          (lp (cdr ls) s0 s1)))))
-
 (define (fold4 proc ls s0 s1 s2 s3)
   (let lp ((ls ls) (s0 s0) (s1 s1) (s2 s2) (s3 s3))
     (if (null? ls)
@@ -236,15 +231,9 @@
         (receive (s0 s1 s2 s3) (proc (car ls) s0 s1 s2 s3)
           (lp (cdr ls) s0 s1 s2 s3)))))
 
-(define (fold5 proc ls s0 s1 s2 s3 s4)
-  (let lp ((ls ls) (s0 s0) (s1 s1) (s2 s2) (s3 s3) (s4 s4))
-    (if (null? ls)
-        (values s0 s1 s2 s3 s4)
-        (receive (s0 s1 s2 s3 s4) (proc (car ls) s0 s1 s2 s3 s4)
-          (lp (cdr ls) s0 s1 s2 s3 s4)))))
-
 (define (relocate-section-header sec fileaddr memaddr)
-  (make-elf-section #:name (elf-section-name sec)
+  (make-elf-section #:index (elf-section-index sec)
+                    #:name (elf-section-name sec)
                     #:type (elf-section-type sec)
                     #:flags (elf-section-flags sec)
                     #:addr memaddr
@@ -269,7 +258,8 @@
          symbols
          symtab))
 
-(define (alloc-segment type flags objects fileaddr memaddr symtab alignment)
+(define (alloc-segment phidx type flags objects
+                       fileaddr memaddr symtab alignment)
   (let* ((loadable? (not (zero? flags)))
          (alignment (fold1 (lambda (o alignment)
                              (lcm (elf-section-addralign
@@ -303,7 +293,8 @@
                     (add-symbols (linker-object-symbols o) memaddr symtab))))
                objects '() fileaddr memaddr symtab)
       (values
-       (make-elf-segment #:type type #:offset fileaddr
+       (make-elf-segment #:index phidx
+                         #:type type #:offset fileaddr
                          #:vaddr (if loadable? memaddr 0)
                          #:filesz (- fileend fileaddr)
                          #:memsz (if loadable? (- memend memaddr) 0)
@@ -342,34 +333,97 @@
          (relocs (linker-object-relocs o)))
     (if (not (= (elf-section-type section) SHT_NOBITS))
         (begin
-          (if (not (= (elf-section-size section) (bytevector-length bytes)))
+          (if (not (= len (bytevector-length bytes)))
               (error "unexpected length" section bytes))
           (bytevector-copy! bytes 0 bv offset len)
           (for-each (lambda (reloc)
                       (process-reloc reloc bv offset addr symtab endianness))
                     relocs)))))
 
-(define (compute-sections-by-name seglists)
-  (let lp ((in (apply append (map cdr seglists)))
-           (n 1) (out '()) (shstrtab #f))
-    (if (null? in)
-        (fold1 (lambda (x tail)
-                 (cond
-                  ((false-if-exception
-                    (string-table-ref shstrtab (car x)))
-                   => (lambda (str) (acons str (cdr x) tail)))
-                  (else tail)))
-               out '())
-        (let* ((section (linker-object-section (car in)))
-               (bv (linker-object-bv (car in)))
-               (name (elf-section-name section)))
-          (lp (cdr in) (1+ n) (acons name n out)
-              (or shstrtab
-                  (and (= (elf-section-type section) SHT_STRTAB)
-                       (equal? (false-if-exception
-                                (string-table-ref bv name))
-                               ".shstrtab")
-                       bv)))))))
+(define (find-shstrndx objects)
+  (or-map (lambda (object)
+            (let* ((section (linker-object-section object))
+                   (bv (linker-object-bv object))
+                   (name (elf-section-name section)))
+              (and (= (elf-section-type section) SHT_STRTAB)
+                   (equal? (false-if-exception (string-table-ref bv name))
+                           ".shstrtab")
+                   (elf-section-index section))))
+          objects))
+
+;; objects ::= list of <linker-object>
+;; => 3 values: ELF header, program headers, objects
+(define (allocate-elf objects page-aligned? endianness word-size)
+  (let* ((seglists (collate-objects-into-segments objects))
+         (nsegments (length seglists))
+         (nsections (1+ (length objects))) ;; 1+ for the first reserved entry.
+         (program-headers-offset (elf-header-len word-size))
+         (fileaddr (+ program-headers-offset
+                      (* nsegments (elf-program-header-len word-size))))
+         (memaddr 0))
+    (let lp ((seglists seglists)
+             (segments '())
+             (objects '())
+             (phidx 0)
+             (fileaddr fileaddr)
+             (memaddr memaddr)
+             (symtab vlist-null)
+             (prev-flags 0))
+      (match seglists
+        ((((type . flags) objs-in ...) seglists ...)
+         (receive (segment objs-out symtab)
+             (alloc-segment phidx type flags objs-in fileaddr memaddr symtab
+                            (if (and page-aligned?
+                                     (not (= flags prev-flags)))
+                                *page-size*
+                                8))
+           (lp seglists
+               (cons segment segments)
+               (fold1 cons objs-out objects)
+               (1+ phidx)
+               (+ (elf-segment-offset segment) (elf-segment-filesz segment))
+               (if (zero? (elf-segment-memsz segment))
+                   memaddr
+                   (+ (elf-segment-vaddr segment)
+                      (elf-segment-memsz segment)))
+               symtab
+               flags)))
+        (()
+         (let ((section-table-offset (+ (align fileaddr word-size))))
+           (values
+            (make-elf #:byte-order endianness #:word-size word-size
+                      #:phoff program-headers-offset #:phnum nsegments
+                      #:shoff section-table-offset #:shnum nsections
+                      #:shstrndx (or (find-shstrndx objects) SHN_UNDEF))
+            (reverse segments)
+            (let ((null-section (make-elf-section #:index 0 #:type SHT_NULL
+                                                  #:flags 0 #:addralign 0)))
+              (cons (make-linker-object null-section #vu8() '() '())
+                    (reverse objects)))
+            symtab)))))))
+
+(define (write-elf header segments objects symtab)
+  (define (phoff n)
+    (+ (elf-phoff header) (* n (elf-phentsize header))))
+  (define (shoff n)
+    (+ (elf-shoff header) (* n (elf-shentsize header))))
+  (let ((endianness (elf-byte-order header))
+        (word-size (elf-word-size header))
+        (bv (make-bytevector (shoff (elf-shnum header)) 0)))
+    (write-elf-header bv header)
+    (for-each
+     (lambda (segment)
+       (write-elf-program-header bv (phoff (elf-segment-index segment))
+                                 endianness word-size segment))
+     segments)
+    (for-each
+     (lambda (object)
+       (let ((section (linker-object-section object)))
+         (write-elf-section-header bv (shoff (elf-section-index section))
+                                   endianness word-size section))
+       (write-linker-object bv object symtab endianness))
+     objects)
+    bv))
 
 ;; Given a list of section-header/bytevector pairs, collate the sections
 ;; into segments, allocate the segments, allocate the ELF bytevector,
@@ -379,64 +433,6 @@
                    (page-aligned? #t)
                    (endianness (target-endianness))
                    (word-size (target-word-size)))
-  (let* ((seglists (collate-objects-into-segments objects))
-         (sections-by-name (compute-sections-by-name seglists))
-         (nsegments (length seglists))
-         (nsections (1+ (length objects))) ;; 1+ for the first reserved entry.
-         (program-headers-offset (elf-header-len word-size))
-         (fileaddr (+ program-headers-offset
-                      (* nsegments (elf-program-header-len word-size))))
-         (memaddr 0))
-    (receive (out fileend memend symtab _)
-        (fold5
-         (lambda (x out fileaddr memaddr symtab prev-flags)
-           (let ((type (caar x))
-                 (flags (cdar x))
-                 (objects (cdr x)))
-             (receive (segment objects symtab)
-                 (alloc-segment type flags objects fileaddr memaddr symtab
-                                (if (and page-aligned?
-                                         (not (= flags prev-flags)))
-                                    *page-size*
-                                    8))
-               (values
-                (cons (cons segment objects) out)
-                (+ (elf-segment-offset segment) (elf-segment-filesz segment))
-                (if (zero? (elf-segment-memsz segment))
-                    memaddr
-                    (+ (elf-segment-vaddr segment)
-                       (elf-segment-memsz segment)))
-                symtab
-                flags))))
-         seglists '() fileaddr memaddr vlist-null 0)
-      (let* ((out (reverse! out))
-             (section-table-offset (+ (align fileend word-size)))
-             (fileend (+ section-table-offset
-                         (* nsections (elf-section-header-len word-size))))
-             (bv (make-bytevector fileend 0)))
-        (write-elf-header bv #:byte-order endianness #:word-size word-size
-                          #:phoff program-headers-offset #:phnum nsegments
-                          #:shoff section-table-offset #:shnum nsections
-                          #:shstrndx (or (assoc-ref sections-by-name ".shstrtab")
-                                         SHN_UNDEF))
-        (write-elf-section-header bv section-table-offset
-                                  endianness word-size
-                                  (make-elf-section #:type SHT_NULL #:flags 0
-                                                    #:addralign 0))
-        (fold2 (lambda (x phidx shidx)
-                 (write-elf-program-header
-                  bv (+ program-headers-offset
-                        (* (elf-program-header-len word-size) phidx))
-                  endianness word-size (car x))
-                 (values
-                  (1+ phidx)
-                  (fold1 (lambda (o shidx)
-                           (write-linker-object bv o symtab endianness)
-                           (write-elf-section-header
-                            bv (+ section-table-offset
-                                  (* (elf-section-header-len word-size) shidx))
-                            endianness word-size (linker-object-section o))
-                           (1+ shidx))
-                         (cdr x) shidx)))
-               out 0 1)
-        bv))))
+  (receive (header segments objects symtab)
+      (allocate-elf objects page-aligned? endianness word-size)
+    (write-elf header segments objects symtab)))
