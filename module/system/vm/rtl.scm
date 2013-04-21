@@ -774,7 +774,7 @@
     ((8) (emit-dynamic-section 8 bytevector-u64-set! abs64/1))
     (else (error "bad word size" asm))))
 
-(define (link-string-table asm)
+(define (link-shstrtab asm)
   (intern-string! asm ".shstrtab")
   (make-object asm '.shstrtab
                (link-string-table (asm-string-table asm))
@@ -991,7 +991,7 @@
              (dt (link-dynamic-section asm text ro rw rw-init))
              ;; This needs to be linked last, because linking other
              ;; sections adds entries to the string table.
-             (shstrtab (link-string-table asm)))
+             (shstrtab (link-shstrtab asm)))
         (filter identity
                 (list text ro rw dt shstrtab))))))
 
