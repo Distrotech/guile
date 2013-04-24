@@ -53,6 +53,7 @@ AREF (SCM v, size_t pos)
   return scm_c_array_ref_1 (v, pos);
 }
 
+/* This is only ever used with v = SCM_I_ARRAY_V () */
 static void
 ASET (SCM v, size_t pos, SCM val)
 {
