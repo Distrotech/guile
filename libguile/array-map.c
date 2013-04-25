@@ -120,18 +120,19 @@ scm_ramapc (void *cproc_ptr, SCM data, SCM ra0, SCM lra, const char *what)
         {
           ssize_t inc = SCM_I_ARRAY_DIMS (ra0)[k].inc;
           do {
-            inc *= (UBND (ra0, k) - LBND (ra0, k) + 1);
+            ssize_t dim = (UBND (ra0, k) - LBND (ra0, k) + 1);
+            empty = empty || (0 == dim);
+            inc *= dim;
             --k;
           } while (k >= 0 && inc == SCM_I_ARRAY_DIMS (ra0)[k].inc);
           kroll = k+1;
-          empty = 0 == inc;
         }
       else
         kroll = 0;
 
       /* Check emptiness of not-unrolled axes. */
-      for (; k>=0 && !empty; --k)
-        empty = (0 == (UBND (ra0, k) - LBND (ra0, k) + 1));
+      for (; k>=0; --k)
+        empty = empty || (0 == (UBND (ra0, k) - LBND (ra0, k) + 1));
     }
   else
     {

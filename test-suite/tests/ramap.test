@@ -112,6 +112,23 @@
       (array-copy! a b)
       (array-equal? b #3(((1 2) (3 4) (0 0)) ((5 6) (7 8) (0 0))))))
 
+  (pass-if "rank 0"
+    (let ((a #0(99))
+          (b (make-array 0)))
+      (array-copy! a b)
+      (equal? b #0(99))))
+
+  (pass-if "rank 1"
+    (let* ((a #2((1 2) (3 4)))
+           (b (make-shared-array a (lambda (j) (list 1 j)) 2))
+           (c (make-shared-array a (lambda (i) (list (- 1 i) 1)) 2))
+           (d (make-array 0 2))
+           (e (make-array 0 2)))
+      (array-copy! b d)
+      (array-copy! c e)
+      (and (equal? d #(3 4))
+           (equal? e #(4 2)))))
+
   (pass-if "rank 2"
     (let ((a #2((1 2) (3 4)))
           (b (make-array 0 2 2))
@@ -136,27 +153,15 @@
           (piece (lambda (X w s)
                    (make-shared-array
                     X (lambda (i j) (list i (+ j s))) 3 w))))
-      (array-map! A (piece X 2 0))
-      (array-map! B (piece X 2 2))
-      (array-map! C (piece X 1 4))
+      (array-copy! A (piece X 2 0))
+      (array-copy! B (piece X 2 2))
+      (array-copy! C (piece X 1 4))
       (and (array-equal? X #2((0 1 10 11 20) (2 3 12 13 21) (4 5 14 15 22))))))
 
-  (pass-if "rank 1"
-    (let* ((a #2((1 2) (3 4)))
-           (b (make-shared-array a (lambda (j) (list 1 j)) 2))
-           (c (make-shared-array a (lambda (i) (list (- 1 i) 1)) 2))
-           (d (make-array 0 2))
-           (e (make-array 0 2)))
-      (array-copy! b d)
-      (array-copy! c e)
-      (and (equal? d #(3 4))
-           (equal? e #(4 2)))))
-
-  (pass-if "rank 0"
-    (let ((a #0(99))
-          (b (make-array 0)))
-      (array-copy! a b)
-      (equal? b #0(99)))))
+  (pass-if "null increments, not empty"
+    (let ((a (make-array 0 2 2)))
+      (array-copy! (make-shared-array #0(1) (lambda x '()) 2 2) a)
+      (array-equal? #2((1 1) (1 1))))))
 
 ;;;
 ;;; array-map!
@@ -276,7 +281,12 @@
         (array-map! (piece X 2 0) values A)
         (array-map! (piece X 2 2) values B)
         (array-map! (piece X 1 4) values C)
-        (and (array-equal? X #2((0 1 10 11 20) (2 3 12 13 21) (4 5 14 15 22)))))))
+        (and (array-equal? X #2((0 1 10 11 20) (2 3 12 13 21) (4 5 14 15 22))))))
+
+    (pass-if "null increments, not empty"
+      (let ((a (make-array 0 2 2)))
+        (array-map! a values (make-shared-array #0(1) (lambda x '()) 2 2))
+        (array-equal? a #2((1 1) (1 1))))))
 
   (with-test-prefix "two sources"
 
