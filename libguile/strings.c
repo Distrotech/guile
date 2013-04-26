@@ -2460,8 +2460,7 @@ scm_i_get_substring_spec (size_t len,
     *cend = scm_to_unsigned_integer (end, *cstart, len);
 }
 
-/* FIXME: We know that bitvector is such, so can skip the checks in
-   scm_c_string_... */
+/* FIXME: We know that string is such, so can skip checks */
 static SCM
 string_handle_ref (SCM string, size_t index)
 {

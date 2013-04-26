@@ -852,8 +852,7 @@ scm_istr2bve (SCM str)
   return res;
 }
 
-/* FIXME: We know that bitvector is such, so can skip the checks in
-   scm_c_bitvector_... */
+/* FIXME: We know that bitvector is such, so can skip the checks */
 static SCM
 bitvector_handle_ref (SCM bitvector, size_t pos)
 {

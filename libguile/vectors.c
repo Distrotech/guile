@@ -39,7 +39,7 @@
 
 #include "libguile/bdw-gc.h"
 
-
+#include <assert.h>
 
 
 #define VECTOR_MAX_LENGTH (SCM_T_BITS_MAX >> 8)
@@ -436,16 +436,14 @@ SCM_DEFINE (scm_vector_move_right_x, "vector-move-right!", 5, 0, 0,
 static SCM
 vector_handle_ref (SCM vector, size_t idx)
 {
-  if (idx >= SCM_I_VECTOR_LENGTH (vector))
-    scm_out_of_range ("vector-handle-ref", scm_from_size_t (idx));
+  assert (idx < SCM_I_VECTOR_LENGTH (vector));
   return SCM_I_VECTOR_WELTS(vector)[idx];
 }
 
 static void
 vector_handle_set (SCM vector, size_t idx, SCM val)
 {
-  if (idx >= SCM_I_VECTOR_LENGTH (vector))
-    scm_out_of_range ("vector-handle-set!", scm_from_size_t (idx));
+  assert (idx < SCM_I_VECTOR_LENGTH (vector));
   SCM_I_VECTOR_WELTS(vector)[idx] = val;
 }
 
