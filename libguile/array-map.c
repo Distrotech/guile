@@ -690,12 +690,10 @@ array_index_map_1 (SCM ra, SCM proc)
   scm_t_array_handle h;
   ssize_t i, inc;
   size_t p;
-  SCM v;
   scm_array_get_handle (ra, &h);
-  v = h.array;
   inc = h.dims[0].inc;
   for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
-    h.impl->vset (v, p, scm_call_1 (proc, scm_from_ssize_t (i)));
+    h.impl->vset (h.array, p, scm_call_1 (proc, scm_from_ssize_t (i)));
   scm_array_handle_release (&h);
 }
 
@@ -704,6 +702,7 @@ array_index_map_1 (SCM ra, SCM proc)
 static void
 array_index_map_n (SCM ra, SCM proc)
 {
+  scm_t_array_handle h;
   size_t i;
   int j, k, kmax = SCM_I_ARRAY_NDIM (ra) - 1;
   ssize_t *vi;
@@ -717,6 +716,7 @@ array_index_map_n (SCM ra, SCM proc)
         return;
     }
 
+  scm_array_get_handle (ra, &h);
   k = kmax;
   do
     {
@@ -735,7 +735,7 @@ array_index_map_n (SCM ra, SCM proc)
           for (; vi[kmax] <= SCM_I_ARRAY_DIMS (ra)[kmax].ubnd;
                *q = scm_from_ssize_t (++vi[kmax]))
             {
-              ASET (SCM_I_ARRAY_V (ra), i, scm_apply_0 (proc, args));
+              h.impl->vset (h.array, i, scm_apply_0 (proc, args));
               i += SCM_I_ARRAY_DIMS (ra)[kmax].inc;
             }
           k--;
@@ -752,6 +752,7 @@ array_index_map_n (SCM ra, SCM proc)
         }
     }
   while (k >= 0);
+  scm_array_handle_release (&h);
 }
 
 SCM_DEFINE (scm_array_index_map_x, "array-index-map!", 2, 0, 0,
