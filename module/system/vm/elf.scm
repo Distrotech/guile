@@ -423,7 +423,7 @@
 (define PF_R            (ash 1 2))      ; Segment is readable
 
 (define-record-type <elf-segment>
-  (make-elf-segment type index offset vaddr paddr filesz memsz flags align)
+  (make-elf-segment index type offset vaddr paddr filesz memsz flags align)
   elf-segment?
   (index elf-segment-index)
   (type elf-segment-type)
