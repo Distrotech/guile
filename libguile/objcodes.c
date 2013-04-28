@@ -89,6 +89,8 @@
 #define ELFDATA ELFDATA2LSB
 #endif
 
+static void register_elf (char *data, size_t len);
+
 enum bytecode_kind
   {
     BYTECODE_KIND_NONE,
@@ -457,6 +459,8 @@ load_thunk_from_memory (char *data, size_t len, int is_read_only)
   if (scm_is_true (init))
     scm_call_0 (init);
 
+  register_elf (data, len);
+
   /* Finally!  Return the thunk.  */
   return entry;
 
@@ -635,6 +639,30 @@ scm_c_make_objcode_slice (SCM parent, const scm_t_uint8 *ptr)
 }
 #undef FUNC_NAME
 
+static SCM mapped_elf_images = SCM_EOL;
+
+static void
+register_elf (char *data, size_t len)
+{
+  SCM bv = scm_c_take_gc_bytevector ((signed char *) data, len, SCM_BOOL_F);
+
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  mapped_elf_images = scm_cons (bv, mapped_elf_images);
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+}
+
+static SCM
+scm_mapped_elf_images (void)
+{
+  SCM ret;
+
+  scm_i_pthread_mutex_lock (&scm_i_misc_mutex);
+  ret = mapped_elf_images;
+  scm_i_pthread_mutex_unlock (&scm_i_misc_mutex);
+
+  return ret;
+}
+
 
 /*
  * Scheme interface
@@ -772,6 +800,9 @@ scm_init_objcodes (void)
 #ifndef SCM_MAGIC_SNARFER
 #include "libguile/objcodes.x"
 #endif
+
+  scm_c_define_gsubr ("mapped-elf-images", 0, 0, 0,
+                      (scm_t_subr) scm_mapped_elf_images);
 
   scm_c_define ("word-size", scm_from_size_t (sizeof(SCM)));
   scm_c_define ("byte-order", scm_from_uint16 (SCM_BYTE_ORDER));
