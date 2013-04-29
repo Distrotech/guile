@@ -693,7 +693,7 @@ array_index_map_1 (SCM ra, SCM proc)
   scm_array_get_handle (ra, &h);
   inc = h.dims[0].inc;
   for (i = h.dims[0].lbnd, p = h.base; i <= h.dims[0].ubnd; ++i, p += inc)
-    h.impl->vset (h.array, p, scm_call_1 (proc, scm_from_ssize_t (i)));
+    h.impl->vset (h.root, p, scm_call_1 (proc, scm_from_ssize_t (i)));
   scm_array_handle_release (&h);
 }
 
@@ -735,7 +735,7 @@ array_index_map_n (SCM ra, SCM proc)
           for (; vi[kmax] <= SCM_I_ARRAY_DIMS (ra)[kmax].ubnd;
                *q = scm_from_ssize_t (++vi[kmax]))
             {
-              h.impl->vset (h.array, i, scm_apply_0 (proc, args));
+              h.impl->vset (h.root, i, scm_apply_0 (proc, args));
               i += SCM_I_ARRAY_DIMS (ra)[kmax].inc;
             }
           k--;

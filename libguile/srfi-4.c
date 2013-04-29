@@ -118,13 +118,13 @@
   const ctype* scm_array_handle_##tag##_elements (scm_t_array_handle *h) \
   {                                                                     \
     if (h->element_type != ETYPE (TAG))                                 \
-      scm_wrong_type_arg_msg (NULL, 0, h->array, #tag "vector");        \
+      scm_wrong_type_arg_msg (NULL, 0, h->root, #tag "vector");         \
     return ((const ctype*) h->elements) + h->base*width;                \
   }                                                                     \
   ctype* scm_array_handle_##tag##_writable_elements (scm_t_array_handle *h) \
   {                                                                     \
     if (h->element_type != ETYPE (TAG))                                 \
-      scm_wrong_type_arg_msg (NULL, 0, h->array, #tag "vector");        \
+      scm_wrong_type_arg_msg (NULL, 0, h->root, #tag "vector");         \
     return ((ctype*) h->writable_elements) + h->base*width;             \
   }                                                                     \
   const ctype *scm_##tag##vector_elements (SCM uvec,                    \
@@ -142,7 +142,7 @@
       return ((ctype*)h->writable_elements) + h->base*width;            \
     /* otherwise... */                                                  \
     else                                                                \
-      scm_wrong_type_arg_msg (NULL, 0, h->array, #tag "vector");        \
+      scm_wrong_type_arg_msg (NULL, 0, h->root, #tag "vector");         \
   }
 
 

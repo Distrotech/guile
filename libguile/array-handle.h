@@ -92,7 +92,7 @@ SCM_INTERNAL SCM scm_i_array_element_types[];
 
 
 typedef struct scm_t_array_handle {
-  SCM array;
+  SCM root;
   scm_t_array_implementation *impl;
   /* `Base' is an offset into elements or writable_elements, corresponding to
      the first element in the array. It would be nicer just to adjust the
@@ -135,7 +135,7 @@ scm_array_handle_ref (scm_t_array_handle *h, ssize_t p)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  return h->impl->vref (h->array, h->base + p);
+  return h->impl->vref (h->root, h->base + p);
 }
 
 SCM_INLINE_IMPLEMENTATION void
@@ -145,7 +145,7 @@ scm_array_handle_set (scm_t_array_handle *h, ssize_t p, SCM v)
     /* catch overflow */
     scm_out_of_range (NULL, scm_from_ssize_t (p));
   /* perhaps should catch overflow here too */
-  h->impl->vset (h->array, h->base + p, v);
+  h->impl->vset (h->root, h->base + p, v);
 }
 
 #endif

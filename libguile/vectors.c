@@ -451,7 +451,7 @@ static void
 vector_get_handle (SCM v, scm_t_array_handle *h)
 {
   h->base = 0;
-  h->array = v;
+  h->root = v;
   h->ndims = 1;
   h->dims = &h->dim0;
   h->dim0.lbnd = 0;

@@ -165,12 +165,12 @@ scm_array_handle_bit_elements (scm_t_array_handle *h)
 scm_t_uint32 *
 scm_array_handle_bit_writable_elements (scm_t_array_handle *h)
 {
-  SCM vec = h->array;
+  SCM vec = h->root;
   if (SCM_I_ARRAYP (vec))
     vec = SCM_I_ARRAY_V (vec);
   if (IS_BITVECTOR (vec))
     return BITVECTOR_BITS (vec) + h->base/32;
-  scm_wrong_type_arg_msg (NULL, 0, h->array, "bit array");
+  scm_wrong_type_arg_msg (NULL, 0, h->root, "bit array");
 }
 
 size_t
@@ -869,7 +869,7 @@ static void
 bitvector_get_handle (SCM bv, scm_t_array_handle *h)
 {
   h->base = 0;
-  h->array = bv;
+  h->root = bv;
   h->ndims = 1;
   h->dims = &h->dim0;
   h->dim0.lbnd = 0;
