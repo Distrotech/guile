@@ -18,7 +18,7 @@
 
 (define-module (tests rtl)
   #:use-module (test-suite lib)
-  #:use-module (system vm rtl))
+  #:use-module (system vm assembler))
 
 (define-syntax-rule (assert-equal val expr)
   (let ((x val))

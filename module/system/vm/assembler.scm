@@ -1,4 +1,4 @@
-;;; Guile VM program functions
+;;; Guile RTL assembler
 
 ;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
 ;;;
@@ -18,12 +18,11 @@
 
 ;;; Code:
 
-(define-module (system vm rtl)
+(define-module (system vm assembler)
   #:use-module (system base target)
   #:use-module (system vm instruction)
   #:use-module (system vm elf)
   #:use-module (system vm linker)
-  #:use-module (system vm program)
   #:use-module (system vm objcode)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 vlist)
@@ -35,30 +34,6 @@
             emit-text
             link-assembly
             assemble-program))
-
-;;; TODO:
-;;;
-;;; * Make it possible to disassemble a function
-;;; ** Writing function ranges into an ELF section
-;;; *** sorted .symtab section, writing ELF symbols
-;;; ** Being able to determine the bounds of a function
-;;; ** Applying the existing disassemble-buffer function
-;;; ** Write table mapping function IP to name
-;;; ** Making disassemble-buffer better
-;;;
-;;; * Provide line number information
-;;; ** Provide additional macro-assembly for this
-;;; ** Write to separate ELF section: .debug_lines
-;;;
-;;; * More metadata
-;;; Arities, local variable names and ranges, other literal procedure
-;;; metadata
-;;; ** Write to separate ELF section: .debug_info
-;;;
-;;; .symtab and .debug_info (and to an extent, .debug_aranges et al) are
-;;; redundant, but since .symtab is so much smaller and easier it's
-;;; probably OK to duplicate the information, at least while we
-;;; bootstrap the new tools.
 
 (define-syntax-rule (pack-u8-u24 x y)
   (logior x (ash y 8)))
@@ -333,160 +308,6 @@
              ...))))))
 
 (visit-opcodes define-assembler)
-
-(define-syntax disassembler
-  (lambda (x)
-    (define (parse-first-word exp type)
-      #`(let ((word #,exp))
-          #,(case type
-              ((U8_X24)
-               #'(list))
-              ((U8_U24)
-               #'(list (ash word -8)))
-              ((U8_L24)
-               ;; Fixme: translate back to label
-               #'(list (ash word -8)))
-              ((U8_R24)
-               ;; FIXME: parse rest instructions correctly
-               #'(list (ash word -8)))
-              ((U8_U8_I16)
-               #'(list (logand (ash word -8) #xff)
-                       (ash word -16)))
-              ((U8_U12_U12)
-               #'(list (logand (ash word -8) #xfff)
-                       (ash word -20)))
-              ((U8_U8_U8_U8)
-               #'(list (logand (ash word -8) #xff)
-                       (logand (ash word -16) #xff)
-                       (ash word -24)))
-              (else
-               (error "bad kind" type)))))
-
-    (define (parse-tail-word buf offset n type)
-      #`(let ((word (u32-ref #,buf (+ #,offset #,n))))
-          #,(case type
-              ((U8_X24)
-               #'(list (logand word #ff)))
-              ((U8_U24)
-               #'(list (logand word #xff)
-                       (ash word -8)))
-              ((U8_L24)
-               ;; Fixme: translate back to label
-               #'(list (logand word #xff)
-                       (ash word -8)))
-              ((U8_R24)
-               ;; FIXME: parse rest instructions correctly
-               #'(list (logand word #xff)
-                       (ash word -8)))
-              ((U8_U8_I16)
-               ;; FIXME: immediates
-               #'(list (logand word #xff)
-                       (logand (ash word -8) #xff)
-                       (ash word -16)))
-              ((U8_U12_U12)
-               #'(list (logand word #xff)
-                       (logand (ash word -8) #xfff)
-                       (ash word -20)))
-              ((U8_U8_U8_U8)
-               #'(list (logand word #xff)
-                       (logand (ash word -8) #xff)
-                       (logand (ash word -16) #xff)
-                       (ash word -24)))
-              ((U32)
-               #'(list word))
-              ((I32)
-               ;; FIXME: immediates
-               #'(list word))
-              ((A32)
-               ;; FIXME: long immediates
-               #'(list word))
-              ((B32)
-               ;; FIXME: long immediates
-               #'(list word))
-              ((N32)
-               ;; FIXME: non-immediate
-               #'(list word))
-              ((S32)
-               ;; FIXME: indirect access
-               #'(list word))
-              ((L32)
-               ;; FIXME: offset
-               #'(list word))
-              ((LO32)
-               ;; FIXME: offset
-               #'(list word))
-              ((X8_U24)
-               #'(list (ash word -8)))
-              ((X8_U12_U12)
-               #'(list (logand (ash word -8) #xfff)
-                       (ash word -20)))
-              ((X8_R24)
-               ;; FIXME: rest
-               #'(list (ash word -8)))
-              ((X8_L24)
-               ;; FIXME: label
-               #'(list (ash word -8)))
-              ((U1_X7_L24)
-               ;; FIXME: label
-               #'(list (logand word #x1)
-                       (ash word -8)))
-              ((U1_U7_L24)
-               ;; FIXME: label
-               #'(list (logand word #x1)
-                       (logand (ash word -1) #x7f)
-                       (ash word -8)))
-              (else
-               (error "bad kind" type)))))
-
-    (syntax-case x ()
-      ((_ name opcode word0 word* ...)
-       (with-syntax ((asm
-                      (parse-first-word #'first
-                                        (syntax->datum #'word0)))
-                     ((asm* ...)
-                      (map (lambda (word n)
-                             (parse-tail-word #'buf #'offset (1+ n)
-                                              word))
-                           (syntax->datum #'(word* ...))
-                           (iota (length #'(word* ...))))))
-         #'(lambda (buf offset first)
-             (values (+ 1 (length '(word* ...)))
-                     (cons 'name (append asm asm* ...)))))))))
-
-(define (disasm-invalid buf offset first)
-  (error "bad instruction" (logand first #xff) first buf offset))
-
-(define disassemblers (make-vector 256 disasm-invalid))
-
-(define-syntax define-disassembler
-  (lambda (x)
-    (syntax-case x ()
-      ((_ name opcode arg ...)
-       (with-syntax ((parse (id-append #'name #'parse- #'name)))
-         #'(let ((parse (disassembler name opcode arg ...)))
-             (vector-set! disassemblers opcode parse)))))))
-
-(visit-opcodes define-disassembler)
-
-;; -> len list
-(define (disassemble-one buf offset)
-  (let ((first (u32-ref buf offset)))
-    ((vector-ref disassemblers (logand first #xff)) buf offset first)))
-
-;; -> list
-(define* (disassemble-buffer buf #:optional
-                              (offset 0)
-                              (end (u32vector-length buf)))
-
-  (let ((locals (u32-ref buf offset))
-        (meta (s32-ref buf (1+ offset))))
-    (let lp ((offset (+ offset 2))
-             (out '()))
-      (if (< offset end)
-          (call-with-values (lambda () (disassemble-one buf offset))
-            (lambda (len elt)
-              (lp (+ offset len) (cons elt out))))
-          (cons* locals meta (reverse out))))))
 
 (define-inlinable (immediate? x)
   (not (zero? (logand (object-address x) 6))))
@@ -1012,20 +833,26 @@
          (write-elf-symbol bv (* n size) endianness word-size
                            (make-elf-symbol
                             #:name name
-                            #:value (meta-low-pc meta)
-                            #:size (- (meta-high-pc meta) (meta-low-pc meta))
+                            ;; Symbol value and size are measured in
+                            ;; bytes, not u32s.
+                            #:value (* 4 (meta-low-pc meta))
+                            #:size (* 4 (- (meta-high-pc meta)
+                                           (meta-low-pc meta)))
                             #:type STT_FUNC
                             #:visibility STV_HIDDEN
                             #:shndx (elf-section-index text-section)))))
      meta (iota n))
-    (values (make-object asm '.symtab
-                         bv
-                         '() '()
-                         #:type SHT_SYMTAB #:flags 0)
-            (make-object asm '.strtab
-                         (link-string-table strtab)
-                         '() '()
-                         #:type SHT_STRTAB #:flags 0))))
+    (let ((strtab (make-object asm '.strtab
+                               (link-string-table strtab)
+                               '() '()
+                               #:type SHT_STRTAB #:flags 0)))
+      (values (make-object asm '.symtab
+                           bv
+                           '() '()
+                           #:type SHT_SYMTAB #:flags 0 #:entsize size
+                           #:link (elf-section-index
+                                   (linker-object-section strtab)))
+              strtab))))
 
 (define (link-objects asm)
   (let*-values (((ro rw rw-init) (link-constants asm))
