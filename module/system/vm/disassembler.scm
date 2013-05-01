@@ -72,8 +72,18 @@
                                    (syntax->datum #'fmt*))))
          #`(join-subformats (#,fmt** arg ... arg* ...) rest ...))))))
 
-(define (make-immediate n)
+(define (unpack-immediate n)
   (pointer->scm (make-pointer n)))
+
+(define (unpack-s24 s)
+  (if (zero? (logand s (ash 1 23)))
+      s
+      (- s (ash 1 24))))
+
+(define (unpack-s32 s)
+  (if (zero? (logand s (ash 1 31)))
+      s
+      (- s (ash 1 32))))
 
 (define-syntax disassembler
   (lambda (x)
@@ -88,7 +98,7 @@
               #f))
           ((U8_L24)
            ;; Fixme: translate back to label
-           #'(((ash word -8))
+           #'(((unpack-s24 (ash word -8)))
               #f))
           ((U8_R24)
            ;; FIXME: parse rest instructions correctly
@@ -97,7 +107,7 @@
           ((U8_U8_I16)
            #'(((logand (ash word -8) #xff)
                (ash word -16))
-              ("~S" (make-immediate (ash word -16)))))
+              ("~S" (unpack-immediate (ash word -16)))))
           ((U8_U12_U12)
            #'(((logand (ash word -8) #xfff)
                (ash word -20))
@@ -123,7 +133,7 @@
           ((U8_L24)
            ;; Fixme: translate back to label
            #'(((logand word #xff)
-               (ash word -8))
+               (unpack-s24 (ash word -8)))
               #f))
           ((U8_R24)
            ;; FIXME: parse rest instructions correctly
@@ -135,7 +145,7 @@
            #'(((logand word #xff)
                (logand (ash word -8) #xff)
                (ash word -16))
-              #f))
+              ("~A" (unpack-immediate (ash word -16)))))
           ((U8_U12_U12)
            #'(((logand word #xff)
                (logand (ash word -8) #xfff)
@@ -153,7 +163,7 @@
           ((I32)
            ;; FIXME: immediates
            #'((word)
-              #f))
+              ("~A" (unpack-immediate word))))
           ((A32)
            ;; FIXME: long immediates
            #'((word)
@@ -164,19 +174,19 @@
               #f))
           ((N32)
            ;; FIXME: non-immediate
-           #'((word)
+           #'(((unpack-s32 word))
               #f))
           ((S32)
            ;; FIXME: indirect access
-           #'((word)
+           #'(((unpack-s32 word))
               #f))
           ((L32)
            ;; FIXME: offset
-           #'((word)
+           #'(((unpack-s32 word))
               #f))
           ((LO32)
            ;; FIXME: offset
-           #'((word)
+           #'(((unpack-s32 word))
               #f))
           ((X8_U24)
            #'(((ash word -8))
@@ -191,18 +201,18 @@
               #f))
           ((X8_L24)
            ;; FIXME: label
-           #'(((ash word -8))
+           #'(((unpack-s24 (ash word -8)))
               #f))
           ((U1_X7_L24)
            ;; FIXME: label
            #'(((logand word #x1)
-               (ash word -8))
+               (unpack-s24 (ash word -8)))
               #f))
           ((U1_U7_L24)
            ;; FIXME: label
            #'(((logand word #x1)
                (logand (ash word -1) #x7f)
-               (ash word -8))
+               (unpack-s24 (ash word -8)))
               #f))
           (else
            (error "bad kind" type)))))
