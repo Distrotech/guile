@@ -824,20 +824,26 @@
          (write-elf-symbol bv (* n size) endianness word-size
                            (make-elf-symbol
                             #:name name
-                            #:value (meta-low-pc meta)
-                            #:size (- (meta-high-pc meta) (meta-low-pc meta))
+                            ;; Symbol value and size are measured in
+                            ;; bytes, not u32s.
+                            #:value (* 4 (meta-low-pc meta))
+                            #:size (* 4 (- (meta-high-pc meta)
+                                           (meta-low-pc meta)))
                             #:type STT_FUNC
                             #:visibility STV_HIDDEN
                             #:shndx (elf-section-index text-section)))))
      meta (iota n))
-    (values (make-object asm '.symtab
-                         bv
-                         '() '()
-                         #:type SHT_SYMTAB #:flags 0)
-            (make-object asm '.strtab
-                         (link-string-table strtab)
-                         '() '()
-                         #:type SHT_STRTAB #:flags 0))))
+    (let ((strtab (make-object asm '.strtab
+                               (link-string-table strtab)
+                               '() '()
+                               #:type SHT_STRTAB #:flags 0)))
+      (values (make-object asm '.symtab
+                           bv
+                           '() '()
+                           #:type SHT_SYMTAB #:flags 0 #:entsize size
+                           #:link (elf-section-index
+                                   (linker-object-section strtab)))
+              strtab))))
 
 (define (link-objects asm)
   (let*-values (((ro rw rw-init) (link-constants asm))
