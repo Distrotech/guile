@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -99,6 +99,18 @@ SCM_DEFINE (scm_make_rtl_program, "make-rtl-program", 1, 2, 0,
 }
 #undef FUNC_NAME
 
+SCM_DEFINE (scm_rtl_program_code, "rtl-program-code", 1, 0, 0,
+            (SCM program),
+            "")
+#define FUNC_NAME s_scm_rtl_program_code
+{
+  SCM_VALIDATE_RTL_PROGRAM (1, program);
+
+  /* FIXME: we need scm_from_uintptr ().  */
+  return scm_from_size_t ((size_t) SCM_RTL_PROGRAM_CODE (program));
+}
+#undef FUNC_NAME
+
 void
 scm_i_rtl_program_print (SCM program, SCM port, scm_print_state *pstate)
 {
@@ -158,6 +170,15 @@ SCM_DEFINE (scm_program_p, "program?", 1, 0, 0,
 #define FUNC_NAME s_scm_program_p
 {
   return scm_from_bool (SCM_PROGRAM_P (obj));
+}
+#undef FUNC_NAME
+
+SCM_DEFINE (scm_rtl_program_p, "rtl-program?", 1, 0, 0,
+	    (SCM obj),
+	    "")
+#define FUNC_NAME s_scm_rtl_program_p
+{
+  return scm_from_bool (SCM_RTL_PROGRAM_P (obj));
 }
 #undef FUNC_NAME
 
