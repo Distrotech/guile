@@ -398,7 +398,7 @@
   (define (make-header phnum index shoff-label)
     (let* ((header (make-elf #:byte-order endianness #:word-size word-size
                              #:phoff phoff #:phnum phnum #:phentsize phentsize
-                             #:shoff 0 #:shnum shnum #:shentsize phentsize
+                             #:shoff 0 #:shnum shnum #:shentsize shentsize
                              #:shstrndx (or (find-shstrndx objects) SHN_UNDEF)))
            (shoff-reloc (make-linker-reloc reloc-kind
                                            (elf-header-shoff-offset word-size)
