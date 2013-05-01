@@ -44,6 +44,7 @@
 
             program-meta
             program-objcode program? program-objects
+            rtl-program? rtl-program-code
             program-module program-base
             program-free-variables
             program-num-free-variables
