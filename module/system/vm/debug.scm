@@ -27,11 +27,15 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-9)
   #:export (<debug-context>
+            debug-context-image
             find-debug-context
+            u32-offset->addr
 
             <program-debug-info>
             program-debug-info-name
+            program-debug-info-context
             program-debug-info-image
+            program-debug-info-addr
             program-debug-info-u32-offset
             program-debug-info-u32-offset-end
 
@@ -44,30 +48,35 @@
   (base debug-context-base)
   (text-base debug-context-text-base))
 
+(define (debug-context-image context)
+  (elf-bytes (debug-context-elf context)))
+
+(define (u32-offset->addr offset context)
+  (+ (debug-context-base context) (* offset 4)))
+
 (define-record-type <program-debug-info>
-  (make-program-debug-info context name start size)
+  (make-program-debug-info context name addr size)
   program-debug-info?
   (context program-debug-info-context)
   (name program-debug-info-name)
-  (start program-debug-info-start)
+  (addr program-debug-info-addr)
   (size program-debug-info-size))
 
 (define (program-debug-info-image pdi)
-  (elf-bytes (debug-context-elf (program-debug-info-context pdi))))
+  (debug-context-image (program-debug-info-context pdi)))
 
 (define (program-debug-info-u32-offset pdi)
-  ;; The start position is in bytes from the beginning of the text
-  ;; section.  The text-base is in bytes from the beginning of the
-  ;; image.  Return the start position as a u32 index from the start of
-  ;; the image.
-  (/ (+ (program-debug-info-start pdi)
+  ;; ADDR is in bytes from the beginning of the text section.  TEXT-BASE
+  ;; is in bytes from the beginning of the image.  Return ADDR as a u32
+  ;; index from the start of the image.
+  (/ (+ (program-debug-info-addr pdi)
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
 (define (program-debug-info-u32-offset-end pdi)
   ;; Return the end position as a u32 index from the start of the image.
   (/ (+ (program-debug-info-size pdi)
-        (program-debug-info-start pdi)
+        (program-debug-info-addr pdi)
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
