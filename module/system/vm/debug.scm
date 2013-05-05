@@ -1,0 +1,124 @@
+;;; Guile RTL disassembler
+
+;;; Copyright (C) 2001, 2009, 2010, 2012, 2013 Free Software Foundation, Inc.
+;;;
+;;; This library is free software; you can redistribute it and/or
+;;; modify it under the terms of the GNU Lesser General Public
+;;; License as published by the Free Software Foundation; either
+;;; version 3 of the License, or (at your option) any later version.
+;;;
+;;; This library is distributed in the hope that it will be useful,
+;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;; Lesser General Public License for more details.
+;;;
+;;; You should have received a copy of the GNU Lesser General Public
+;;; License along with this library; if not, write to the Free Software
+;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+;;; Code:
+
+(define-module (system vm debug)
+  #:use-module (system vm elf)
+  #:use-module (system vm program)
+  #:use-module (system vm objcode)
+  #:use-module (system foreign)
+  #:use-module (rnrs bytevectors)
+  #:use-module (ice-9 match)
+  #:use-module (srfi srfi-9)
+  #:export (<debug-context>
+            find-debug-context
+
+            <program-debug-info>
+            program-debug-info-name
+            program-debug-info-image
+            program-debug-info-u32-offset
+            program-debug-info-u32-offset-end
+
+            find-program-debug-info))
+
+(define-record-type <debug-context>
+  (make-debug-context elf base text-base)
+  debug-context?
+  (elf debug-context-elf)
+  (base debug-context-base)
+  (text-base debug-context-text-base))
+
+(define-record-type <program-debug-info>
+  (make-program-debug-info context name start size)
+  program-debug-info?
+  (context program-debug-info-context)
+  (name program-debug-info-name)
+  (start program-debug-info-start)
+  (size program-debug-info-size))
+
+(define (program-debug-info-image pdi)
+  (elf-bytes (debug-context-elf (program-debug-info-context pdi))))
+
+(define (program-debug-info-u32-offset pdi)
+  ;; The start position is in bytes from the beginning of the text
+  ;; section.  The text-base is in bytes from the beginning of the
+  ;; image.  Return the start position as a u32 index from the start of
+  ;; the image.
+  (/ (+ (program-debug-info-start pdi)
+        (debug-context-text-base (program-debug-info-context pdi)))
+     4))
+
+(define (program-debug-info-u32-offset-end pdi)
+  ;; Return the end position as a u32 index from the start of the image.
+  (/ (+ (program-debug-info-size pdi)
+        (program-debug-info-start pdi)
+        (debug-context-text-base (program-debug-info-context pdi)))
+     4))
+
+(define* (find-debug-context #:key program (addr (rtl-program-code program)))
+  (let* ((bv (find-mapped-elf-image addr))
+         (elf (parse-elf bv))
+         (base (pointer-address (bytevector->pointer (elf-bytes elf))))
+         (text-base (elf-section-offset
+                     (or (elf-section-by-name elf ".rtl-text")
+                         (error "ELF object has no text section")))))
+    (make-debug-context elf base text-base)))
+
+(define (find-elf-symbol elf text-offset)
+  (and=>
+   (elf-section-by-name elf ".symtab")
+   (lambda (symtab)
+     (let ((len (elf-symbol-table-len symtab))
+           (strtab (elf-section elf (elf-section-link symtab))))
+       ;; The symbols should be sorted, but maybe somehow that fails
+       ;; (for example if multiple objects are relinked together).  So,
+       ;; a modicum of tolerance.
+       (define (bisect)
+         ;; FIXME: Implement.
+         #f)
+       (define (linear-search)
+         (let lp ((n 0))
+           (and (< n len)
+                (let ((sym (elf-symbol-table-ref elf symtab n strtab)))
+                  (if (and (<= (elf-symbol-value sym) text-offset)
+                           (< text-offset (+ (elf-symbol-value sym)
+                                             (elf-symbol-size sym))))
+                      sym
+                      (lp (1+ n)))))))
+       (or (bisect) (linear-search))))))
+
+(define* (find-program-debug-info #:key program
+                                  (addr (rtl-program-code program))
+                                  (context (find-debug-context #:addr addr)))
+  (cond
+   ((find-elf-symbol (debug-context-elf context)
+                     (- addr
+                        (debug-context-base context)
+                        (debug-context-text-base context)))
+    => (lambda (sym)
+         (make-program-debug-info context
+                                  (and=> (elf-symbol-name sym)
+                                         ;; The name might be #f if
+                                         ;; the string table was
+                                         ;; stripped somehow.
+                                         (lambda (x)
+                                           (and (string? x) x)))
+                                  (elf-symbol-value sym)
+                                  (elf-symbol-size sym))))
+   (else #f)))
