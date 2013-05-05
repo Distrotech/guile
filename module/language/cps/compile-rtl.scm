@@ -246,12 +246,11 @@
     ;; (language cps primitives). However, other primitives are
     ;; different, in different ways:
 
-    ;; ref and set need to know if they're handling a toplevel variable
-    ;; or not. I think there's some bad abstraction going on here, but
-    ;; fixing it is hard. The most elegant thing from the CPS point of
-    ;; view is to forget about the toplevel-ref and toplevel-set VM
-    ;; instructions and just use resolve for everything, but that might
-    ;; be slow until we have a tiling code generator.
+    ;; ref and set need to know if they're handling a module variable or
+    ;; not. The most elegant thing from the CPS point of view is to
+    ;; forget about the module-ref and module-set VM instructions and
+    ;; just use resolve for everything, but that might be slow until we
+    ;; have a tiling code generator.
 
     ;; closure-ref needs to know the value of its argument at compile
     ;; time, so it has to look that up in the name-defn table.
@@ -272,13 +271,19 @@
                     (dst (if (pair? dsts)
                              (car dsts)
                              rest)))
-               (if (toplevel-var? var)
+               (if (module-var? var)
                    ;; the scope is 'foo because we don't meaningfully
-                   ;; distinguish scopes yet. we should really just
-                   ;; cache the current module once per procedure.
-                   `((cache-current-module! ,dst foo)
-                     (cached-toplevel-ref ,dst foo
-                                          ,(toplevel-var-name var)))
+                   ;; distinguish scopes yet.
+                   (if (eq? (module-var-module var) 'toplevel)
+                       ;; we should really just cache the current module
+                       ;; once per procedure.
+                       `((cache-current-module! ,dst foo)
+                         (cached-toplevel-ref ,dst foo
+                                              ,(module-var-name var)))
+                       `((cached-module-ref ,dst
+                                            ,(module-var-module var)
+                                            ,(module-var-public? var)
+                                            ,(module-var-name var))))
                    `((box-ref ,dst ,(register var-value))))))
       ((set) (let* ((var-value (car args))
                     (new-value (cadr args))
@@ -286,11 +291,17 @@
                     (dst (if (pair? dsts)
                              (car dsts)
                              rest)))
-               (if (toplevel-var? var)
-                   `((cache-current-module! ,dst foo)
-                     (cached-toplevel-set! ,(register new-value) foo
-                                           ,(toplevel-var-name var))
-                     (mov ,dst ,(register new-value)))
+               (if (module-var? var)
+                   (if (eq? (module-var-module var) 'toplevel)
+                       `((cache-current-module! ,dst foo)
+                         (cached-toplevel-set! ,(register new-value) foo
+                                               ,(module-var-name var))
+                         (mov ,dst ,(register new-value)))
+                       `((cached-module-set! ,(register new-value)
+                                             ,(module-var-module var)
+                                             ,(module-var-public? var)
+                                             ,(module-var-name var))
+                         (mov ,dst ,(register new-value))))
                    `((box-set!
                       ,(register var-value)
                       ,(register new-value))
@@ -417,14 +428,14 @@
           (br ,(label consequent))))
        (($ <letval> names vals body)
         ;; <letval> values can be either constants, <var>s, or
-        ;; <toplevel-var>s. For constants, we intern a constant. For
-        ;; <var>s, we make a box. For <toplevel-var>s, we do nothing.
+        ;; <module-var>s. For constants, we intern a constant. For
+        ;; <var>s, we make a box. For <module-var>s, we do nothing.
         `(,@(append-map!
              (lambda (name val)
                (cond ((var? val)
                       `((box ,(register name)
                              ,(register (var-value val)))))
-                     ((toplevel-var? val)
+                     ((module-var? val)
                       `())
                      ((const? val)
                       `((load-constant ,(register name)

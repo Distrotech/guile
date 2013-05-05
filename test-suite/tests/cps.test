@@ -103,3 +103,7 @@
                            (set! x 12)
                            x))))))))
 
+(pass-if "module-ref"
+  (eq? ((cps-compile '(lambda ()
+                      (@ (language cps compile-rtl) cps-compile))))
+       cps-compile))

@@ -67,8 +67,8 @@
                         ((<var> value)
                          `(,(maybe-cons-ann 'var)
                            ,(visit value)))
-                        ((<toplevel-var> name)
-                         `(,(maybe-cons-ann 'toplevel-var)
+                        ((<module-var> mod name public?)
+                         `(,(maybe-cons-ann 'module-var)
                            ,name))))))
   
   (visit cps))

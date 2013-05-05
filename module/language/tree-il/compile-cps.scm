@@ -177,7 +177,16 @@
        (let ((var-name (gensym "var-")))
          (cps-make-letval
           (list var-name)
-          (list (cps-make-toplevel-var name))
+          (list (cps-make-module-var 'toplevel name #t))
+          (cps-make-call
+           (cps-make-primitive 'ref)
+           k
+           (list var-name)))))
+      (($ <module-ref> src mod name public?)
+       (let ((var-name (gensym "var-")))
+         (cps-make-letval
+          (list var-name)
+          (list (cps-make-module-var mod name public?))
           (cps-make-call
            (cps-make-primitive 'ref)
            k
@@ -188,7 +197,19 @@
           (let ((var-name (gensym "var-")))
             (cps-make-letval
              (list var-name)
-             (list (cps-make-toplevel-var name))
+             (list (cps-make-module-var 'toplevel name #t))
+             (cps-make-call
+              (cps-make-primitive 'set)
+              k
+              (list var-name set-val)))))
+        exp env))
+      (($ <module-set> src mod name public? exp)
+       (with-value-name
+        (lambda (set-val)
+          (let ((var-name (gensym "var-")))
+            (cps-make-letval
+             (list var-name)
+             (list (cps-make-module-var mod name public?))
              (cps-make-call
               (cps-make-primitive 'set)
               k

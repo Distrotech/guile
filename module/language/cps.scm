@@ -4,7 +4,8 @@
   #:export (<letval> letval? make-letval letval-names letval-vals letval-body
             <const> const? make-const const-value
             <var> var? make-var var-value
-            <toplevel-var> toplevel-var? make-toplevel-var toplevel-var-name
+            <module-var> module-var? make-module-var module-var-module
+                         module-var-name module-var-public?
             <letrec> letrec? make-letrec letrec-names letrec-funcs letrec-body
             <letcont> letcont? make-letcont letcont-names
                       letcont-conts letcont-body
@@ -167,11 +168,15 @@
   ;; in the VM. value is the value it is initialized to. it should be a
   ;; CPS value (which is a symbol).
   (<var> value)
-  ;; toplevel vars are like pseudo-vars. instead of actually creating a
+  ;; module vars are like pseudo-vars. instead of actually creating a
   ;; variable object, we'll just remember that there *is* a variable
   ;; object already in existence and look it up when we need it. we
-  ;; remember the name of the variable so that we can look it up.
-  (<toplevel-var> name))
+  ;; remember the name of the variable so that we can look it up. we
+  ;; also remember the module, which is always a constant value (not
+  ;; bound in a letval- this is an actual list). toplevel-vars are a
+  ;; subset of module vars, where module is the special value
+  ;; 'toplevel. they are always public.
+  (<module-var> module name public?))
 
 (define (parse-cps tree)
   (match tree
@@ -183,8 +188,8 @@
      (make-const value))
     (('var value)
      (make-var value))
-    (('toplevel-var name)
-     (make-toplevel-var name))
+    (('module-var mod name public?)
+     (make-module-var mod name public?))
     (('letrec names funcs body)
      (make-letrec names
                   (map parse-cps funcs)
@@ -215,8 +220,8 @@
      (list 'const value))
     (($ <var> value)
      (list 'var value))
-    (($ <toplevel-var> name)
-     (list 'toplevel-var name))
+    (($ <module-var> mod name public?)
+     (list 'module-var mod name public?))
     (($ <letrec> names funcs body)
      (list 'letrec names
            (map unparse-cps funcs)
