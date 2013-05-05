@@ -35,6 +35,7 @@
             program-debug-info-name
             program-debug-info-context
             program-debug-info-image
+            program-debug-info-offset
             program-debug-info-addr
             program-debug-info-u32-offset
             program-debug-info-u32-offset-end
@@ -55,28 +56,33 @@
   (+ (debug-context-base context) (* offset 4)))
 
 (define-record-type <program-debug-info>
-  (make-program-debug-info context name addr size)
+  (make-program-debug-info context name offset size)
   program-debug-info?
   (context program-debug-info-context)
   (name program-debug-info-name)
-  (addr program-debug-info-addr)
+  (offset program-debug-info-offset)
   (size program-debug-info-size))
+
+(define (program-debug-info-addr pdi)
+  (+ (program-debug-info-offset pdi)
+     (debug-context-text-base (program-debug-info-context pdi))
+     (debug-context-base (program-debug-info-context pdi))))
 
 (define (program-debug-info-image pdi)
   (debug-context-image (program-debug-info-context pdi)))
 
 (define (program-debug-info-u32-offset pdi)
-  ;; ADDR is in bytes from the beginning of the text section.  TEXT-BASE
-  ;; is in bytes from the beginning of the image.  Return ADDR as a u32
+  ;; OFFSET is in bytes from the beginning of the text section.  TEXT-BASE
+  ;; is in bytes from the beginning of the image.  Return OFFSET as a u32
   ;; index from the start of the image.
-  (/ (+ (program-debug-info-addr pdi)
+  (/ (+ (program-debug-info-offset pdi)
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
 (define (program-debug-info-u32-offset-end pdi)
   ;; Return the end position as a u32 index from the start of the image.
   (/ (+ (program-debug-info-size pdi)
-        (program-debug-info-addr pdi)
+        (program-debug-info-offset pdi)
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
