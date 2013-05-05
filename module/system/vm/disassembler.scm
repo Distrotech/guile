@@ -20,14 +20,11 @@
 
 (define-module (system vm disassembler)
   #:use-module (system vm instruction)
-  #:use-module (system vm elf)
-  #:use-module (system vm program)
-  #:use-module (system vm objcode)
+  #:use-module (system vm debug)
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 format)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 vlist)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:export (disassemble-program))
@@ -52,26 +49,6 @@
 (eval-when (expand compile load eval)
   (define (id-append ctx a b)
     (datum->syntax ctx (symbol-append (syntax->datum a) (syntax->datum b)))))
-
-(define-syntax join-subformats
-  (lambda (x)
-    (syntax-case x ()
-      ((_)
-       #f)
-      ((_ #f rest ...)
-       #'(join-subformats rest ...))
-      ((_ (fmt arg ...))
-       (string? (syntax->datum #'fmt))
-       #'(list fmt arg ...))
-      ((_ (fmt arg ...) #f rest ...)
-       (string? (syntax->datum #'fmt))
-       #'(join-subformats (fmt arg ...) rest ...))
-      ((_ (fmt arg ...) (fmt* arg* ...) rest ...)
-       (and (string? (syntax->datum #'fmt)) (string? (syntax->datum #'fmt*)))
-       (let ((fmt** (string-append (syntax->datum #'fmt)
-                                   ", "
-                                   (syntax->datum #'fmt*))))
-         #`(join-subformats (#,fmt** arg ... arg* ...) rest ...))))))
 
 (define (unpack-immediate n)
   (pointer->scm (make-pointer n)))
@@ -239,28 +216,6 @@
                      (cons (u32-ref buf (+ offset len n)) rhead)))))
           (_ (values len list)))))))
 
-(define (find-elf-symbol elf text-offset)
-  (and=>
-   (elf-section-by-name elf ".symtab")
-   (lambda (symtab)
-     (let ((len (elf-symbol-table-len symtab))
-           (strtab (elf-section elf (elf-section-link symtab))))
-       ;; The symbols should be sorted, but maybe somehow that fails
-       ;; (for example if multiple objects are relinked together).  So,
-       ;; a modicum of tolerance.
-       (define (bisect)
-         #f)
-       (define (linear-search)
-         (let lp ((n 0))
-           (and (< n len)
-                (let ((sym (elf-symbol-table-ref elf symtab n strtab)))
-                  (if (and (<= (elf-symbol-value sym) text-offset)
-                           (< text-offset (+ (elf-symbol-value sym)
-                                             (elf-symbol-size sym))))
-                      sym
-                      (lp (1+ n)))))))
-       (or (bisect) (linear-search))))))
-
 (define (code-annotation code len offset start labels)
   ;; FIXME: Print names for register loads and stores that correspond to
   ;; access to named locals.
@@ -380,23 +335,16 @@
               (lp (+ offset len)))))))))
 
 (define* (disassemble-program program #:optional (port (current-output-port)))
-  (let* ((code (rtl-program-code program))
-         (bv (find-mapped-elf-image code))
-         (elf (parse-elf bv))
-         (base (pointer-address (bytevector->pointer (elf-bytes elf))))
-         (text-base (elf-section-offset
-                     (or (elf-section-by-name elf ".rtl-text")
-                         (error "ELF object has no text section")))))
-    (cond
-     ((find-elf-symbol elf (- code base text-base))
-      => (lambda (sym)
-           ;; The text-base, symbol value, and symbol size are in bytes,
-           ;; but the disassembler operates on u32 units.
-           (let ((start (/ (+ (elf-symbol-value sym) text-base) 4))
-                 (size (/ (elf-symbol-size sym) 4)))
-             (format port "Disassembly of ~A at #x~X:\n\n"
-                     (elf-symbol-name sym) code)
-             (disassemble-buffer port bv start (+ start size)))))
-     (else
-      (format port "Debugging information unavailable.~%")))
-    (values)))
+  (cond
+   ((find-program-debug-info #:program program)
+    => (lambda (pdi)
+         ;; FIXME: RTL programs should print with their names.
+         (format port "Disassembly of ~A at ~S:\n\n"
+                 (program-debug-info-name pdi) program)
+         (disassemble-buffer port
+                             (program-debug-info-image pdi)
+                             (program-debug-info-u32-offset pdi)
+                             (program-debug-info-u32-offset-end pdi))))
+   (else
+    (format port "Debugging information unavailable.~%")))
+  (values))
