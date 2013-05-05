@@ -1,6 +1,6 @@
 ;;; Guile DWARF reader and writer
 
-;; Copyright (C) 2012 Free Software Foundation, Inc.
+;; Copyright (C) 2012, 2013 Free Software Foundation, Inc.
 
 ;; Parts of this file were derived from sysdeps/generic/dwarf2.h, from
 ;; the GNU C Library.  That file is available under the LGPL version 2
@@ -25,6 +25,48 @@
 ;;;; License along with this library; if not, write to the Free Software
 ;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
 
+;;; Commentary:
+;;
+;; DWARF is a flexible format for describing compiled programs.  It is
+;; used by Guile to record source positions, describe local variables,
+;; function arities, and other function metadata.
+;;
+;; Structurally, DWARF describes a tree of data.  Each node in the tree
+;; is a debugging information entry ("DIE").  Each DIE has a "tag",
+;; possible a set of attributes, and possibly some child DIE nodes.
+;; That's basically it!
+;;
+;; The DIE nodes are contained in the .debug_info section of an ELF
+;; file.  Attributes within the DIE nodes link them to mapped ranges of
+;; the ELF file (.rtl_text, .data, etc.).
+;;
+;; A .debug_info section logically contains a series of debugging
+;; "contributions", one for each compilation unit.  Each contribution is
+;; prefixed by a header and contains a single DIE element whose tag is
+;; "compilation-unit".  That node usually contains child nodes, for
+;; example of type "subprogram".
+;;
+;; Since usually one will end up producing many DIE nodes with the same
+;; tag and attribute types, DIE nodes are defined by referencing a known
+;; shape, and then filling in the values.  The shapes are defined in the
+;; form of "abbrev" entries, which specify a specific combination of a
+;; tag and an ordered set of attributes, with corresponding attribute
+;; representations ("forms").  Abbrevs are written out to a separate
+;; section, .debug_abbrev.  Abbrev nodes also specify whether the
+;; corresponding DIE node has children or not.  When a DIE is written
+;; into the .debug_info section, it references one of the abbrevs in
+;; .debug_abbrev.  You need the abbrev in order to parse the DIE.
+;;
+;; For completeness, the other sections that DWARF uses are .debug_str,
+;; .debug_loc, .debug_pubnames, .debug_aranges, .debug_frame, and
+;; .debug_line.  These are described in section 6 of the DWARF 3.0
+;; specification, at http://dwarfstd.org/.
+;;
+;; This DWARF module is currently capable of parsing all of DWARF 2.0
+;; and parts of DWARF 3.0.  For Guile's purposes, we also use DWARF as
+;; the format for our own debugging information.  The DWARF generator is
+;; fairly minimal, and is not intended to be complete.
+;;
 ;;; Code:
 
 (define-module (system vm dwarf)
