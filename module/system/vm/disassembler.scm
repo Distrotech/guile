@@ -73,10 +73,8 @@
           ((U8_U24)
            #'((ash word -8)))
           ((U8_L24)
-           ;; Fixme: translate back to label
            #'((unpack-s24 (ash word -8))))
           ((U8_R24)
-           ;; FIXME: parse rest instructions correctly
            #'(#:rest (ash word -8)))
           ((U8_U8_I16)
            #'((logand (ash word -8) #xff)
@@ -100,15 +98,12 @@
            #'((logand word #xff)
               (ash word -8)))
           ((U8_L24)
-           ;; Fixme: translate back to label
            #'((logand word #xff)
               (unpack-s24 (ash word -8))))
           ((U8_R24)
-           ;; FIXME: parse rest instructions correctly
            #'((logand word #xff)
               #:rest (ash word -8)))
           ((U8_U8_I16)
-           ;; FIXME: immediates
            #'((logand word #xff)
               (logand (ash word -8) #xff)
               (ash word -16)))
@@ -124,25 +119,18 @@
           ((U32)
            #'(word))
           ((I32)
-           ;; FIXME: immediates
            #'(word))
           ((A32)
-           ;; FIXME: long immediates
            #'(word))
           ((B32)
-           ;; FIXME: long immediates
            #'(word))
           ((N32)
-           ;; FIXME: non-immediate
            #'((unpack-s32 word)))
           ((S32)
-           ;; FIXME: indirect access
            #'((unpack-s32 word)))
           ((L32)
-           ;; FIXME: offset
            #'((unpack-s32 word)))
           ((LO32)
-           ;; FIXME: offset
            #'((unpack-s32 word)))
           ((X8_U24)
            #'((ash word -8)))
@@ -150,17 +138,13 @@
            #'((logand (ash word -8) #xfff)
               (ash word -20)))
           ((X8_R24)
-           ;; FIXME: rest
            #'(#:rest (ash word -8)))
           ((X8_L24)
-           ;; FIXME: label
            #'((unpack-s24 (ash word -8))))
           ((U1_X7_L24)
-           ;; FIXME: label
            #'((logand word #x1)
               (unpack-s24 (ash word -8))))
           ((U1_U7_L24)
-           ;; FIXME: label
            #'((logand word #x1)
               (logand (ash word -1) #x7f)
               (unpack-s24 (ash word -8))))
@@ -345,9 +329,8 @@
   (cond
    ((find-program-debug-info #:program program)
     => (lambda (pdi)
-         ;; FIXME: RTL programs should print with their names.
-         (format port "Disassembly of ~A at ~S:\n\n"
-                 (program-debug-info-name pdi) program)
+         (format port "Disassembly of ~S at #x~X:\n\n" program
+                 (program-debug-info-addr pdi))
          (disassemble-buffer port
                              (program-debug-info-image pdi)
                              (program-debug-info-u32-offset pdi)
