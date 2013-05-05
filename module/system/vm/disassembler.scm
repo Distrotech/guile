@@ -26,6 +26,7 @@
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 format)
+  #:use-module (ice-9 match)
   #:use-module (ice-9 vlist)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
@@ -91,32 +92,25 @@
       (with-syntax ((word word))
         (case type
           ((U8_X24)
-           #'(()
-              #f))
+           #'())
           ((U8_U24)
-           #'(((ash word -8))
-              #f))
+           #'((ash word -8)))
           ((U8_L24)
            ;; Fixme: translate back to label
-           #'(((unpack-s24 (ash word -8)))
-              #f))
+           #'((unpack-s24 (ash word -8))))
           ((U8_R24)
            ;; FIXME: parse rest instructions correctly
-           #'(((ash word -8))
-              #f))
+           #'(#:rest (ash word -8)))
           ((U8_U8_I16)
-           #'(((logand (ash word -8) #xff)
-               (ash word -16))
-              ("~S" (unpack-immediate (ash word -16)))))
+           #'((logand (ash word -8) #xff)
+              (ash word -16)))
           ((U8_U12_U12)
-           #'(((logand (ash word -8) #xfff)
-               (ash word -20))
-              #f))
+           #'((logand (ash word -8) #xfff)
+              (ash word -20)))
           ((U8_U8_U8_U8)
-           #'(((logand (ash word -8) #xff)
-               (logand (ash word -16) #xff)
-               (ash word -24))
-              #f))
+           #'((logand (ash word -8) #xff)
+              (logand (ash word -16) #xff)
+              (ash word -24)))
           (else
            (error "bad kind" type)))))
 
@@ -124,96 +118,75 @@
       (with-syntax ((word word))
         (case type
           ((U8_X24)
-           #'(((logand word #ff))
-              #f))
+           #'((logand word #ff)))
           ((U8_U24)
-           #'(((logand word #xff)
-               (ash word -8))
-              #f))
+           #'((logand word #xff)
+              (ash word -8)))
           ((U8_L24)
            ;; Fixme: translate back to label
-           #'(((logand word #xff)
-               (unpack-s24 (ash word -8)))
-              #f))
+           #'((logand word #xff)
+              (unpack-s24 (ash word -8))))
           ((U8_R24)
            ;; FIXME: parse rest instructions correctly
-           #'(((logand word #xff)
-               (ash word -8))
-              #f))
+           #'((logand word #xff)
+              #:rest (ash word -8)))
           ((U8_U8_I16)
            ;; FIXME: immediates
-           #'(((logand word #xff)
-               (logand (ash word -8) #xff)
-               (ash word -16))
-              ("~A" (unpack-immediate (ash word -16)))))
+           #'((logand word #xff)
+              (logand (ash word -8) #xff)
+              (ash word -16)))
           ((U8_U12_U12)
-           #'(((logand word #xff)
-               (logand (ash word -8) #xfff)
-               (ash word -20))
-              #f))
+           #'((logand word #xff)
+              (logand (ash word -8) #xfff)
+              (ash word -20)))
           ((U8_U8_U8_U8)
-           #'(((logand word #xff)
-               (logand (ash word -8) #xff)
-               (logand (ash word -16) #xff)
-               (ash word -24))
-              #f))
+           #'((logand word #xff)
+              (logand (ash word -8) #xff)
+              (logand (ash word -16) #xff)
+              (ash word -24)))
           ((U32)
-           #'((word)
-              #f))
+           #'(word))
           ((I32)
            ;; FIXME: immediates
-           #'((word)
-              ("~A" (unpack-immediate word))))
+           #'(word))
           ((A32)
            ;; FIXME: long immediates
-           #'((word)
-              #f))
+           #'(word))
           ((B32)
            ;; FIXME: long immediates
-           #'((word)
-              #f))
+           #'(word))
           ((N32)
            ;; FIXME: non-immediate
-           #'(((unpack-s32 word))
-              #f))
+           #'((unpack-s32 word)))
           ((S32)
            ;; FIXME: indirect access
-           #'(((unpack-s32 word))
-              #f))
+           #'((unpack-s32 word)))
           ((L32)
            ;; FIXME: offset
-           #'(((unpack-s32 word))
-              #f))
+           #'((unpack-s32 word)))
           ((LO32)
            ;; FIXME: offset
-           #'(((unpack-s32 word))
-              #f))
+           #'((unpack-s32 word)))
           ((X8_U24)
-           #'(((ash word -8))
-              #f))
+           #'((ash word -8)))
           ((X8_U12_U12)
-           #'(((logand (ash word -8) #xfff)
-               (ash word -20))
-              #f))
+           #'((logand (ash word -8) #xfff)
+              (ash word -20)))
           ((X8_R24)
            ;; FIXME: rest
-           #'(((ash word -8))
-              #f))
+           #'(#:rest (ash word -8)))
           ((X8_L24)
            ;; FIXME: label
-           #'(((unpack-s24 (ash word -8)))
-              #f))
+           #'((unpack-s24 (ash word -8))))
           ((U1_X7_L24)
            ;; FIXME: label
-           #'(((logand word #x1)
-               (unpack-s24 (ash word -8)))
-              #f))
+           #'((logand word #x1)
+              (unpack-s24 (ash word -8))))
           ((U1_U7_L24)
            ;; FIXME: label
-           #'(((logand word #x1)
-               (logand (ash word -1) #x7f)
-               (unpack-s24 (ash word -8)))
-              #f))
+           #'((logand word #x1)
+              (logand (ash word -1) #x7f)
+              (unpack-s24 (ash word -8))))
           (else
            (error "bad kind" type)))))
 
@@ -222,9 +195,9 @@
        (let ((vars (generate-temporaries #'(word* ...))))
          (with-syntax (((word* ...) vars)
                        ((n ...) (map 1+ (iota (length #'(word* ...)))))
-                       (((asm ...) note)
+                       ((asm ...)
                         (parse-first-word #'first (syntax->datum #'word0)))
-                       ((((asm* ...) note*) ...)
+                       (((asm* ...) ...)
                         (map (lambda (word type)
                                (parse-tail-word word type))
                              vars
@@ -233,8 +206,7 @@
                (let ((word* (u32-ref buf (+ offset n)))
                      ...)
                  (values (+ 1 (length '(word* ...)))
-                         (list 'name asm ... asm* ... ...)
-                         (join-subformats note note* ...))))))))))
+                         (list 'name asm ... asm* ... ...))))))))))
 
 (define (disasm-invalid buf offset first)
   (error "bad instruction" (logand first #xff) first buf offset))
@@ -254,7 +226,18 @@
 ;; -> len list
 (define (disassemble-one buf offset)
   (let ((first (u32-ref buf offset)))
-    ((vector-ref disassemblers (logand first #xff)) buf offset first)))
+    (call-with-values
+        (lambda ()
+          ((vector-ref disassemblers (logand first #xff)) buf offset first))
+      (lambda (len list)
+        (match list
+          ((head ... #:rest rest)
+           (let lp ((n 0) (rhead (reverse head)))
+             (if (= n rest)
+                 (values (+ len n) (reverse rhead))
+                 (lp (1+ n)
+                     (cons (u32-ref buf (+ offset len n)) rhead)))))
+          (_ (values len list)))))))
 
 (define (find-elf-symbol elf text-offset)
   (and=>
@@ -278,9 +261,123 @@
                       (lp (1+ n)))))))
        (or (bisect) (linear-search))))))
 
-(define (print-info port addr info extra src)
+(define (code-annotation code len offset start labels)
+  ;; FIXME: Print names for register loads and stores that correspond to
+  ;; access to named locals.
+  (match code
+    (((or 'br
+          'br-if-nargs-ne 'br-if-nargs-lt 'br-if-nargs-gt
+          'br-if-true 'br-if-null 'br-if-nil 'br-if-pair 'br-if-struct
+          'br-if-char 'br-if-tc7 'br-if-eq 'br-if-eqv 'br-if-equal
+          'br-if-= 'br-if-< 'br-if-<= 'br-if-> 'br-if->=) _ ... target)
+     (list "-> ~A" (vector-ref labels (- (+ offset target) start))))
+    (('prompt tag flags handler)
+     ;; The H is for handler.
+     (list "H -> ~A" (vector-ref labels (- (+ offset handler) start))))
+    (((or 'make-short-immediate 'make-long-immediate) _ imm)
+     (list "~S" (unpack-immediate imm)))
+    (('make-long-long-immediate _ high low)
+     (list "~S" (unpack-immediate (logior (ash high 32) low))))
+    (('assert-nargs-ee/locals nargs locals)
+     (list "~a arg~:p, ~a local~:p" nargs locals))
+    (('tail-call nargs proc)
+     (list "~a arg~:p" nargs))
+    (('make-closure dst target free ...)
+     ;; FIXME: Resolve TARGET to a procedure name.  Also we should be
+     ;; disassembling embedded closures as well.
+     #f)
+    (('make-non-immediate U24 N32)
+     ;; FIXME: Print the non-immediate.
+     #f)
+    (('static-ref U24 S32)
+     ;; FIXME: Print the address and the value if initialized.
+     #f)
+    (('static-set! U24 LO32)
+     ;; FIXME: Print the address and the value if initialized.
+     #f)
+    (('link-procedure! U24 L32)
+     ;; FIXME: Resolve TARGET to a procedure name.
+     #f)
+    (('resolve-module dst name public)
+     (list "~a" (if (zero? public) "private" "public")))
+    (('toplevel-ref dst var-offset mod-offset sym-offset)
+     ;; FIXME: Print module, symbol, and cached variable.
+     #f)
+    (('toplevel-set! src var-offset mod-offset sym-offset)
+     ;; FIXME: Print module, symbol, and cached variable.
+     #f)
+    (('module-ref dst var-offset mod-name-offset sym-offset)
+     ;; FIXME: Print module name, symbol, and cached variable.
+     #f)
+    (('module-set! src var-offset mod-name-offset sym-offset)
+     ;; FIXME: Print module name, symbol, and cached variable.
+     #f)
+    (('load-typed-array U8 U8 U8 N32 U32)
+     ;; FIXME: Print address and length.
+     #f)
+    (_ #f)))
+
+(define (compute-labels bv start end)
+  (let ((labels (make-vector (- end start) #f)))
+    (define (add-label! pos header)
+      (unless (vector-ref labels (- pos start))
+        (vector-set! labels (- pos start) header)))
+
+    (let lp ((offset start))
+      (when (< offset end)
+        (call-with-values (lambda () (disassemble-one bv offset))
+          (lambda (len elt)
+            (match elt
+              ((inst arg ...)
+               (case inst
+                 ((br
+                   br-if-nargs-ne br-if-nargs-lt br-if-nargs-gt
+                   br-if-true br-if-null br-if-nil br-if-pair br-if-struct
+                   br-if-char br-if-tc7 br-if-eq br-if-eqv br-if-equal
+                   br-if-= br-if-< br-if-<= br-if-> br-if->=)
+                  (match arg
+                    ((_ ... target)
+                     (add-label! (+ offset target) "L"))))
+                 ((prompt)
+                  (match arg
+                    ((_ ... target)
+                     (add-label! (+ offset target) "H"))))
+                 ((call call/values)
+                  (let* ((MVRA (+ offset len))
+                         (RA (+ MVRA 1)))
+                    (add-label! MVRA "MVRA")
+                    (add-label! RA "RA"))))))
+            (lp (+ offset len))))))
+    (let lp ((offset start) (n 1))
+      (when (< offset end)
+        (let* ((pos (- offset start))
+               (label (vector-ref labels pos)))
+          (if label
+              (begin
+                (vector-set! labels
+                             pos
+                             (string->symbol
+                              (string-append label (number->string n))))
+                (lp (1+ offset) (1+ n)))
+              (lp (1+ offset) n)))))
+    labels))
+
+(define (print-info port addr label info extra src)
+  (when label
+    (format port "~A:\n" label))
   (format port "~4@S    ~32S~@[;; ~1{~@?~}~]~@[~61t at ~a~]\n"
           addr info extra src))
+
+(define (disassemble-buffer port bv start end)
+  (let ((labels (compute-labels bv start end)))
+    (let lp ((offset start))
+      (when (< offset end)
+        (call-with-values (lambda () (disassemble-one bv offset))
+          (lambda (len elt)
+            (let ((pos (- offset start))
+                  (annotation (code-annotation elt len offset start labels)))
+              (print-info port pos (vector-ref labels pos) elt annotation #f)
+              (lp (+ offset len)))))))))
 
 (define* (disassemble-program program #:optional (port (current-output-port)))
   (let* ((code (rtl-program-code program))
@@ -299,13 +396,7 @@
                  (size (/ (elf-symbol-size sym) 4)))
              (format port "Disassembly of ~A at #x~X:\n\n"
                      (elf-symbol-name sym) code)
-             (let lp ((offset 0))
-               (when (< offset size)
-                 (call-with-values (lambda ()
-                                     (disassemble-one bv (+ start offset)))
-                   (lambda (len elt extra)
-                     (print-info port offset elt extra #f)
-                     (lp (+ offset len)))))))))
+             (disassemble-buffer port bv start (+ start size)))))
      (else
       (format port "Debugging information unavailable.~%")))
     (values)))
