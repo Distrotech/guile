@@ -53,27 +53,7 @@
   (define (id-append ctx a b)
     (datum->syntax ctx (symbol-append (syntax->datum a) (syntax->datum b)))))
 
-(define-syntax join-subformats
-  (lambda (x)
-    (syntax-case x ()
-      ((_)
-       #f)
-      ((_ #f rest ...)
-       #'(join-subformats rest ...))
-      ((_ (fmt arg ...))
-       (string? (syntax->datum #'fmt))
-       #'(list fmt arg ...))
-      ((_ (fmt arg ...) #f rest ...)
-       (string? (syntax->datum #'fmt))
-       #'(join-subformats (fmt arg ...) rest ...))
-      ((_ (fmt arg ...) (fmt* arg* ...) rest ...)
-       (and (string? (syntax->datum #'fmt)) (string? (syntax->datum #'fmt*)))
-       (let ((fmt** (string-append (syntax->datum #'fmt)
-                                   ", "
-                                   (syntax->datum #'fmt*))))
-         #`(join-subformats (#,fmt** arg ... arg* ...) rest ...))))))
-
-(define (unpack-immediate n)
+(define (unpack-scm n)
   (pointer->scm (make-pointer n)))
 
 (define (unpack-s24 s)
@@ -239,31 +219,18 @@
                      (cons (u32-ref buf (+ offset len n)) rhead)))))
           (_ (values len list)))))))
 
-(define (find-elf-symbol elf text-offset)
-  (and=>
-   (elf-section-by-name elf ".symtab")
-   (lambda (symtab)
-     (let ((len (elf-symbol-table-len symtab))
-           (strtab (elf-section elf (elf-section-link symtab))))
-       ;; The symbols should be sorted, but maybe somehow that fails
-       ;; (for example if multiple objects are relinked together).  So,
-       ;; a modicum of tolerance.
-       (define (bisect)
-         #f)
-       (define (linear-search)
-         (let lp ((n 0))
-           (and (< n len)
-                (let ((sym (elf-symbol-table-ref elf symtab n strtab)))
-                  (if (and (<= (elf-symbol-value sym) text-offset)
-                           (< text-offset (+ (elf-symbol-value sym)
-                                             (elf-symbol-size sym))))
-                      sym
-                      (lp (1+ n)))))))
-       (or (bisect) (linear-search))))))
-
-(define (code-annotation code len offset start labels)
+(define (code-annotation code len offset start labels context)
   ;; FIXME: Print names for register loads and stores that correspond to
   ;; access to named locals.
+  (define (reference-scm target)
+    (unpack-scm (u32-offset->addr (+ offset target) context)))
+
+  (define (dereference-scm target)
+    (let ((addr (u32-offset->addr (+ offset target)
+                                  context)))
+      (pointer->scm
+       (dereference-pointer (make-pointer addr)))))
+
   (match code
     (((or 'br
           'br-if-nargs-ne 'br-if-nargs-lt 'br-if-nargs-gt
@@ -275,46 +242,43 @@
      ;; The H is for handler.
      (list "H -> ~A" (vector-ref labels (- (+ offset handler) start))))
     (((or 'make-short-immediate 'make-long-immediate) _ imm)
-     (list "~S" (unpack-immediate imm)))
+     (list "~S" (unpack-scm imm)))
     (('make-long-long-immediate _ high low)
-     (list "~S" (unpack-immediate (logior (ash high 32) low))))
+     (list "~S" (unpack-scm (logior (ash high 32) low))))
     (('assert-nargs-ee/locals nargs locals)
      (list "~a arg~:p, ~a local~:p" nargs locals))
     (('tail-call nargs proc)
      (list "~a arg~:p" nargs))
     (('make-closure dst target free ...)
-     ;; FIXME: Resolve TARGET to a procedure name.  Also we should be
-     ;; disassembling embedded closures as well.
-     #f)
-    (('make-non-immediate U24 N32)
-     ;; FIXME: Print the non-immediate.
-     #f)
-    (('static-ref U24 S32)
-     ;; FIXME: Print the address and the value if initialized.
-     #f)
-    (('static-set! U24 LO32)
-     ;; FIXME: Print the address and the value if initialized.
-     #f)
-    (('link-procedure! U24 L32)
-     ;; FIXME: Resolve TARGET to a procedure name.
-     #f)
+     (let* ((addr (u32-offset->addr (+ offset target) context))
+            (pdi (find-program-debug-info #:addr addr #:context context)))
+       ;; FIXME: Disassemble embedded closures as well.
+       (list "~A at 0x~X"
+             (or (and pdi (program-debug-info-name pdi))
+                 "(anonymous procedure)")
+             addr)))
+    (('make-non-immediate dst target)
+     (list "~@Y" (reference-scm target)))
+    (((or 'static-ref 'static-set!) _ target)
+     (list "~@Y" (dereference-scm target)))
+    (('link-procedure! src target)
+     (let* ((addr (u32-offset->addr (+ offset target) context))
+            (pdi (find-program-debug-info #:addr addr #:context context)))
+       (list "~A at 0x~X"
+             (or (and pdi (program-debug-info-name pdi))
+                 "(anonymous procedure)")
+             addr)))
     (('resolve-module dst name public)
      (list "~a" (if (zero? public) "private" "public")))
-    (('toplevel-ref dst var-offset mod-offset sym-offset)
-     ;; FIXME: Print module, symbol, and cached variable.
-     #f)
-    (('toplevel-set! src var-offset mod-offset sym-offset)
-     ;; FIXME: Print module, symbol, and cached variable.
-     #f)
-    (('module-ref dst var-offset mod-name-offset sym-offset)
-     ;; FIXME: Print module name, symbol, and cached variable.
-     #f)
-    (('module-set! src var-offset mod-name-offset sym-offset)
-     ;; FIXME: Print module name, symbol, and cached variable.
-     #f)
-    (('load-typed-array U8 U8 U8 N32 U32)
-     ;; FIXME: Print address and length.
-     #f)
+    (((or 'toplevel-ref 'toplevel-set!) _ var-offset mod-offset sym-offset)
+     (list "`~A'" (dereference-scm sym-offset)))
+    (((or 'module-ref 'module-set!) _ var-offset mod-name-offset sym-offset)
+     (let ((mod-name (reference-scm mod-name-offset)))
+       (list "`(~A ~A ~A)'" (if (car mod-name) '@ '@@) (cdr mod-name)
+             (dereference-scm sym-offset))))
+    (('load-typed-array dst type shape target len)
+     (let ((addr (u32-offset->addr (+ offset target) context)))
+       (list "~a bytes from #x~X" len addr)))
     (_ #f)))
 
 (define (compute-labels bv start end)
@@ -368,35 +332,30 @@
   (format port "~4@S    ~32S~@[;; ~1{~@?~}~]~@[~61t at ~a~]\n"
           addr info extra src))
 
-(define (disassemble-buffer port bv start end)
+(define (disassemble-buffer port bv start end context)
   (let ((labels (compute-labels bv start end)))
     (let lp ((offset start))
       (when (< offset end)
         (call-with-values (lambda () (disassemble-one bv offset))
           (lambda (len elt)
             (let ((pos (- offset start))
-                  (annotation (code-annotation elt len offset start labels)))
+                  (annotation (code-annotation elt len offset start labels
+                                               context)))
               (print-info port pos (vector-ref labels pos) elt annotation #f)
               (lp (+ offset len)))))))))
 
 (define* (disassemble-program program #:optional (port (current-output-port)))
-  (let* ((code (rtl-program-code program))
-         (bv (find-mapped-elf-image code))
-         (elf (parse-elf bv))
-         (base (pointer-address (bytevector->pointer (elf-bytes elf))))
-         (text-base (elf-section-offset
-                     (or (elf-section-by-name elf ".rtl-text")
-                         (error "ELF object has no text section")))))
-    (cond
-     ((find-elf-symbol elf (- code base text-base))
-      => (lambda (sym)
-           ;; The text-base, symbol value, and symbol size are in bytes,
-           ;; but the disassembler operates on u32 units.
-           (let ((start (/ (+ (elf-symbol-value sym) text-base) 4))
-                 (size (/ (elf-symbol-size sym) 4)))
-             (format port "Disassembly of ~A at #x~X:\n\n"
-                     (elf-symbol-name sym) code)
-             (disassemble-buffer port bv start (+ start size)))))
-     (else
-      (format port "Debugging information unavailable.~%")))
-    (values)))
+  (cond
+   ((find-program-debug-info #:program program)
+    => (lambda (pdi)
+         ;; FIXME: RTL programs should print with their names.
+         (format port "Disassembly of ~A at ~S:\n\n"
+                 (program-debug-info-name pdi) program)
+         (disassemble-buffer port
+                             (program-debug-info-image pdi)
+                             (program-debug-info-u32-offset pdi)
+                             (program-debug-info-u32-offset-end pdi)
+                             (program-debug-info-context pdi))))
+   (else
+    (format port "Debugging information unavailable.~%")))
+  (values))
