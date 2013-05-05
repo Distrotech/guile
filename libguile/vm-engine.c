@@ -3270,7 +3270,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
   /* make-array dst:12 type:12 _:8 fill:12 bounds:12
    *
-   * Make a new array SRC into the vector DST at index IDX.
+   * Make a new array with TYPE, FILL, and BOUNDS, storing it in DST.
    */
   VM_DEFINE_OP (107, make_array, "make-array", OP2 (U8_U12_U12, X8_U12_U12) | OP_DST)
     {
