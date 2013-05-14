@@ -26,6 +26,7 @@
   #:use-module (system vm objcode)
   #:use-module (rnrs bytevectors)
   #:use-module (ice-9 vlist)
+  #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-9)
@@ -59,12 +60,26 @@
 (define-syntax-rule (pack-u8-u8-u8-u8 x y z w)
   (logior x (ash y 8) (ash z 16) (ash w 24)))
 
+(define-syntax-rule (check arg pattern kind)
+  (let ((x arg))
+    (unless (match x (pattern #t) (_ #f))
+      (error (string-append "expected " kind) x))))
+
 (define-record-type <meta>
-  (make-meta name low-pc high-pc)
+  (%make-meta label properties low-pc high-pc)
   meta?
-  (name meta-name)
+  (label meta-label)
+  (properties meta-properties set-meta-properties!)
   (low-pc meta-low-pc)
   (high-pc meta-high-pc set-meta-high-pc!))
+
+(define (make-meta label properties low-pc)
+  (check label (? symbol?) "symbol")
+  (check properties (((? symbol?) . _) ...) "alist with symbolic keys")
+  (%make-meta label properties low-pc #f))
+
+(define (meta-name meta)
+  (assq-ref (meta-properties meta) 'name))
 
 (define-syntax *block-size* (identifier-syntax 32))
 
@@ -435,13 +450,14 @@
   (let ((loc (intern-constant asm (make-static-procedure label))))
     (emit-make-non-immediate asm dst loc)))
 
-(define-macro-assembler (begin-program asm label)
+(define-macro-assembler (begin-program asm label properties)
   (emit-label asm label)
-  (let ((meta (make-meta label (asm-start asm) #f)))
+  (let ((meta (make-meta label properties (asm-start asm))))
     (set-asm-meta! asm (cons meta (asm-meta asm)))))
 
 (define-macro-assembler (end-program asm)
-  (set-meta-high-pc! (car (asm-meta asm)) (asm-start asm)))
+  (let ((meta (car (asm-meta asm))))
+    (set-meta-high-pc! meta (asm-start asm))))
 
 (define-macro-assembler (label asm sym)
   (set-asm-labels! asm (acons sym (asm-start asm) (asm-labels asm))))
@@ -623,7 +639,7 @@
     (and (not (null? inits))
          (let ((label (gensym "init-constants")))
            (emit-text asm
-                      `((begin-program ,label)
+                      `((begin-program ,label ())
                         (assert-nargs-ee/locals 0 1)
                         ,@(reverse inits)
                         (load-constant 0 ,*unspecified*)
@@ -821,7 +837,8 @@
          (bv (make-bytevector (* n size) 0)))
     (define (intern-string! name)
       (call-with-values
-          (lambda () (string-table-intern strtab (symbol->string name)))
+          (lambda () (string-table-intern strtab
+                                          (if name (symbol->string name) "")))
         (lambda (table idx)
           (set! strtab table)
           idx)))
