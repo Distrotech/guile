@@ -1,4 +1,4 @@
-/* Copyright (C) 2001, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+/* Copyright (C) 2001, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -64,8 +64,8 @@ struct scm_instruction {
     M(X8_U12_U12)                               \
     M(X8_R24)                                   \
     M(X8_L24)                                   \
-    M(U1_X7_L24)                                \
-    M(U1_U7_L24)
+    M(B1_X7_L24)                                \
+    M(B1_U7_L24)
 
 #define TYPE_WIDTH 5
 

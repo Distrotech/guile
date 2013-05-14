@@ -1656,7 +1656,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is true for the purposes of Scheme, add
    * OFFSET, a signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (26, br_if_true, "br-if-true", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (26, br_if_true, "br-if-true", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_true (x));
     }
@@ -1666,7 +1666,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is the end-of-list or Lisp nil, add OFFSET, a
    * signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (27, br_if_null, "br-if-null", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (27, br_if_null, "br-if-null", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_null (x));
     }
@@ -1676,7 +1676,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is false to Lisp, add OFFSET, a signed 24-bit
    * number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (28, br_if_nil, "br-if-nil", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (28, br_if_nil, "br-if-nil", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_lisp_false (x));
     }
@@ -1686,7 +1686,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is a pair, add OFFSET, a signed 24-bit number,
    * to the current instruction pointer.
    */
-  VM_DEFINE_OP (29, br_if_pair, "br-if-pair", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (29, br_if_pair, "br-if-pair", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, scm_is_pair (x));
     }
@@ -1696,7 +1696,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is a struct, add OFFSET, a signed 24-bit
    * number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (30, br_if_struct, "br-if-struct", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (30, br_if_struct, "br-if-struct", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, SCM_STRUCTP (x));
     }
@@ -1706,7 +1706,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST is a char, add OFFSET, a signed 24-bit number,
    * to the current instruction pointer.
    */
-  VM_DEFINE_OP (31, br_if_char, "br-if-char", OP2 (U8_U24, U1_X7_L24))
+  VM_DEFINE_OP (31, br_if_char, "br-if-char", OP2 (U8_U24, B1_X7_L24))
     {
       BR_UNARY (x, SCM_CHARP (x));
     }
@@ -1716,7 +1716,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in TEST has the TC7 given in the second word, add
    * OFFSET, a signed 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (32, br_if_tc7, "br-if-tc7", OP2 (U8_U24, U1_U7_L24))
+  VM_DEFINE_OP (32, br_if_tc7, "br-if-tc7", OP2 (U8_U24, B1_U7_L24))
     {
       BR_UNARY (x, SCM_HAS_TYP7 (x, (ip[1] >> 1) & 0x7f));
     }
@@ -1726,7 +1726,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in A is eq? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (33, br_if_eq, "br-if-eq", OP2 (U8_U12_U12, U1_X7_L24))
+  VM_DEFINE_OP (33, br_if_eq, "br-if-eq", OP2 (U8_U12_U12, B1_X7_L24))
     {
       BR_BINARY (x, y, scm_is_eq (x, y));
     }
@@ -1736,7 +1736,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * If the value in A is eqv? to the value in B, add OFFSET, a signed
    * 24-bit number, to the current instruction pointer.
    */
-  VM_DEFINE_OP (34, br_if_eqv, "br-if-eqv", OP2 (U8_U12_U12, U1_X7_L24))
+  VM_DEFINE_OP (34, br_if_eqv, "br-if-eqv", OP2 (U8_U12_U12, B1_X7_L24))
     {
       BR_BINARY (x, y,
                  scm_is_eq (x, y)
@@ -1750,7 +1750,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * 24-bit number, to the current instruction pointer.
    */
   // FIXME: should sync_ip before calling out?
-  VM_DEFINE_OP (35, br_if_equal, "br-if-equal", OP2 (U8_U12_U12, U1_X7_L24))
+  VM_DEFINE_OP (35, br_if_equal, "br-if-equal", OP2 (U8_U12_U12, B1_X7_L24))
     {
       BR_BINARY (x, y,
                  scm_is_eq (x, y)
