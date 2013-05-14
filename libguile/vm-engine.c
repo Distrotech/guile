@@ -519,7 +519,6 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #undef VM_CHECK_UNDERFLOW
 #undef VM_DEFINE_OP
 #undef VM_INSTRUCTION_TO_LABEL
-#undef VM_USE_HOOKS
 
 
 
@@ -580,6 +579,11 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
   do {                                                              \
     vp->sp = fp - 1 + n;                                            \
   } while (0)
+
+/* Compute the number of locals in the frame.  This is equal to the
+   number of actual arguments when a function is first called.  */
+#define FRAME_LOCALS_COUNT()                                        \
+  (vp->sp + 1 - fp)
 
 /* Restore registers after returning from a frame.  */
 #define RESTORE_FRAME()                                             \
@@ -660,8 +664,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
     fp[-1] = rtl_apply;                                 \
     fp[0] = rtl_values;                                 \
     fp[1] = vals;                                       \
-    nargs = 2;                                          \
-    RESET_FRAME (nargs);                                \
+    RESET_FRAME (2);                                    \
     ip = (scm_t_uint32 *) rtl_apply_code;               \
     goto op_apply;                                      \
   } while (0)
@@ -669,7 +672,7 @@ VM_NAME (SCM vm, SCM program, SCM *argv, int nargs)
 #define BR_NARGS(rel)                           \
   scm_t_uint16 expected;                        \
   SCM_UNPACK_RTL_24 (op, expected);             \
-  if (nargs rel expected)                       \
+  if (FRAME_LOCALS_COUNT() rel expected)        \
     {                                           \
       scm_t_int32 offset = ip[1];               \
       offset >>= 8; /* Sign-extending shift. */ \
@@ -803,10 +806,6 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   /* Current opcode: A cache of *ip.  */
   register scm_t_uint32 op;
 
-  /* Number of arguments passed to a function.  When we get native
-     compilation, this will be part of a the calling convention.  */
-  scm_t_uint32 nargs = 0;
-
   /* Cached variables. */
   struct scm_vm *vp = SCM_VM_DATA (vm);
   SCM *stack_limit = vp->stack_limit;	/* stack limit address */
@@ -845,7 +844,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
          to pull all our state back from the ip/fp/sp.
       */
       CACHE_REGISTER ();
-      ABORT_CONTINUATION_HOOK (fp, vp->sp + 1 - fp);
+      ABORT_CONTINUATION_HOOK (fp, FRAME_LOCALS_COUNT());
       NEXT (0);
     }
 
@@ -862,15 +861,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
        continuation, 4 + nargs for the procedure application, and 4 for
        setting up a new frame.  */
     base = vp->sp + 1;
-    nargs = nargs_;
-    CHECK_OVERFLOW (vp->sp + 4 + 4 + nargs + 4);
+    CHECK_OVERFLOW (vp->sp + 4 + 4 + nargs_ + 4);
 
     /* Since it's possible to receive the arguments on the stack itself,
        and indeed the regular VM invokes us that way, shuffle up the
        arguments first.  */
     {
       int i;
-      for (i = nargs - 1; i >= 0; i--)
+      for (i = nargs_ - 1; i >= 0; i--)
         base[8 + i] = argv[i];
     }
 
@@ -891,7 +889,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     base[6] = SCM_PACK (ip); /* ra */
     base[7] = program;
     fp = vp->fp = &base[8];
-    RESET_FRAME (nargs);
+    RESET_FRAME (nargs_);
   }
 
  apply:
@@ -907,13 +905,14 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         }
       if (SCM_HAS_TYP7 (proc, scm_tc7_smob) && SCM_SMOB_APPLICABLE_P (proc))
         {
-          scm_t_uint32 n = nargs;
+          scm_t_uint32 n = FRAME_LOCALS_COUNT();
 
           /* Shuffle args up, place smob in local 0. */
+          CHECK_OVERFLOW (vp->sp + 1);
+          vp->sp++;
           while (n--)
             LOCAL_SET (n + 1, LOCAL_REF (n));
           LOCAL_SET (0, proc);
-          nargs++;
 
           fp[-1] = SCM_SMOB_DESCRIPTOR (proc).apply_trampoline;
           continue;
@@ -925,7 +924,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SCM ret;
       SYNC_ALL ();
 
-      ret = VM_NAME (vm, fp[-1], fp, nargs);
+      ret = VM_NAME (vm, fp[-1], fp, FRAME_LOCALS_COUNT ());
 
       if (SCM_UNLIKELY (SCM_VALUESP (ret)))
         RETURN_VALUE_LIST (scm_struct_ref (ret, SCM_INUM0));
@@ -975,7 +974,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       SYNC_BEFORE_GC();
 
       base = fp + 4;
-      n = vp->sp + 1 - base;
+      n = FRAME_LOCALS_COUNT ();
       while (n--)
         ret = scm_cons (base[n], ret);
 
@@ -1000,7 +999,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (2, call, "call", OP3 (U8_U24, X8_U24, X8_R24))
     {
-      scm_t_uint32 from, proc, n;
+      scm_t_uint32 from, proc, nargs, n;
       SCM *old_fp = fp;
 
       SCM_UNPACK_RTL_24 (op, from);
@@ -1032,9 +1031,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   /* call/values from:24 _:8 proc:24
    *
    * Call a procedure, with the values already pushed above a call frame
-   * at FROM.  The stack pointer is used to set the nargs.  This
-   * instruction is used to handle MV returns in the case that we can't
-   * inline the handler.
+   * at FROM.  This instruction is used to handle MV returns in the case
+   * that we can't inline the handler.
    *
    * As with `call', the next instruction after the call/values will be
    * the MVRA, and the word after that instruction is the RA.
@@ -1051,10 +1049,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp = vp->fp = old_fp + from + 4;
       SCM_FRAME_SET_DYNAMIC_LINK (fp, old_fp);
-      SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, ip + 2 + nargs);
-      SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 3 + nargs);
+      SCM_FRAME_SET_RTL_MV_RETURN_ADDRESS (fp, ip + 2);
+      SCM_FRAME_SET_RTL_RETURN_ADDRESS (fp, ip + 3);
       fp[-1] = old_fp[proc];
-      nargs = vp->sp - fp;
 
       PUSH_CONTINUATION_HOOK ();
       APPLY_HOOK ();
@@ -1073,7 +1070,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (4, tail_call, "tail-call", OP2 (U8_U24, X8_U24))
     {
-      scm_t_uint32 proc;
+      scm_t_uint32 nargs, proc;
 
       SCM_UNPACK_RTL_24 (op, nargs);
       SCM_UNPACK_RTL_24 (ip[1], proc);
@@ -1110,12 +1107,13 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Return a number of values from a call frame.  This opcode
    * corresponds to an application of `values' in tail position.  As
    * with tail calls, we expect that the NVALUES values have already
-   * been shuffled down to a contiguous array starting ast slot 0.
+   * been shuffled down to a contiguous array starting at slot 0.
    */
   VM_DEFINE_OP (6, return_values, "return/values", OP1 (U8_U24))
     {
+      scm_t_uint32 nargs;
       SCM_UNPACK_RTL_24 (op, nargs);
-      RESET_FRAME(nargs);
+      RESET_FRAME (nargs);
       fp[-1] = rtl_values;
       goto op_values;
     }
@@ -1127,21 +1125,20 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    * Specialized call stubs
    */
 
-  /* subr-call nargs:12 ptr-idx:12
+  /* subr-call ptr-idx:24
    *
-   * Call a subr.  Fetch the foreign pointer from PTR-IDX, a free
-   * variable.  Return from the calling frame.  We assume that the
-   * arguments are on the stack from slot 0 to NARGS-1.  This instruction
-   * is part of the trampolines created in gsubr.c, and is not generated
-   * by the compiler.
+   * Call a subr, passing all locals in this frame as arguments.  Fetch
+   * the foreign pointer from PTR-IDX, a free variable.  Return from the
+   * calling frame.  This instruction is part of the trampolines
+   * created in gsubr.c, and is not generated by the compiler.
    */
-  VM_DEFINE_OP (7, subr_call, "subr-call", OP1 (U8_U12_U12))
+  VM_DEFINE_OP (7, subr_call, "subr-call", OP1 (U8_U24))
     {
-      scm_t_uint16 nargs, ptr_idx;
+      scm_t_uint32 ptr_idx;
       SCM pointer, ret;
       SCM (*subr)();
 
-      SCM_UNPACK_RTL_12_12 (op, nargs, ptr_idx);
+      SCM_UNPACK_RTL_24 (op, ptr_idx);
 
       pointer = FREE_VARIABLE_REF (ptr_idx);
       subr = SCM_POINTER_VALUE (pointer);
@@ -1149,7 +1146,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       VM_HANDLE_INTERRUPTS;
       SYNC_IP ();
 
-      switch (nargs)
+      switch (FRAME_LOCALS_COUNT ())
         {
         case 0:
           ret = subr ();
@@ -1197,20 +1194,20 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         RETURN_ONE_VALUE (ret);
     }
 
-  /* foreign-call nargs:8 cif-idx:8 ptr-idx:8
+  /* foreign-call cif-idx:12 ptr-idx:12
    *
-   * Call a subr.  Fetch the CIF and foreign pointer from CIF-IDX and
-   * PTR-IDX, both free variables.  Return from the calling frame.  We
-   * assume that the arguments are on the stack from slot 0 to NARGS-1.
-   * This instruction is part of the trampolines created by the FFI, and
-   * is not generated by the compiler.
+   * Call a foreign function.  Fetch the CIF and foreign pointer from
+   * CIF-IDX and PTR-IDX, both free variables.  Return from the calling
+   * frame.  Arguments are taken from the stack.  This instruction is
+   * part of the trampolines created by the FFI, and is not generated by
+   * the compiler.
    */
-  VM_DEFINE_OP (8, foreign_call, "foreign-call", OP1 (U8_U8_U8_U8))
+  VM_DEFINE_OP (8, foreign_call, "foreign-call", OP1 (U8_U12_U12))
     {
-      scm_t_uint8 cif_idx, ptr_idx;
+      scm_t_uint16 cif_idx, ptr_idx;
       SCM cif, pointer, ret;
 
-      SCM_UNPACK_RTL_8_8_8 (op, nargs, cif_idx, ptr_idx);
+      SCM_UNPACK_RTL_12_12 (op, cif_idx, ptr_idx);
 
       cif = FREE_VARIABLE_REF (cif_idx);
       pointer = FREE_VARIABLE_REF (ptr_idx);
@@ -1230,21 +1227,20 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
         RETURN_ONE_VALUE (ret);
     }
 
-  /* continuation-call nargs:24 _:8 contregs:24
+  /* continuation-call contregs:24
    *
-   * Return to a continuation, nonlocally.  The NARGS values are taken
-   * from the stack, from slots 0 to NARGS-1.  CONTREGS is a free variable
-   * containing the reified continuation.  This instruction is part of the
-   * implementation of undelimited continuations, and is not generated by
-   * the compiler.
+   * Return to a continuation, nonlocally.  The arguments to the
+   * continuation are taken from the stack.  CONTREGS is a free variable
+   * containing the reified continuation.  This instruction is part of
+   * the implementation of undelimited continuations, and is not
+   * generated by the compiler.
    */
-  VM_DEFINE_OP (9, continuation_call, "continuation-call", OP2 (U8_U24, X8_U24))
+  VM_DEFINE_OP (9, continuation_call, "continuation-call", OP1 (U8_U24))
     {
       SCM contregs;
       scm_t_uint32 contregs_idx;
 
-      SCM_UNPACK_RTL_24 (op, nargs);
-      SCM_UNPACK_RTL_24 (ip[1], contregs_idx);
+      SCM_UNPACK_RTL_24 (op, contregs_idx);
 
       contregs = FREE_VARIABLE_REF (contregs_idx);
 
@@ -1252,34 +1248,33 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_i_check_continuation (contregs);
       vm_return_to_continuation (scm_i_contregs_vm (contregs),
                                  scm_i_contregs_vm_cont (contregs),
-                                 nargs, fp);
+                                 FRAME_LOCALS_COUNT (), fp);
       scm_i_reinstate_continuation (contregs);
 
       /* no NEXT */
       abort ();
     }
 
-  /* partial-cont nargs:24 _:8 cont:24
+  /* compose-continuation cont:24
    *
    * Compose a partial continution with the current continuation.  The
-   * NARGS values are taken from the stack, from slots 0 to NARGS-1.  CONT
-   * is a free variable containing the reified continuation.  This
+   * arguments to the continuation are taken from the stack.  CONT is a
+   * free variable containing the reified continuation.  This
    * instruction is part of the implementation of partial continuations,
    * and is not generated by the compiler.
    */
-  VM_DEFINE_OP (10, partial_cont_call, "partial-cont-call", OP2 (U8_U24, X8_U24))
+  VM_DEFINE_OP (10, compose_continuation, "compose-continuation", OP1 (U8_U24))
     {
       SCM vmcont;
       scm_t_uint32 cont_idx;
 
-      SCM_UNPACK_RTL_24 (op, nargs);
-      SCM_UNPACK_RTL_24 (ip[1], cont_idx);
+      SCM_UNPACK_RTL_24 (op, cont_idx);
       vmcont = LOCAL_REF (cont_idx);
 
       SYNC_IP ();
       VM_ASSERT (SCM_VM_CONT_REWINDABLE_P (vmcont),
                  vm_error_continuation_not_rewindable (vmcont));
-      vm_reinstate_partial_continuation (vm, vmcont, nargs, fp,
+      vm_reinstate_partial_continuation (vm, vmcont, FRAME_LOCALS_COUNT (), fp,
                                          &current_thread->dynstack,
                                          &registers);
       CACHE_REGISTER ();
@@ -1294,12 +1289,13 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (11, apply, "apply", OP1 (U8_X24))
     {
-      int i, list_idx, list_len;
+      int i, list_idx, list_len, nargs;
       SCM list;
 
       VM_HANDLE_INTERRUPTS;
 
-      VM_ASSERT (nargs >= 2, abort ());
+      VM_ASSERT (FRAME_LOCALS_COUNT () >= 2, abort ());
+      nargs = FRAME_LOCALS_COUNT ();
       list_idx = nargs - 1;
       list = LOCAL_REF (list_idx);
       list_len = scm_ilength (list);
@@ -1356,8 +1352,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       fp[-1] = fp[0];
       fp[0] = cont;
-      nargs = 1;
-      RESET_FRAME (nargs);
+      RESET_FRAME (1);
 
       APPLY_HOOK ();
 
@@ -1380,6 +1375,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
   VM_DEFINE_OP (13, values, "values", OP1 (U8_X24))
     {
       SCM *base = fp;
+#if VM_USE_HOOKS
+      int nargs = FRAME_LOCALS_COUNT ();
+#endif
 
       /* We don't do much; it's the caller that's responsible for
          shuffling values and resetting the stack.  */
@@ -1437,14 +1435,18 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
     {
       scm_t_uint32 expected;
       SCM_UNPACK_RTL_24 (op, expected);
-      VM_ASSERT (nargs == expected, vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp), nargs));
+      VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
+                 vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp),
+                                          FRAME_LOCALS_COUNT ()));
       NEXT (1);
     }
   VM_DEFINE_OP (18, assert_nargs_ge, "assert-nargs-ge", OP1 (U8_U24))
     {
       scm_t_uint32 expected;
       SCM_UNPACK_RTL_24 (op, expected);
-      VM_ASSERT (nargs >= expected, vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp), nargs));
+      VM_ASSERT (FRAME_LOCALS_COUNT () >= expected,
+                 vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp),
+                                          FRAME_LOCALS_COUNT ()));
       NEXT (1);
     }
 
@@ -1456,9 +1458,10 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (19, reserve_locals, "reserve-locals", OP1 (U8_U24))
     {
-      scm_t_uint32 nlocals;
+      scm_t_uint32 nlocals, nargs;
       SCM_UNPACK_RTL_24 (op, nlocals);
 
+      nargs = FRAME_LOCALS_COUNT ();
       ALLOC_FRAME (nlocals);
       while (nlocals-- > nargs)
         LOCAL_SET (nlocals, SCM_UNDEFINED);
@@ -1476,7 +1479,9 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       scm_t_uint16 expected, nlocals;
       SCM_UNPACK_RTL_12_12 (op, expected, nlocals);
 
-      VM_ASSERT (nargs == expected, vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp), nargs));
+      VM_ASSERT (FRAME_LOCALS_COUNT () == expected,
+                 vm_error_wrong_num_args (vm, SCM_FRAME_PROGRAM (fp),
+                                          FRAME_LOCALS_COUNT ()));
       ALLOC_FRAME (expected + nlocals);
       while (nlocals--)
         LOCAL_SET (expected + nlocals, SCM_UNDEFINED);
@@ -1498,7 +1503,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (21, bind_kwargs, "bind-kwargs", OP4 (U8_U24, U8_U24, X8_U24, N32))
     {
-      scm_t_uint32 nreq, nreq_and_opt, ntotal, npositional, nkw, n;
+      scm_t_uint32 nreq, nreq_and_opt, ntotal, npositional, nkw, n, nargs;
       scm_t_int32 kw_offset;
       scm_t_bits kw_bits;
       SCM kw;
@@ -1513,6 +1518,8 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
       kw_bits = (scm_t_bits) (ip + kw_offset);
       VM_ASSERT (!(kw_bits & 0x7), abort());
       kw = SCM_PACK (kw_bits);
+
+      nargs = FRAME_LOCALS_COUNT ();
 
       /* look in optionals for first keyword or last positional */
       /* starting after the last required positional arg */
@@ -1580,10 +1587,11 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
    */
   VM_DEFINE_OP (22, bind_rest, "bind-rest", OP1 (U8_U24) | OP_DST)
     {
-      scm_t_uint32 dst;
+      scm_t_uint32 dst, nargs;
       SCM rest = SCM_EOL;
 
       SCM_UNPACK_RTL_24 (op, dst);
+      nargs = FRAME_LOCALS_COUNT ();
 
       while (nargs-- > dst)
         {
@@ -1609,7 +1617,7 @@ RTL_VM_NAME (SCM vm, SCM program, SCM *argv, size_t nargs_)
 
       SCM_UNPACK_RTL_24 (op, nlocals);
 
-      RESET_FRAME(nlocals);
+      RESET_FRAME (nlocals);
 
       NEXT (1);
     }
