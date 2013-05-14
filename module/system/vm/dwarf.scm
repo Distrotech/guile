@@ -692,6 +692,10 @@
   (aranges-start meta-aranges-start)
   (aranges-end meta-aranges-end))
 
+;; A context represents a namespace.  The root context is the
+;; compilation unit.  DIE nodes of type class-type, structure-type, or
+;; namespace may form child contexts.
+;;
 (define-record-type <dwarf-context>
   (make-dwarf-context bv word-size endianness meta
                       abbrevs
