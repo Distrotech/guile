@@ -151,7 +151,7 @@
   (list type label base word))
 
 (define-inlinable (reset-asm-start! asm)
-  (set-asm-start! asm (+ (asm-idx asm) (asm-written asm))))
+  (set-asm-start! asm (asm-pos asm)))
 
 (define (emit-exported-label asm label)
   (set-asm-labels! asm (acons label (asm-start asm) (asm-labels asm))))
@@ -282,7 +282,7 @@
              (unless (asm? asm) (error "not an asm"))
              code0 ...
              code* ... ...
-             ))))))
+             (reset-asm-start! asm)))))))
 
 (define assemblers (make-hash-table))
 
@@ -449,7 +449,6 @@
 (define-macro-assembler (cache-current-module! asm tmp scope)
   (let ((mod-label (emit-module-cache-cell asm scope)))
     (emit-current-module asm tmp)
-    (reset-asm-start! asm)
     (emit-static-set! asm tmp mod-label 0)))
 
 (define-macro-assembler (cached-toplevel-ref asm dst scope sym)
@@ -480,7 +479,6 @@
 
 (define (emit-text asm instructions)
   (for-each (lambda (inst)
-              (reset-asm-start! asm)
               (apply (or (hashq-ref assemblers (car inst))
                          (error 'bad-instruction inst))
                      asm
