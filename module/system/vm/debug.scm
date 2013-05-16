@@ -49,7 +49,8 @@
             find-debug-context
             find-program-debug-info
             arity-arguments-alist
-            find-program-arities))
+            find-program-arities
+            program-minimum-arity))
 
 (define-record-type <debug-context>
   (make-debug-context elf base text-base)
