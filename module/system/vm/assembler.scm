@@ -91,15 +91,13 @@
 ;; Metadata for one <lambda-case>.
 (define-record-type <arity>
   (make-arity req opt rest kw-indices allow-other-keys?
-              nlocals alternate low-pc high-pc)
+              low-pc high-pc)
   arity?
   (req arity-req)
   (opt arity-opt)
   (rest arity-rest)
   (kw-indices arity-kw-indices)
   (allow-other-keys? arity-allow-other-keys?)
-  (nlocals arity-nlocals)
-  (alternate arity-alternate)
   (low-pc arity-low-pc)
   (high-pc arity-high-pc set-arity-high-pc!))
 
@@ -500,7 +498,7 @@
   (check alternate (or #f (? symbol?)) "#f or symbol")
   (let* ((meta (car (asm-meta asm)))
          (arity (make-arity req opt rest kw-indices allow-other-keys?
-                            nlocals alternate (asm-start asm) #f))
+                            (asm-start asm) #f))
          (nreq (length req))
          (nopt (length opt))
          (rest? (->bool rest)))
