@@ -143,7 +143,8 @@
                                          ;; the string table was
                                          ;; stripped somehow.
                                          (lambda (x)
-                                           (and (string? x) x)))
+                                           (and (string? x)
+                                                (string->symbol x))))
                                   (elf-symbol-value sym)
                                   (elf-symbol-size sym))))
    (else #f)))
