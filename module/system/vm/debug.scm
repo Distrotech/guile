@@ -50,7 +50,9 @@
             find-program-debug-info
             arity-arguments-alist
             find-program-arities
-            program-minimum-arity))
+            program-minimum-arity
+
+            find-program-docstring))
 
 (define-record-type <debug-context>
   (make-debug-context elf base text-base)
@@ -308,3 +310,33 @@
            (list (arity-nreq first)
                  (arity-nopt first)
                  (arity-has-rest? first)))))))
+
+(define* (find-program-docstring addr #:optional
+                                 (context (find-debug-context addr)))
+  (and=>
+   (elf-section-by-name (debug-context-elf context) ".guile.docstrs")
+   (lambda (sec)
+     ;; struct docstr {
+     ;;   uint32_t pc;
+     ;;   uint32_t str;
+     ;; }
+     (define docstr-len 8)
+     (let* ((start (elf-section-offset sec))
+            (end (+ start (elf-section-size sec)))
+            (bv (elf-bytes (debug-context-elf context)))
+            (text-offset (- addr
+                            (debug-context-text-base context)
+                            (debug-context-base context))))
+       ;; FIXME: This is linear search.  Change to binary search.
+       (let lp ((pos start))
+         (cond
+          ((>= pos end) #f)
+          ((< text-offset (bytevector-u32-native-ref bv pos))
+           (lp (+ pos arity-header-len)))
+          ((> text-offset (bytevector-u32-native-ref bv pos))
+           #f)
+          (else
+           (let ((strtab (elf-section (debug-context-elf context)
+                                      (elf-section-link sec)))
+                 (idx (bytevector-u32-native-ref bv (+ pos 4))))
+             (string-table-ref bv (+ (elf-section-offset strtab) idx))))))))))
