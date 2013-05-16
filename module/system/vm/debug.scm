@@ -50,7 +50,8 @@
             arity-has-keyword-args?
             arity-is-case-lambda?
             arity-arguments-alist
-            find-program-arities))
+            find-program-arities
+            program-minimum-arity))
 
 (define-record-type <debug-context>
   (make-debug-context elf base text-base)
@@ -278,3 +279,16 @@
             (first (find-first-arity context base addr)))
        ;; FIXME: Handle case-lambda arities.
        (if first (list first) '())))))
+
+(define* (program-minimum-arity addr #:optional
+                                (context (find-debug-context addr)))
+  (and=>
+   (elf-section-by-name (debug-context-elf context) ".guile.arities")
+   (lambda (sec)
+     (let* ((base (elf-section-offset sec))
+            (first (find-first-arity context base addr)))
+       (if (arity-is-case-lambda?)
+           (list 0 0 #t) ;; FIXME: be more precise.
+           (list (arity-nreq arity)
+                 (arity-nopt arity)
+                 (arity-has-rest? arity)))))))
