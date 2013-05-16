@@ -1073,7 +1073,10 @@
                          (length (arity-opt arity))))
   (let lp ((metas metas) (pos arities-prefix-len) (offsets '()))
     (match metas
-      (() (values pos (reverse offsets)))
+      (()
+       ;; Fill in the prefix.
+       (bytevector-u32-set! bv 0 pos endianness)
+       (values pos (reverse offsets)))
       ((meta . metas)
        (match (meta-arities meta)
          (() (lp metas pos offsets))
