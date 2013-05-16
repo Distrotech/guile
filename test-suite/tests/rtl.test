@@ -283,3 +283,14 @@
                             (end-program)))))
                     ((make-top-incrementor))
                     *top-val*))))
+
+(with-test-prefix "procedure name"
+  (pass-if-equal 'foo
+      (procedure-name
+       (assemble-program
+        '((begin-program foo ((name . foo)))
+          (begin-standard-arity () 1 #f)
+          (load-constant 0 42)
+          (return 0)
+          (end-arity)
+          (end-program))))))
