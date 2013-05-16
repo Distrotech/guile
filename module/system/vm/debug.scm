@@ -20,7 +20,6 @@
 
 (define-module (system vm debug)
   #:use-module (system vm elf)
-  #:use-module (system vm program)
   #:use-module (system vm objcode)
   #:use-module (system foreign)
   #:use-module (rnrs bytevectors)
@@ -97,7 +96,7 @@
         (debug-context-text-base (program-debug-info-context pdi)))
      4))
 
-(define* (find-debug-context #:key program (addr (rtl-program-code program)))
+(define (find-debug-context addr)
   (let* ((bv (find-mapped-elf-image addr))
          (elf (parse-elf bv))
          (base (pointer-address (bytevector->pointer (elf-bytes elf))))
@@ -129,9 +128,8 @@
                       (lp (1+ n)))))))
        (or (bisect) (linear-search))))))
 
-(define* (find-program-debug-info #:key program
-                                  (addr (rtl-program-code program))
-                                  (context (find-debug-context #:addr addr)))
+(define* (find-program-debug-info addr #:optional
+                                  (context (find-debug-context addr)))
   (cond
    ((find-elf-symbol (debug-context-elf context)
                      (- addr
@@ -271,9 +269,8 @@
        (else
         (make-arity context base pos))))))
 
-(define* (find-program-arities #:key program
-                               (addr (rtl-program-code program))
-                               (context (find-debug-context #:addr addr)))
+(define* (find-program-arities addr #:optional
+                               (context (find-debug-context addr)))
   (and=>
    (elf-section-by-name (debug-context-elf context) ".guile.arities")
    (lambda (sec)

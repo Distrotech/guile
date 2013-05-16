@@ -58,7 +58,7 @@
 (define (rtl-program-name program)
   (unless (rtl-program? program)
     (error "shouldn't get here"))
-  (and=> (find-program-debug-info #:program program)
+  (and=> (find-program-debug-info (rtl-program-code program))
          program-debug-info-name))
 
 (define (make-binding name boxed? index start end)
