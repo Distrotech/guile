@@ -270,6 +270,17 @@
        (else
         (make-arity context base pos))))))
 
+(define (read-sub-arities context base outer-header-offset)
+  (let* ((bv (elf-bytes (debug-context-elf context)))
+         (headers-end (+ base (bytevector-u32-native-ref bv base)))
+         (low-pc (arity-low-pc* bv outer-header-offset))
+         (high-pc (arity-high-pc* bv outer-header-offset)))
+    (let lp ((pos (+ outer-header-offset arity-header-len)) (out '()))
+      (if (and (< pos headers-end) (<= (arity-high-pc* bv pos) high-pc))
+          (lp (+ pos arity-header-len)
+              (cons (make-arity context base pos) out))
+          (reverse out)))))
+
 (define* (find-program-arities addr #:optional
                                (context (find-debug-context addr)))
   (and=>
@@ -278,7 +289,11 @@
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
        ;; FIXME: Handle case-lambda arities.
-       (if first (list first) '())))))
+       (cond
+        ((not first) '())
+        ((arity-is-case-lambda? first)
+         (read-sub-arities context base (arity-header-offset first)))
+        (else (list first)))))))
 
 (define* (program-minimum-arity addr #:optional
                                 (context (find-debug-context addr)))
@@ -287,8 +302,8 @@
    (lambda (sec)
      (let* ((base (elf-section-offset sec))
             (first (find-first-arity context base addr)))
-       (if (arity-is-case-lambda?)
+       (if (arity-is-case-lambda? first)
            (list 0 0 #t) ;; FIXME: be more precise.
-           (list (arity-nreq arity)
-                 (arity-nopt arity)
-                 (arity-has-rest? arity)))))))
+           (list (arity-nreq first)
+                 (arity-nopt first)
+                 (arity-has-rest? first)))))))
