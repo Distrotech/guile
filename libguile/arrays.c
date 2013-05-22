@@ -817,8 +817,6 @@ scm_i_print_array (SCM array, SCM port, scm_print_state *pstate)
     return scm_i_print_array_dimension (&h, 0, 0, port, pstate);
 }
 
-SCM_ARRAY_IMPLEMENTATION (scm_tc7_array, 0x7f, NULL, NULL, NULL)
-
 void
 scm_init_arrays ()
 {

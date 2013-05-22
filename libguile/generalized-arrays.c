@@ -42,7 +42,7 @@ SCM_INTERNAL SCM scm_i_array_set_x (SCM v, SCM obj,
 int
 scm_is_array (SCM obj)
 {
-  return scm_i_array_implementation_for_obj (obj) ? 1 : 0;
+  return SCM_I_ARRAYP (obj) || scm_i_array_implementation_for_obj (obj);
 }
 
 SCM_DEFINE (scm_array_p_2, "array?", 1, 0, 0,
@@ -68,17 +68,18 @@ scm_array_p (SCM obj, SCM unused)
 int
 scm_is_typed_array (SCM obj, SCM type)
 {
-  int ret = 0;
-  if (scm_i_array_implementation_for_obj (obj))
+  scm_t_array_implementation *impl;
+  if (SCM_I_ARRAYP (obj))
+    obj = SCM_I_ARRAY_V (obj);
+  impl = scm_i_array_implementation_for_obj (obj);
+  if (impl)
     {
       scm_t_array_handle h;
-
-      scm_array_get_handle (obj, &h);
-      ret = scm_is_eq (scm_array_handle_element_type (&h), type);
-      scm_array_handle_release (&h);
+      impl->get_handle (obj, &h);
+      return scm_is_eq (scm_array_handle_element_type (&h), type);
     }
-
-  return ret;
+  else
+    return 0;
 }
 
 SCM_DEFINE (scm_typed_array_p, "typed-array?", 2, 0, 0,
