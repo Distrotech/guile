@@ -10,7 +10,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (system base compile)
   #:use-module (language tree-il compile-cps)
-  #:use-module (system vm rtl)
+  #:use-module (system vm assembler)
   #:export (cps->rtl generate-shuffle generate-rtl cps-compile
                      calculate-free-values))
 
@@ -460,7 +460,7 @@
                     names funcs)))
        (($ <lambda> names rest body)
         ;; TO DO: save the names of the lambdas
-        `((begin-program foo)
+        `((begin-program foo ())
           (assert-nargs-ee/locals ,(length names) ,(nlocals cps))
           ,@(visit body)
           (end-program)))
