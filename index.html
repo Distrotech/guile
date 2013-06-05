@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <link href='https://fonts.googleapis.com/css?family=Chivo:900' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/pygment_trac.css" media="screen" />
+    <link rel="stylesheet" type="text/css" href="stylesheets/print.css" media="print" />
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <title>Guile by Distrotech</title>
+  </head>
+
+  <body>
+    <div id="container">
+      <div class="inner">
+
+        <header>
+          <h1>Guile</h1>
+          <h2>Mirror of git://git.sv.gnu.org/guile.git</h2>
+        </header>
+
+        <section id="downloads" class="clearfix">
+          <a href="https://github.com/Distrotech/guile/zipball/master" id="download-zip" class="button"><span>Download .zip</span></a>
+          <a href="https://github.com/Distrotech/guile/tarball/master" id="download-tar-gz" class="button"><span>Download .tar.gz</span></a>
+          <a href="https://github.com/Distrotech/guile" id="view-on-github" class="button"><span>View on GitHub</span></a>
+        </section>
+
+        <hr>
+
+        <section id="main_content">
+          <p>This is version 2.0 of Guile, Project GNU's extension language library.
+Guile is an implementation of the Scheme programming language, packaged
+as a library that can be linked into applications to give them their own
+extension language.  Guile supports other languages as well, giving
+users of Guile-based applications a choice of languages.</p>
+
+<p>Please send bug reports to <a href="mailto:bug-guile@gnu.org">bug-guile@gnu.org</a>.</p>
+
+<p>See the LICENSE file for the specific terms that apply to Guile.  Note
+that for any copyright year range specified as YYYY-ZZZZ in this
+package, the range specifies every single year in that closed interval.</p>
+
+<p>Additional INSTALL instructions ===========================================</p>
+
+<p>Generic instructions for configuring and compiling Guile can be found
+in the INSTALL file.  Guile specific information and configure options
+can be found below, including instructions for installing SLIB.</p>
+
+<p>Guile depends on the following external libraries.</p>
+
+<ul>
+<li>libgmp</li>
+<li>libiconv</li>
+<li>libintl</li>
+<li>libltdl</li>
+<li>libunistring</li>
+<li>libgc</li>
+<li>libffi
+It will also use the libreadline library if it is available.</li>
+</ul><p>There is a corresponding <code>--with-XXX-prefix' option for each of these
+libraries (except for libgc and libffi which use</code>pkg-config', see
+below) that you can use when invoking ./configure, if you have these
+libraries installed in a location other than the standard places (/usr
+and /usr/local).</p>
+
+<p>These options are provided by the Gnulib <code>havelib' module, and details
+of how they work are documented in</code>Searching for Libraries' in the
+Gnulib manual (<a href="http://www.gnu.org/software/gnulib/manual">http://www.gnu.org/software/gnulib/manual</a>).  The extent
+to which they work on a given OS depends on whether that OS supports
+encoding full library path names in executables (aka `rpath').  Also
+note that using these options, and hence hardcoding full library path
+names (where that is supported), makes it impossible to later move the
+built executables and libraries to an installation location other than
+the one that was specified at build time.</p>
+
+<p>Another possible approach is to set CPPFLAGS and LDFLAGS on the
+configure command-line, so that they include -I options for all the
+non-standard places where you have installed header files and -L
+options for all the non-standard places where you have installed
+libraries.  This will allow configure and make to find those headers
+and libraries during the build.  E.g.:</p>
+
+<p>../configure [...] CPPFLAGS='-I/my/include' LDFLAGS='-L/my/lib'</p>
+
+<p>The locations found will not be hardcoded into the build executables and
+libraries, so with this approach you will probably also need to set
+LD_LIBRARY_PATH correspondingly, to allow Guile to find the necessary
+libraries again at runtime.</p>
+
+<p>Required External Packages ================================================</p>
+
+<p>Guile requires the following external packages:</p>
+
+<ul>
+<li>
+<p>GNU MP, at least version 4.2</p>
+
+<p>GNU MP is used for bignum arithmetic.  It is available from
+<a href="http://gmplib.org/">http://gmplib.org/</a> .</p>
+</li>
+<li>
+<p>libltdl from GNU Libtool, at least version 1.5.6</p>
+
+<p>libltdl is used for loading extensions at run-time.  It is
+available from <a href="http://www.gnu.org/software/libtool/">http://www.gnu.org/software/libtool/</a> .</p>
+</li>
+<li>
+<p>GNU libunistring, at least version 0.9.3</p>
+
+<p>libunistring is used for Unicode string operations, such as the
+`utf*-&gt;string' procedures.  It is available from
+<a href="http://www.gnu.org/software/libunistring/">http://www.gnu.org/software/libunistring/</a> .</p>
+</li>
+<li>
+<p>libgc, at least version 7.0</p>
+
+<p>libgc (aka. the Boehm-Demers-Weiser garbage collector) is the
+conservative garbage collector used by Guile.  It is available
+from <a href="http://www.hpl.hp.com/personal/Hans_Boehm/gc/">http://www.hpl.hp.com/personal/Hans_Boehm/gc/</a> .</p>
+</li>
+<li>
+<p>libffi</p>
+
+<p>libffi provides a "foreign function interface", used by the
+`(system foreign)' module.  It is available from
+<a href="http://sourceware.org/libffi/">http://sourceware.org/libffi/</a> .</p>
+</li>
+<li>
+<p>pkg-config</p>
+
+<p>Guile's ./configure script uses pkg-config to discover the correct
+compile and link options for libgc and libffi.  For this to work,
+the <code>PKG_CONFIG_PATH' environment variable must be set to point to
+the places where libgc's and libffi's</code>.pc' files can be found:</p>
+
+<p>PKG_CONFIG_PATH=/path/to/libgc/lib/pkgconfig:/path/to/libffi/lib/pkgconfig</p>
+
+<p>Alternatively, when pkg-config is not installed, you can work around
+this by setting some variables as part of the configure
+command-line:</p>
+
+<ul>
+<li>PKG_CONFIG=true</li>
+<li>BDW_GC_CFLAGS=</li>
+<li>BDW_GC_LIBS=</li>
+</ul>
+<p>Note that because you're bypassing all pkg-config checks, you will
+also have to specify libffi flags as well:</p>
+
+<ul>
+<li>LIBFFI_CFLAGS=</li>
+<li>LIBFFI_LIBS=</li>
+</ul>
+</li>
+</ul><p>Special Instructions For Some Systems =====================================</p>
+
+<p>We would like Guile to build on all systems using the simple
+instructions above, but it seems that a few systems still need special
+treatment.  If you can send us fixes for these problems, we'd be
+grateful.</p>
+
+<p></p>
+
+<p>Guile specific flags Accepted by Configure =================================</p>
+
+<p>If you run the configure script with no arguments, it should examine
+your system and set things up appropriately.  However, there are a few
+switches specific to Guile you may find useful in some circumstances.</p>
+
+<p>--without-threads  ---  Build without thread support</p>
+
+<p>Build a Guile executable and library that supports multi-threading.</p>
+
+<p>The default is to enable threading support when your operating
+  system offsers 'POSIX threads'.  When you do not want threading, use
+  `--without-threads'.</p>
+
+<p>--enable-deprecated=LEVEL</p>
+
+<p>Guile may contain features that are `deprecated'.  When a feature is
+  deprecated, it means that it is still there, but that there is a
+  better way of achieving the same thing, and we'd rather have you use
+  this better way.  This allows us to eventually remove the old
+  implementation and helps to keep Guile reasonably clean of historic
+  baggage.</p>
+
+<p>See the file NEWS for a list of features that are currently
+  deprecated.  Each entry will also tell you what you should replace
+  your code with.</p>
+
+<p>To give you some help with this process, and to encourage (OK,
+  nudge) people to switch to the newer methods, Guile can emit
+  warnings or errors when you use a deprecated feature.  There is
+  quite a range of possibilities, from being completely silent to
+  giving errors at link time.  What exactly happens is determined both
+  by the value of the `--enable-deprecated' configuration option when
+  Guile was built, and by the GUILE_WARN_DEPRECATED environment
+  variable.</p>
+
+<p>It works like this:</p>
+
+<pre><code>When Guile has been configured with `--enable-deprecated=no' (or,
+equivalently, with `--disable-deprecated') then all deprecated
+features are omitted from Guile.  You will get "undefined
+reference", "variable unbound" or similar errors when you try to
+use them.
+
+When `--enable-deprecated=LEVEL' has been specified (for LEVEL not
+"no"), LEVEL will be used as the default value of the environment
+variable GUILE_WARN_DEPRECATED.  A value of "yes" is changed to
+"summary" and "shutup" is changed to "no", however.
+
+When GUILE_WARN_DEPRECATED has the value "no", nothing special
+will happen when a deprecated feature is used.
+
+When GUILE_WARN_DEPRECATED has the value "summary", and a
+deprecated feature has been used, Guile will print this message at
+exit:
+
+  Some deprecated features have been used.  Set the environment
+  variable GUILE_WARN_DEPRECATED to "detailed" and rerun the
+  program to get more information.  Set it to "no" to suppress
+  this message.
+
+When GUILE_WARN_DEPRECATED has the value "detailed", a detailed
+warning is emitted immediatly for the first use of a deprecated
+feature.
+</code></pre>
+
+<p>The default is `--enable-deprecated=yes'.</p>
+
+<p>In addition to setting GUILE_WARN_DEPRECATED in the environment, you
+  can also use (debug-enable 'warn-deprecated) and (debug-disable
+  'warn-deprecated) to enable and disable the detailed messaged at run
+  time.</p>
+
+<p>Additionally, if your toolchain is new enough, you will receive
+  warnings at link time if you have a Guile extension that uses
+  deprecated functions provided by Guile.</p>
+
+<p>--disable-shared  ---  Do not build shared libraries.
+--disable-static  ---  Do not build static libraries.</p>
+
+<p>Normally, both static and shared libraries will be built if your
+  system supports them.</p>
+
+<p>--enable-debug-freelist  ---  Enable freelist debugging.</p>
+
+<p>This enables a debugging version of scm_cell and scm_double_cell,
+  and also registers an extra primitive, the setter
+  `gc-set-debug-check-freelist!'.</p>
+
+<p>Configure with the --enable-debug-freelist option to enable the
+  gc-set-debug-check-freelist! primitive, and then use:</p>
+
+<p>(gc-set-debug-check-freelist! #t)  # turn on checking of the freelist
+  (gc-set-debug-check-freelist! #f)  # turn off checking</p>
+
+<p>Checking of the freelist forces a traversal of the freelist and a
+  garbage collection before each allocation of a cell.  This can slow
+  down the interpreter dramatically, so the setter should be used to
+  turn on this extra processing only when necessary.</p>
+
+<p>--enable-debug-malloc  ---  Enable malloc debugging.</p>
+
+<p>Include code for debugging of calls to scm_malloc, scm_realloc, etc.</p>
+
+<p>It records the number of allocated objects of each kind.  This is
+  useful when searching for memory leaks.</p>
+
+<p>A Guile compiled with this option provides the primitive
+  `malloc-stats' which returns an alist with pairs of kind and the
+  number of objects of that kind.</p>
+
+<p>--enable-guile-debug  ---  Include internal debugging functions
+--disable-posix       ---  omit posix interfaces
+--disable-networking  ---  omit networking interfaces
+--disable-regex       ---  omit regular expression interfaces</p>
+
+<p>Cross building Guile  =====================================================</p>
+
+<p>As of Guile 2.0.x, the build process produces a library, libguile-2.0,
+along with Guile "object files" containing bytecode to be interpreted by
+Guile's virtual machine.  The bytecode format depends on the endianness
+and word size of the host CPU.</p>
+
+<p>Thus, when cross building Guile, you first need to configure, build and
+install it for your build host.</p>
+
+<p>Then, you may configure Guile for cross building:</p>
+
+<pre><code>./configure --host=i686-pc-cygwin --disable-shared
+</code></pre>
+
+<p>A C compiler for the build system is required.  If that doesn't suit it
+can be specified with the CC_FOR_BUILD variable in the usual way, for
+instance:</p>
+
+<pre><code>./configure --host=m68k-unknown-linux-gnu CC_FOR_BUILD=/my/local/gcc
+</code></pre>
+
+<p>Guile for the build system can be specified similarly with the
+GUILE_FOR_BUILD variable, which defaults to whatever `guile' executable
+is found in $PATH.  It must have the exact same version has the Guile
+that you intend to cross-build.</p>
+
+<p>Using Guile Without Installing It =========================================</p>
+
+<p>The "meta/" subdirectory of the Guile sources contains a script called
+"guile" that can be used to run the Guile that has just been built. Note
+that this is not the same "guile" as the one that is installed; this
+"guile" is a wrapper script that sets up the environment appropriately,
+then invokes the Guile binary.</p>
+
+<p>You may also build external packages against an uninstalled Guile build
+tree. The "uninstalled-env" script in the "meta/" subdirectory will set
+up an environment with a path including "meta/", a modified dynamic
+linker path, a modified PKG_CONFIG_PATH, etc.</p>
+
+<p>For example, you can enter this environment via invoking</p>
+
+<pre><code>meta/uninstalled-env bash
+</code></pre>
+
+<p>Within that shell, other packages should be able to build against
+uninstalled Guile.</p>
+
+<p>Installing SLIB ===========================================================</p>
+
+<p>In order to use SLIB from Guile you basically only need to put the
+`slib' directory <em>in</em> one of the directories on Guile's load path.</p>
+
+<p>The standard installation is:</p>
+
+<ol>
+<li><p>Obtain slib from <a href="http://www-swiss.ai.mit.edu/%7Ejaffer/SLIB.html">http://www-swiss.ai.mit.edu/~jaffer/SLIB.html</a></p></li>
+<li>
+<p>Put it in Guile's data directory, that is the directory printed when
+ you type</p>
+
+<p>guile-config info pkgdatadir</p>
+
+<p>at the shell prompt.  This is normally <code>/usr/local/share/guile', so the
+ directory will normally have full path</code>/usr/local/share/guile/slib'.</p>
+</li>
+<li>
+<p>Start guile as a user with write access to the data directory and type</p>
+
+<p>(use-modules (ice-9 slib))</p>
+
+<p>at the Guile prompt.  This will generate the slibcat catalog next to
+ the slib directory.</p>
+</li>
+</ol><p>SLIB's `require' is provided by the Guile module (ice-9 slib).</p>
+
+<p>Example:</p>
+
+<p>(use-modules (ice-9 slib))
+  (require 'primes)
+  (prime? 7)</p>
+
+<p>Guile Documentation ==================================================</p>
+
+<p>The Guile Reference Manual (guile.info) is the primary documentation for
+Guile.  A copy of the R5RS Scheme specification is included too
+(r5rs.info).</p>
+
+<p>Info format versions of this documentation are installed as part of
+the normal build process.  The texinfo sources are under the doc
+directory, and other formats like Postscript, PDF, DVI or HTML can be
+generated from them with Tex and Texinfo tools.</p>
+
+<p>The doc directory also includes an example-smob subdirectory which has
+the example code from the "Defining New Types (Smobs)" chapter of the
+reference manual.</p>
+
+<p>The Guile WWW page is at</p>
+
+<p><a href="http://www.gnu.org/software/guile/guile.html">http://www.gnu.org/software/guile/guile.html</a></p>
+
+<p>It contains a link to the Guile FAQ.</p>
+
+<p>About This Distribution ==============================================</p>
+
+<p>Interesting files include:</p>
+
+<ul>
+<li>LICENSE, which contains the exact terms of the Guile license.</li>
+<li>COPYING.LESSER, which contains the terms of the GNU Lesser General Public License.</li>
+<li>COPYING, which contains the terms of the GNU General Public License.</li>
+<li>INSTALL, which contains general instructions for building/installing Guile.</li>
+<li>NEWS, which describes user-visible changes since the last release of Guile.</li>
+</ul><p>Files are usually installed according to the prefix specified to
+configure, /usr/local by default.  Building and installing gives you:</p>
+
+<p>Executables, in ${prefix}/bin:</p>
+
+<p>guile --- a stand-alone interpreter for Guile.  With no arguments, this
+    is a simple interactive Scheme interpreter.  It can also be used
+    as an interpreter for script files; see the NEWS file for details.
+ guile-config --- a Guile script which provides the information necessary
+    to link your programs against the Guile library.
+ guile-snarf --- a script to parse declarations in your C code for
+    Scheme-visible C functions, Scheme objects to be used by C code,
+    etc.</p>
+
+<p>Libraries, in ${prefix}/lib.  Depending on the platform and options
+        given to configure, you may get shared libraries in addition
+    to or instead of these static libraries:</p>
+
+<p>libguile.a --- an object library containing the Guile interpreter,
+    You can use Guile in your own programs by linking against this.
+ libguilereadline.a --- an object library containing glue code for the
+        GNU readline library.</p>
+
+<p>libguile-srfi-*.a --- various SRFI support libraries</p>
+
+<p>Header files, in ${prefix}/include:</p>
+
+<p>libguile.h, guile/gh.h, libguile/*.h --- for libguile.
+ guile-readline/readline.h --- for guile-readline.</p>
+
+<p>Support files, in ${prefix}/share/guile/:</p>
+
+<p>ice-9/* --- run-time support for Guile: the module system,
+    read-eval-print loop, some R4RS code and other infrastructure.
+ oop/* --- the Guile Object-Oriented Programming System (GOOPS)
+ scripts/* --- executable modules, i.e., scheme programs that can be both
+    called as an executable from the shell, and loaded and used as a
+    module from scheme code.  See scripts/README for more info.
+ srfi/* --- SRFI support modules.  See srfi/README for more info.</p>
+
+<p>Automake macros, in ${prefix}/share/aclocal:</p>
+
+<p>guile.m4</p>
+
+<p>Documentation in Info format, in ${prefix}/info:</p>
+
+<p>guile --- Guile reference manual.</p>
+
+<p>guile-tut --- Guile tutorial.</p>
+
+<p>GOOPS --- GOOPS reference manual.</p>
+
+<p>r5rs --- Revised(5) Report on the Algorithmic Language Scheme.</p>
+
+<p>The Guile source tree is laid out as follows:</p>
+
+<p>libguile:
+    The Guile Scheme interpreter --- both the object library
+    for you to link with your programs, and the executable you can run.
+ice-9:  Guile's module system, initialization code, and other infrastructure.
+guile-config:
+    Source for the guile-config script.
+guile-readline:
+        The glue code for using GNU readline with Guile.  This
+        will be build when configure can find a recent enough readline
+        library on your system.
+doc:    Documentation (see above).</p>
+
+<p>Git Repository Access ================================================</p>
+
+<p>Guile's source code is stored in a Git repository at Savannah.  Anyone
+can access it using `git-clone' from one of the following URLs:</p>
+
+<p>git://git.sv.gnu.org/guile.git
+  <a href="http://git.sv.gnu.org/r/guile.git">http://git.sv.gnu.org/r/guile.git</a></p>
+
+<p>Developers with a Savannah SSH account can also access it from:</p>
+
+<p>ssh://git.sv.gnu.org/srv/git/guile.git</p>
+
+<p>The repository can also be browsed on-line at the following address:</p>
+
+<p><a href="http://git.sv.gnu.org/gitweb/?p=guile.git">http://git.sv.gnu.org/gitweb/?p=guile.git</a></p>
+
+<p>For more information on Git, please see:</p>
+
+<p><a href="http://git.or.cz/">http://git.or.cz/</a></p>
+
+<p>Please send problem reports to <a href="mailto:bug-guile@gnu.org">bug-guile@gnu.org</a>.</p>
+        </section>
+
+        <footer>
+          Guile is maintained by <a href="https://github.com/Distrotech">Distrotech</a><br>
+          This page was generated by <a href="http://pages.github.com">GitHub Pages</a>. Tactile theme by <a href="http://twitter.com/jasonlong">Jason Long</a>.
+        </footer>
+
+        
+      </div>
+    </div>
+  </body>
+</html>
