@@ -12,7 +12,7 @@
   #:use-module (language tree-il compile-cps)
   #:use-module (system vm assembler)
   #:export (cps->rtl generate-shuffle generate-rtl cps-compile
-                     calculate-free-values))
+                     calculate-free-values cps-eval))
 
 ;; currently, the only way we have to run RTL code is to package it up
 ;; into a program and call that program. Therefore, all code that we
@@ -504,3 +504,5 @@
                                #:from 'rtl #:to to))
            ((rtl) (assemble-program x))
            (else (error "Unrecognized language" from))))))
+
+(define (cps-eval x) ((cps-compile `(lambda () ,x))))
