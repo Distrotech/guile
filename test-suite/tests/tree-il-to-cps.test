@@ -1,0 +1,135 @@
+(use-modules
+ (test-suite lib)
+ (language cps compile-rtl)
+ (language cps cps-isomorphic)
+ (language cps))
+
+(pass-if "Constant expressions"
+  (cps-isomorphic?
+   (cps-compile '(lambda () 3) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letval (x) ((const 3))
+         (call return #f (x)))))))
+
+(pass-if "lexical-ref"
+  (cps-isomorphic?
+   (cps-compile '(lambda (x) x) #:to 'cps)
+   (parse-cps
+    '(lambda (x) #f
+       (letval (x-var) ((var x))
+         (call (primitive ref) return (x-var)))))))
+
+(pass-if "lexical-set"
+  (cps-isomorphic?
+   (cps-compile '(lambda (x y) (set! x y)) #:to 'cps)
+   (parse-cps
+    '(lambda (x y) #f
+        (letval (x-var y-var)
+                ((var x) (var y))
+          (letcont (setk) ((lambda (y-val) #f
+                             (call (primitive set)
+                                   return
+                                   (x-var y-val))))
+            (call (primitive ref) setk (y-var))))))))
+
+(pass-if "module-ref"
+  (cps-isomorphic?
+   (cps-compile '(lambda () (@ (mod) x)) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letval (x-var) ((module-var (mod) x #t))
+         (call (primitive ref) return (x-var)))))))
+
+(pass-if "module-set"
+  (cps-isomorphic?
+   (cps-compile '(lambda (y) (set! (@ (mod) x) y)) #:to 'cps)
+   (parse-cps
+    '(lambda (y) #f
+       (letval (y-var) ((var y))
+         (letcont (refk) ((lambda (y-val) #f
+                            (letval (x-var) ((module-var (mod) x #t))
+                              (call (primitive set) return (x-var y-val)))))
+           (call (primitive ref) refk (y-var))))))))
+
+(pass-if "toplevel-ref"
+  (cps-isomorphic?
+   (cps-compile '(lambda () x) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letval (x-var) ((module-var toplevel x #t))
+         (call (primitive ref) return (x-var)))))))
+
+(pass-if "toplevel-set"
+  (cps-isomorphic?
+   (cps-compile '(lambda (y) (set! x y)) #:to 'cps)
+   (parse-cps
+    '(lambda (y) #f
+       (letval (y-var) ((var y))
+         (letcont (refk) ((lambda (y-val) #f
+                            (letval (x-var) ((module-var toplevel x #t))
+                              (call (primitive set) return (x-var y-val)))))
+           (call (primitive ref) refk (y-var))))))))
+
+(pass-if "sequences"
+  (cps-isomorphic?
+   (cps-compile '(lambda (x y) (set! x y) x) #:to 'cps)
+   (parse-cps
+    '(lambda (x y) #f
+       (letval (x-var y-var) ((var x) (var y))
+         (letcont (seqk) ((lambda () rest
+                           (call (primitive ref) return (x-var))))
+           (letcont (setk) ((lambda (y-val) #f
+                              (call (primitive set) seqk (x-var y-val))))
+             (call (primitive ref) setk (y-var)))))))))
+
+(pass-if "let"
+  (cps-isomorphic?
+   (cps-compile '(lambda () (let ((x 3)) x)) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letval (three) ((const 3))
+         (letval (x-var) ((var three))
+           (call (primitive ref) return (x-var))))))))
+
+(pass-if "if"
+  (cps-isomorphic?
+   (cps-compile '(lambda () (if 1 2 3)) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letcont (con alt) ((lambda () #f
+                             (letval (two) ((const 2))
+                               (call return #f (two))))
+                           (lambda () #f
+                             (letval (three) ((const 3))
+                               (call return #f (three)))))
+         (letval (one) ((const 1))
+           (if one con alt)))))))
+
+(pass-if "call"
+  (cps-isomorphic?
+   (cps-compile '(lambda (x y) (x y)) #:to 'cps)
+   (parse-cps
+    '(lambda (x y) #f
+       (letval (x-var y-var) ((var x) (var y))
+         (letcont
+          (proc-k)
+          ((lambda (proc) #f
+             (letcont
+              (arg-k)
+              ((lambda (arg) #f
+                (call proc return (arg))))
+              (call (primitive ref) arg-k (y-var)))))
+          (call (primitive ref) proc-k (x-var))))))))
+
+(pass-if "lambda"
+  (cps-isomorphic?
+   (cps-compile '(lambda () (lambda (x) x)) #:to 'cps)
+   (parse-cps
+    '(lambda () #f
+       (letrec
+         (func)
+         ((lambda (x) #f
+           (letval (x-var) ((var x))
+             (call (primitive ref) return (x-var)))))
+         (call return #f (func)))))))
