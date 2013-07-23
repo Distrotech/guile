@@ -52,6 +52,7 @@ SOURCES =					\
   language/glil.scm				\
   language/assembly.scm				\
   $(TREE_IL_LANG_SOURCES)			\
+  $(CPS_LANG_SOURCES)				\
   $(GLIL_LANG_SOURCES)				\
   $(ASSEMBLY_LANG_SOURCES)			\
   $(BYTECODE_LANG_SOURCES)			\
@@ -113,6 +114,10 @@ TREE_IL_LANG_SOURCES =						\
   language/tree-il/compile-glil.scm 				\
   language/tree-il/debug.scm 					\
   language/tree-il/spec.scm
+
+CPS_LANG_SOURCES =						\
+  language/cps.scm						\
+  language/cps/verify.scm
 
 GLIL_LANG_SOURCES =						\
   language/glil/spec.scm language/glil/compile-assembly.scm
