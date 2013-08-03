@@ -25,7 +25,7 @@
 
     (define (names-match? x y x-name y-name)
       (or (eq? (hashq-ref x-to-y-names x-name) y-name)
-          (pk "Couldn't match" x y) #f))
+          (begin (pk "Couldn't match" x y) #f)))
 
     ;; one continuation has a special name.
     (match-names! '(return) '(return))
@@ -48,7 +48,10 @@
               (every rec x-funcs y-funcs)
               (rec x-body y-body)))
         ((($ <const> x-val) . ($ <const> y-val))
-         (equal? x-val y-val))
+         (if (equal? x-val y-val)
+             #t
+             (begin (pk "Couldn't match" x y)
+                    #f)))
         ((($ <var> x-val) . ($ <var> y-val))
          (names-match? x y x-val y-val))
         ((($ <lambda> x-names x-rest x-body) .
@@ -83,6 +86,6 @@
          (and (names-match? x y x-test y-test)
               (names-match? x y x-then y-then)
               (names-match? x y x-else y-else)))
-        ((x . y) #;(pk "Couldn't match" x y) #f)
+        ((x . y) (pk "Couldn't match" x y) #f)
         (other (error "Internal error" other))))))
 
