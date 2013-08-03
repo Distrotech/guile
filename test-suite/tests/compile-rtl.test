@@ -1,0 +1,29 @@
+(use-modules
+ (test-suite lib)
+ (language cps)
+ (language cps compile-rtl))
+
+(with-test-prefix "generate-primitive-call"
+  (pass-if-equal "arity: 1 -> 1"
+    '((string-length 1 0))
+    (let ((regs (make-object-property)))
+      (set! (regs 'a) 0)
+      (generate-primitive-call '(1) #f 'string-length '(a)
+                               #f #f regs)))
+
+  (pass-if-equal "arity: 2 -> 1"
+    '((cons 2 0 1))
+    (let ((regs (make-object-property)))
+      (set! (regs 'a) 0)
+      (set! (regs 'b) 1)
+      (generate-primitive-call '(2) #f 'cons '(a b)
+                               #f #f regs)))
+
+  (pass-if-equal "arity: variable -> 0"
+    '((fix-closure 0 (1 2)))
+    (let ((regs (make-object-property)))
+      (set! (regs 'a) 0)
+      (set! (regs 'b) 1)
+      (set! (regs 'c) 2)
+      (generate-primitive-call '() #f 'fix-closure '(a b c)
+                               #f #f regs))))

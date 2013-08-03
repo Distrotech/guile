@@ -1,7 +1,7 @@
 (define-module (language cps util)
   #:use-module (ice-9 q)
   #:use-module (srfi srfi-1)
-  #:export (append-qs! int-range generate-shuffle))
+  #:export (append-qs! int-range maybe-append generate-shuffle))
 
 ;; The functions in this file are not directly related to CPS or
 ;; compilation; they're here because the CPS compiler needs them and
@@ -18,6 +18,15 @@
   (if (< start end)
       (cons start (int-range (+ start 1) end))
       '()))
+
+;; this is a totally generic utility
+(define (maybe-append . args)
+  (cond ((null? args) '())
+        ((eq? (car args) #f)
+         (apply maybe-append (cdr args)))
+        (else
+         (append (car args)
+                 (apply maybe-append (cdr args))))))
 
 ;; this function returns a list of `mov' instructions that accomplish a
 ;; shuffle in the stack. each tail argument is a pair (from . to) that

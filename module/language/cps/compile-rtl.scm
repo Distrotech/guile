@@ -12,7 +12,8 @@
   #:use-module (language tree-il compile-cps)
   #:use-module (system vm assembler)
   #:export (cps->rtl generate-rtl cps-compile
-                     calculate-free-values cps-eval))
+                     calculate-free-values cps-eval
+                     generate-primitive-call))
 
 ;; currently, the only way we have to run RTL code is to package it up
 ;; into a program and call that program. Therefore, all code that we
@@ -139,119 +140,124 @@
 
   free-vals)
 
+;; the next few functions define special cases for certain VM
+;; instructions. it's usually because they need special arguments.
+
+;; ref and set need to know if they're handling a module variable or
+;; not. The most elegant thing from the CPS point of view is to forget
+;; about the module-ref and module-set VM instructions and just use
+;; resolve for everything, but that might be slow until we have a tiling
+;; code generator.
+(define (generate-ref dst args name-defn register)
+  (let* ((var-value (car args))
+         ;; var-value is the value holding the variable object, var is
+         ;; the actual variable object
+         (var (name-defn var-value)))
+    (if (module-var? var)
+        ;; the scope is 'foo because we don't meaningfully
+        ;; distinguish scopes yet.
+        (if (eq? (module-var-module var) 'toplevel)
+            ;; we should really just cache the current module
+            ;; once per procedure.
+            `((cache-current-module! ,dst foo)
+              (cached-toplevel-ref ,dst foo
+                                   ,(module-var-name var)))
+            `((cached-module-ref ,dst
+                                 ,(module-var-module var)
+                                 ,(module-var-public? var)
+                                 ,(module-var-name var))))
+        `((box-ref ,dst ,(register var-value))))))
+
+(define (generate-set dst args name-defn register)
+  (let* ((var-value (car args))
+         (new-value (cadr args))
+         (var (name-defn var-value)))
+    (if (module-var? var)
+        (if (eq? (module-var-module var) 'toplevel)
+            `((cache-current-module! ,dst foo)
+              (cached-toplevel-set! ,(register new-value) foo
+                                    ,(module-var-name var))
+              (mov ,dst ,(register new-value)))
+            `((cached-module-set! ,(register new-value)
+                                  ,(module-var-module var)
+                                  ,(module-var-public? var)
+                                  ,(module-var-name var))
+              (mov ,dst ,(register new-value))))
+        `((box-set!
+           ,(register var-value)
+           ,(register new-value))
+          (mov ,dst ,(register new-value))))))
+
+;; closure-ref needs to know the value of its argument at compile time,
+;; so it has to look that up in the name-defn table.
+(define (generate-closure-ref dst args name-defn)
+  (let ((defn (name-defn (car args))))
+    (when (not (const? defn))
+      (error
+       "closure-ref must be called with a constant argument"))
+    `((free-ref
+       ,dst
+       ,(const-value defn)))))
+
+;; make-closure's first argument is a label, not a register.
+(define (generate-make-closure dst args label register)
+  (let ((func (car args))
+        (vals (cdr args)))
+    `((make-closure
+       ,dst
+       ,(label func)
+       ,(map register vals)))))
+
+;; generate-primitive-call: generate a call to primitive prim with the
+;; given args, placing the result in register(s) dsts. rest is either
+;; #f or the location of the rest arguments of the destination
+;; continuation (if it has rest arguments).
+(define (generate-primitive-call dsts rest prim args
+                                 name-defn label register)
+  (define (has-prop? primitive prop)
+    (memq prop (hashq-ref *primitive-props-table* primitive)))
+
+  ;; TO DO: let primitives indicate the type of their arguments, with
+  ;; options 'register and 'label, and maybe more. That would let us
+  ;; remove the special handling for some of them, and implement things
+  ;; like prompt and dynwind.
+
+  (catch 'bad-primitive
+    (lambda () 
+      (let ((dst (if (pair? dsts) (car dsts) rest)))
+        ;; if out-arity is 0, dst will be junk, but it shouldn't error.
+        (case prim
+          ((ref) (generate-ref dst args name-defn register))
+          ((set) (generate-set dst args name-defn register))
+          ((closure-ref) (generate-closure-ref dst args name-defn))
+          ((make-closure) (generate-make-closure dst args label register))
+          (else
+           (let ((insn (hashq-ref *primitive-insn-table* prim))
+                 (in-arity (hashq-ref *primitive-in-arity-table* prim))
+                 (out-arity (hashq-ref *primitive-out-arity-table* prim)))
+             (unless insn
+               (throw 'bad-primitive))
+             (unless (or (has-prop? prim 'variable)
+                         (= in-arity (length args)))
+               (throw 'bad-primitive))
+
+             (let ((fix-args (list-head args in-arity))
+                   (var-args (list-tail args in-arity)))
+               (list
+                (maybe-append
+                 (list insn)
+                 (and (= out-arity 1)
+                      (list dst))
+                 (map register fix-args)
+                 (and (has-prop? prim 'variable)
+                      (list (map register var-args)))))))))))
+    (lambda (key)
+      (error "malformed primitive call" (cons prim args)))))
+
+
 ;; generate-rtl compiles a CPS form to RTL.
 (define (generate-rtl cps name-defn register call-frame-start
                       rest-args-start nlocals label next-label!)
-  ;; generate-primitive-call: generate a call to primitive prim with the
-  ;; given args, placing the result in register(s) dsts. rest is either
-  ;; #f or the location of the rest arguments of the destination
-  ;; continuation (if it has rest arguments). This is its own function
-  ;; because it is called twice in visit - once in the tail case and
-  ;; once in the non-tail case.
-  (define (generate-primitive-call dsts rest prim args)
-    ;; some of the primitives have special handling. this probably
-    ;; points to a bad abstraction, but I don't know where yet. the
-    ;; distinction is whether the primitives require information that is
-    ;; part of the CPS or not. A "regular" primitive takes Scheme values
-    ;; from registers and returns Scheme values to registers. These
-    ;; primitives are handled in the primitive instruction tables in
-    ;; (language cps primitives). However, other primitives are
-    ;; different, in different ways:
-
-    ;; ref and set need to know if they're handling a module variable or
-    ;; not. The most elegant thing from the CPS point of view is to
-    ;; forget about the module-ref and module-set VM instructions and
-    ;; just use resolve for everything, but that might be slow until we
-    ;; have a tiling code generator.
-
-    ;; closure-ref needs to know the value of its argument at compile
-    ;; time, so it has to look that up in the name-defn table.
-
-    ;; make-closure's first argument is a label, not a register.
-
-    ;; in the future, things like prompt and dynwind will take arguments
-    ;; that are lambdas in Scheme, but are actually continuations in CPS
-    ;; world, so they'll have to know how to turn them into
-    ;; continuations.
-
-    (case prim
-      ((ref) (let* ((var-value (car args))
-                    ;; var-value is the value holding the variable
-                    ;; object
-                    (var (name-defn var-value))
-                    ;; var is the actual variable object
-                    (dst (if (pair? dsts)
-                             (car dsts)
-                             rest)))
-               (if (module-var? var)
-                   ;; the scope is 'foo because we don't meaningfully
-                   ;; distinguish scopes yet.
-                   (if (eq? (module-var-module var) 'toplevel)
-                       ;; we should really just cache the current module
-                       ;; once per procedure.
-                       `((cache-current-module! ,dst foo)
-                         (cached-toplevel-ref ,dst foo
-                                              ,(module-var-name var)))
-                       `((cached-module-ref ,dst
-                                            ,(module-var-module var)
-                                            ,(module-var-public? var)
-                                            ,(module-var-name var))))
-                   `((box-ref ,dst ,(register var-value))))))
-      ((set) (let* ((var-value (car args))
-                    (new-value (cadr args))
-                    (var (name-defn var-value))
-                    (dst (if (pair? dsts)
-                             (car dsts)
-                             rest)))
-               (if (module-var? var)
-                   (if (eq? (module-var-module var) 'toplevel)
-                       `((cache-current-module! ,dst foo)
-                         (cached-toplevel-set! ,(register new-value) foo
-                                               ,(module-var-name var))
-                         (mov ,dst ,(register new-value)))
-                       `((cached-module-set! ,(register new-value)
-                                             ,(module-var-module var)
-                                             ,(module-var-public? var)
-                                             ,(module-var-name var))
-                         (mov ,dst ,(register new-value))))
-                   `((box-set!
-                      ,(register var-value)
-                      ,(register new-value))
-                     (mov ,dst ,(register new-value))))))
-
-      ((closure-ref) (let* ((dst (if (pair? dsts)
-                                     (car dsts)
-                                     rest))
-                            (defn (name-defn (car args))))
-                       (when (not (const? defn))
-                         (error
-                          "closure-ref must be called with a constant argument"))
-                       `((free-ref
-                          ,dst
-                          ,(const-value defn)))))
-
-      ((make-closure) (let ((dst (if (pair? dsts)
-                                     (car dsts)
-                                     rest))
-                            (func (car args))
-                            (vals (cdr args)))
-                        `((make-closure
-                           ,dst
-                           ,(label func)
-                           ,(map register vals)))))
-      (else
-       (let ((insn (hashq-ref *primitive-insn-table* prim))
-             (in-arity (hashq-ref *primitive-in-arity-table* prim))
-             (out-arity (hashq-ref *primitive-out-arity-table* prim))
-             (dst (if (pair? dsts)
-                      (car dsts)
-                      rest)))
-         (if (and insn
-                  (= in-arity (length args))
-                  (= out-arity 1)) ;; we don't support n-ary outputs yet
-             `((,insn ,dst ,@(map register args)))
-             (error "malformed primitive call" (cons prim args)))))))
-  
   (define (visit cps)
     ;; cps is either a let expression or a call
     (match cps
@@ -276,7 +282,8 @@
        (let ((return-reg
               (+ 1 (apply max (map register args)))))
          `(,@(generate-primitive-call
-              (list return-reg) #f (primitive-name proc) args)
+              (list return-reg) #f (primitive-name proc) args
+              name-defn label register)
            (return ,return-reg))))
 
        (($ <call> proc 'return args)
@@ -317,7 +324,8 @@
                (perm-label (next-label!)))
           (if (primitive? proc)
               `(,@(generate-primitive-call
-                   dsts rest (primitive-name proc) args)
+                   dsts rest (primitive-name proc) args
+                   name-defn label register)
                 (br ,(label cont)))
               `((call ,(call-frame-start cps) ,(register proc)
                       ,(map register args))

@@ -1,43 +1,44 @@
 (define-module (language cps primitives)
   #:export (*primitive-insn-table*
             *primitive-in-arity-table*
-            *primitive-out-arity-table*))
+            *primitive-out-arity-table*
+            *primitive-props-table*))
 
-;; the "primitives" in this file are the operations which are supported
-;; by VM opcodes. Each primitive has more than one name - there is its
-;; name in the (guile) module, its name in a <primitive> record (which
-;; is always the same as its name in (guile), for simplicity) and its
-;; name as a VM instruction, which may be different from the first two.
-
-;; this list holds information about the primitive VM operations. The
-;; current fields are (Scheme name, VM name, in-arity). We don't handle
-;; folds, reductions, or variable-arity instructions yet.
 (define *primitive-insn-data*
-  '((string-length string-length 1)
-    (string-ref string-ref 2)
-    (string->number string->number 1)
-    (string->symbol string->symbol 1)
-    (symbol->keyword symbol->keyword 1)
-    (cons cons 2)
-    (car car 1)
-    (cdr cdr 1)
-    (+ add 2)
-    (1+ add1 1)
-    (- sub 2)
-    (1- sub1 1)
-    (* mul 2)
-    (/ div 2)
+  ;; fields:
+  ;; (Scheme name, VM name, in arity, out arity, props ...)
+
+  ;; "Scheme name" is what will appear in CPS <primitive> records, and
+  ;; also the corresponding procedure's name in the (guile) module if it
+  ;; has one. "out arity" must be 0 or 1. "in arity" is the minimum in
+  ;; arity. if the primitive accepts more than that, it should have the
+  ;; "variable" property.
+  '((string-length string-length 1 1)
+    (string-ref string-ref 2 1)
+    (string->number string->number 1 1)
+    (string->symbol string->symbol 1 1)
+    (symbol->keyword symbol->keyword 1 1)
+    (cons cons 2 1)
+    (car car 1 1)
+    (cdr cdr 1 1)
+    (+ add 2 1)
+    (1+ add1 1 1)
+    (- sub 2 1)
+    (1- sub1 1 1)
+    (* mul 2 1)
+    (/ div 2 1)
     ;; quo isn't here because I don't know which of our many types of
     ;; division it's supposed to be. same for rem and mod.
-    (ash ash 2)
-    (logand logand 2)
-    (logior logior 2)
-    (logxor logxor 2)
-    (vector-length vector-length 1)
-    (vector-ref vector-ref 2)
-    (struct-vtable struct-vtable 1)
-    (struct-ref struct-ref 2)
-    (class-of class-of 1)))
+    (ash ash 2 1)
+    (logand logand 2 1)
+    (logior logior 2 1)
+    (logxor logxor 2 1)
+    (vector-length vector-length 1 1)
+    (vector-ref vector-ref 2 1)
+    (struct-vtable struct-vtable 1 1)
+    (struct-ref struct-ref 2 1)
+    (class-of class-of 1 1)
+    (fix-closure fix-closure 1 0 variable)))
 
 ;; this table maps our names for primitives (which are the Scheme names)
 ;; to the corresponding VM instructions. It also does double duty as the
@@ -54,10 +55,11 @@
 ;; this table holds the number of inputs each primitive function takes
 (define *primitive-in-arity-table* (make-hash-table))
 
-;; and this one holds the number of outputs. this will always be 1 right
-;; now, but there are cases where that won't be true - for instance,
-;; divmod.
+;; and this one holds the number of outputs.
 (define *primitive-out-arity-table* (make-hash-table))
+
+;; this is for miscellaneous properties
+(define *primitive-props-table* (make-hash-table))
 
 (define (fill-insn-tables!)
   (for-each
@@ -67,7 +69,9 @@
      (hashq-set! *primitive-in-arity-table*
                  (car entry) (caddr entry))
      (hashq-set! *primitive-out-arity-table*
-                 (car entry) 1))
+                 (car entry) (cadddr entry))
+     (hashq-set! *primitive-props-table*
+                 (car entry) (cddddr entry)))
    *primitive-insn-data*))
 
 (fill-insn-tables!)
