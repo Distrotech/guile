@@ -1,0 +1,144 @@
+(use-modules
+ (test-suite lib)
+ (language cps)
+ (language cps compile-rtl)
+ (language cps closure-conversion)
+ (language cps cps-isomorphic))
+
+(define (cc cps)
+  (closure-convert cps (calculate-free-values cps)))
+
+(pass-if "call"
+  (cps-isomorphic?
+   (cc (parse-cps '(lambda (x) #f
+                     (letrec
+                       (func)
+                       ((lambda () #f (call return #f (x))))
+                       (call return #f (func))))))
+   (parse-cps
+    `(lambda (x) #f
+       (letrec
+         (func)
+         ((lambda () #f
+            (letval (n) ((const 1))
+              (letcont (ref-k)
+                       ((lambda (x-val) #f
+                          (call return #f (x-val))))
+                (call (primitive closure-ref) ref-k (n))))))
+         (letval (unspec) ((const ,*unspecified*))
+           (letcont
+            (closure-k)
+            ((lambda (cl) #f
+              (letcont
+               (fixed-k)
+               ((lambda () #f (call return #f (cl))))
+               (call (primitive fix-closure) fixed-k (cl cl)))))
+            (call (primitive make-closure) closure-k (func unspec x)))))))))
+
+(pass-if "letval"
+  (cps-isomorphic?
+   (cc (parse-cps '(lambda (x) #f
+                     (letrec
+                       (func)
+                       ((lambda () #f
+                          (letval (x-var) ((var x))
+                            (call return #f (x-var)))))
+                     (call return #f (func))))))
+   (parse-cps
+    `(lambda (x) #f
+       (letrec
+         (func)
+         ((lambda () #f
+            (letval (n) ((const 1))
+              (letcont
+                (ref-k)
+                ((lambda (val) #f
+                   (letval (x-var) ((var val))
+                     (call return #f (x-var)))))
+               (call (primitive closure-ref) ref-k (n))))))
+         (letval
+          (unspec)
+          ((const ,*unspecified*))
+          (letcont
+           (closure-k)
+           ((lambda (cl) #f
+             (letcont
+              (fixed-k)
+              ((lambda () #f
+                (call return #f (cl))))
+              (call (primitive fix-closure) fixed-k (cl cl)))))
+           (call (primitive make-closure) closure-k (func unspec x)))))))))
+
+(pass-if "letrec"
+  (cps-isomorphic?
+   (cc (parse-cps '(lambda (x) #f
+                           (letval (x-var) ((var x))
+                                   (letrec
+                                       (get set)
+                                     ((lambda () #f
+                                              (call (primitive ref) return (x-var)))
+                                      (lambda (val) #f
+                                              (call (primitive set) return (x-var val))))
+                                     (letval (values-var)
+                                             ((module-var toplevel values #t))
+                                             (letcont
+                                              (values-k)
+                                              ((lambda (values) #f
+                                                       (call values return (get set))))
+                                              (call (primitive ref) values-k (values-var)))))))))
+   (parse-cps
+    `(lambda (x) #f
+             (letval (x-var) ((var x))
+                     (letrec
+                         (get-code set-code)
+                       ((lambda () #f
+                                (letval (idx-0) ((const 2))
+                                        (letcont
+                                         (do-get)
+                                         ((lambda (closure-var) #f
+                                                  (call (primitive ref) return (closure-var))))
+                                         (call (primitive closure-ref) do-get (idx-0)))))
+                        (lambda (new-val) #f
+                                (letval (idx-0) ((const 2))
+                                        (letcont
+                                         (do-set)
+                                         ((lambda (closure-var) #f
+                                                  (call (primitive set) return (closure-var new-val))))
+                                         (call (primitive closure-ref) do-set (idx-0))))))
+
+                       (letval
+                        (unspec-name)
+                        ((const ,*unspecified*))
+                        (letcont
+                         (get-closure)
+                         ((lambda (get-c) #f
+                                  (letcont
+                                   (set-closure)
+                                   ((lambda (set-c) #f
+                                            (letcont
+                                             (fixed-get)
+                                             ((lambda () #f
+                                                      (letcont
+                                                       (fixed-set)
+                                                       ((lambda () #f
+                                                                (letval (values-var)
+                                                                        ((module-var toplevel values #t))
+                                                                        (letcont
+                                                                         (values-k)
+                                                                         ((lambda (values) #f
+                                                                                  (call values return (get-c set-c))))
+                                                                         (call (primitive ref) values-k (values-var))))))
+                                                       (call (primitive fix-closure)
+                                                             fixed-set
+                                                             (set-c get-c set-c)))))
+                                             (call (primitive fix-closure)
+                                                   fixed-get
+                                                   (get-c get-c set-c)))))
+                                   (call (primitive make-closure)
+                                         set-closure
+                                         (set-code unspec-name unspec-name
+                                                   x-var)))))
+                         (call (primitive make-closure)
+                               get-closure
+                               (get-code unspec-name unspec-name
+                                         x-var))))))))))

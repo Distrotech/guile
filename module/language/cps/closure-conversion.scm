@@ -93,35 +93,70 @@
             env)))))
 
       ((<letrec> names funcs body)
-       ;; with a letrec, we need to run the primitive make-closure (and
-       ;; maybe later fix-closure too) to generate the procedures, and
-       ;; then run the body of the letrec in an environment with the
-       ;; procedures available. so we actually don't use the letrec
-       ;; machinery - we replace the letrec names with dummies and turn
-       ;; the letrec names into arguments of make-closure's
-       ;; continuation. this is really ugly.
-       (let* ((func (car funcs))
-              (closure-env (alloc-closure-vals
-                            (free-vals func)))
-              (new-names (map (lambda (n) (gensym "dummy-")) names)))
+       (let* ((closure-envs
+               ;; we make the names the prefix of all of the closure
+               ;; name lists so that the closed-over functions will be
+               ;; able to refer to each other.
+               (map (lambda (func) (alloc-closure-vals
+                                    (append
+                                     names
+                                     (free-vals func))))
+                    funcs))
+              (dummies (map (lambda (n) (gensym "dummy-")) names))
+              (unspec-name (gensym "unspec-")))
          (make-letrec
-          new-names
-          (list (visit func closure-env))
-          (let ((con (gensym "con-")))
-            ;; first make the closure, then run the body of the letrec.
-            ;; Note: we only allow a single closure in the letrec right
-            ;; now.
-            (make-letcont
-             (list con)
-             (list (make-lambda
-                    names #f (visit body env)))
-             (make-call
-              (make-primitive 'make-closure)
-              con
-              ;; the first argument of a make-closure call is special.
-              (cons (car new-names)
-                    (free-vals func))))))))
-
+          ;; after closure conversion, lambda objects don't have lexical
+          ;; environments. the "dummies" refer to the new lambda
+          ;; objects, and the names from the original letrec will refer
+          ;; to the new closure objects.
+          dummies
+          (map (lambda (func env)
+                 (visit func env))
+               funcs closure-envs)
+          ;; we need a dummy value to put in closures before we call
+          ;; fix-closure. we use *unspecified*.
+          (make-letval
+           (list unspec-name)
+           (list (make-const *unspecified*))
+           ;; iterate over the list of functions, generating a
+           ;; make-closure call for each one
+           (let iter ((funcs-tail funcs)
+                      (dummies-tail dummies)
+                      (names-tail names))
+             (if (not (null? funcs-tail))
+                 (let ((con (gensym "con-")))
+                   (make-letcont
+                    (list con)
+                    (list (make-lambda
+                           (list (car names-tail)) #f
+                           (iter (cdr funcs-tail)
+                                 (cdr dummies-tail)
+                                 (cdr names-tail))))
+                    (make-call
+                     (make-primitive 'make-closure)
+                     con
+                     (cons (car dummies-tail)
+                           (append (map (lambda (n) unspec-name) names)
+                                   (free-vals (car funcs-tail)))))))
+                 ;; we always fix up the closure even if there's only
+                 ;; one function, because it might refer to itself.
+                 (let iter ((funcs-tail funcs)
+                            (names-tail names))
+                   (let ((con (gensym "con-")))
+                     (make-letcont
+                      (list con)
+                      (list (make-lambda
+                             '() #f
+                             (if (not (null? (cdr funcs-tail)))
+                                 (iter (cdr funcs-tail)
+                                       (cdr names-tail))
+                                 (visit body env))))
+                      (make-call
+                       (make-primitive 'fix-closure)
+                       con
+                       (cons (car names-tail)
+                             names)))))))))))
+                                
       ((<letcont> names conts body)
        (make-letcont
         names
