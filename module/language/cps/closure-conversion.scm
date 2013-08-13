@@ -87,13 +87,19 @@ values: the term and a list of additional free variables in the term."
 (define (init-closure src v free body)
   "Initialize the free variables in a closure bound to @var{sym}, and
 continue with @var{body}."
-  (fold (lambda (free body)
-          (let ((k (gensym "k")))
+  (fold (lambda (free idx body)
+          (let ((k (gensym "k"))
+                (k* (gensym "k*"))
+                (idxsym (gensym "idx")))
             (make-$let1k
              (make-$cont src k (make-$kargs '() '() body))
-             (make-$continue k (make-$primcall 'free-set! (list v free))))))
+             (make-$let1v
+              src k* 'idx idxsym
+              (make-$continue k (make-$primcall 'free-set! (list v idxsym free)))
+              (make-$continue k* (make-$const idx))))))
         body
-        free))
+        free
+        (iota (length free))))
 
 ;; Closure conversion.
 (define (cc exp self bound)
@@ -206,6 +212,52 @@ convert functions to flat closures."
 
     (_ (error "what" exp))))
 
+;; Convert the slot arguments of 'free-ref' primcalls from symbols to
+;; indices.
+(define (convert-to-indices exp)
+  (let lpfree ((exp exp) (free '()))
+    (let lp ((exp exp))
+      (match exp
+        (($ $letk conts body)
+         (make-$letk (map lp conts) (lp body)))
+        (($ $cont src sym ($ $kargs names syms body))
+         (make-$cont src sym (make-$kargs names syms (lp body))))
+        (($ $cont src sym ($ $kentry arity body alternate))
+         (make-$cont src sym (make-$kentry arity (lp body)
+                                           (and alternate
+                                                (lp alternate)))))
+        ;; Other kinds of continuations don't
+        ;; bind values and don't have bodies.
+        (($ $cont) exp)
+        (($ $kif kt kf) exp)
+        (($ $ktrunc arity k) exp)
+        (($ $letrec names syms funs body)
+         (make-$letrec names syms (map lp funs) (lp body)))
+        (($ $call proc args) exp)
+        (($ $continue k ($ $primcall 'free-ref args))
+         (match args
+           ((closure sym)
+            (let ((idx (let lp ((i 0) (f free))
+                         (cond ((null? f)
+                                ((error "convert-to-indices: free variable not found!"
+                                        sym free exp)))
+                               ((eq? sym (car f))
+                                i)
+                               (else (lp (+ i 1) (cdr f))))))
+                  (idxsym (gensym "idx"))
+                  (k* (gensym "k")))
+              (make-$let1v #f k* 'idx idxsym
+                           (make-$continue k (make-$primcall
+                                              'free-ref (list closure idxsym)))
+                           (make-$continue k* (make-$const idx)))))))
+        (($ $continue k (or ($ $var) ($ $void) ($ $const) ($ $prim)
+                            ($ $call) ($ $values) ($ $prompt) ($ $primcall)))
+         exp)
+        (($ $continue k ($ $fun meta self free body))
+         (make-$continue k (make-$fun meta self free (lpfree body free))))
+        (($ $values args) exp)
+        (_ ((error "convert-to-indices: unhandled case")))))))
+
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
 and allocate and initialize flat closures."
@@ -214,4 +266,4 @@ and allocate and initialize flat closures."
      (receive (body free) (cc body #f '())
        (unless (null? free)
          (error "Expected no free vars in toplevel thunk" exp))
-       (make-$fun meta self '() body)))))
+       (make-$fun meta self '() (convert-to-indices body))))))
