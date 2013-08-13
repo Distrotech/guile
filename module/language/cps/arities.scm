@@ -27,7 +27,8 @@
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (system vm instruction)
-  #:export (fix-arities))
+  #:use-module ((language tree-il primitives) #:select (branching-primitive?))
+  #:export (fix-arities *rtl-instruction-aliases*))
 
 (define (make-$let1k cont body)
   (make-$letk (list cont) body))
@@ -122,7 +123,11 @@
            args))))
 
 (define *rtl-instruction-aliases*
-  '((+ . add)))
+  '((+ . add) (1+ . add1)
+    (- . sub) (1- . sub1)
+    (* . mul) (/ . div)
+    (quotient . quo) (remainder . rem)
+    (modulo . mod)))
 
 (define *macro-instruction-arities*
   '((cache-current-module! . (0 . 2))
@@ -206,6 +211,9 @@
 
     (let lp ((term term))
       (match term
+        (($ $letk (($ $cont src kif ($ $kif kt kf)))
+            ($ $continue kif ($ $primcall (? branching-primitive? name) args)))
+         term)
         (($ $letk conts body)
          (make-$letk (map lp conts) (lp body)))
         (($ $cont src sym ($ $kargs names syms body))

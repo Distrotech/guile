@@ -29,6 +29,7 @@
   #:use-module (language cps)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
+  #:use-module ((language tree-il primitives) #:select (branching-primitive?))
   #:use-module ((language tree-il)
                 #:select
                 (<void>
@@ -41,6 +42,7 @@
                  <lambda> <lambda-case>
                  <let> <letrec> <fix> <let-values>
                  <prompt> <abort>
+                 make-conditional make-const
                  tree-il-src
                  tree-il-fold))
   #:export (compile-cps))
@@ -316,9 +318,13 @@
                     ((proc . args) (make-$continue k (make-$call proc args))))))
 
     (($ <primcall> src name args)
-     (convert-args args
-                   (lambda (args)
-                     (make-$continue k (make-$primcall name args)))))
+     (if (branching-primitive? name)
+         (convert (make-conditional src exp (make-const #f #t)
+                                    (make-const #f #f))
+                  k subst)
+         (convert-args args
+                       (lambda (args)
+                         (make-$continue k (make-$primcall name args))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
@@ -416,23 +422,24 @@
                      (make-$continue k (make-$primcall 'abort args*)))))
 
     (($ <conditional> src test consequent alternate)
-     (let ((kifvar (gensym "kifvar"))
-           (var (gensym "ifvar"))
-           (kif (gensym "kif"))
+     (let ((kif (gensym "kif"))
            (kt (gensym "k"))
            (kf (gensym "k")))
-       (make-$letk* (list
-                     (make-$cont (tree-il-src consequent) kt
-                              (make-$kargs '() '()
-                                           (convert consequent k subst)))
-                     (make-$cont (tree-il-src alternate) kf
-                              (make-$kargs '() '()
-                                           (convert alternate k subst)))
-                     (make-$cont src kif
-                              (make-$kif kt kf)))
-                    (convert-arg test
-                                 (lambda (test)
-                                   (make-$continue kif (list test)))))))
+       (make-$letk*
+        (list (make-$cont (tree-il-src consequent) kt
+                          (make-$kargs '() '() (convert consequent k subst)))
+              (make-$cont (tree-il-src alternate) kf
+                          (make-$kargs '() '() (convert alternate k subst))))
+        (make-$let1k
+         (make-$cont src kif (make-$kif kt kf))
+         (match test
+           (($ <primcall> src (? branching-primitive? name) args)
+            (convert-args args
+                          (lambda (args)
+                            (make-$continue kif (make-$primcall name args)))))
+           (_ (convert-arg test
+                           (lambda (test)
+                             (make-$continue kif (make-$var test))))))))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg
