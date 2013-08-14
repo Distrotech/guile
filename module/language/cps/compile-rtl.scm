@@ -168,8 +168,10 @@
             (($ $const exp)
              (when dst
                (emit `(load-constant ,dst ,exp))))
-            (($ $fun meta self free body)
+            (($ $fun meta self () body)
              (emit `(load-static-procedure ,dst ,self)))
+            (($ $fun meta self free body)
+             (emit `(make-closure ,dst ,self ,(length free))))
             (($ $call proc args)
              (let ((proc-slot (lookup-call-proc-slot label slots))
                    (nargs (length args)))
