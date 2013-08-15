@@ -119,8 +119,8 @@
     (else
      (error "Continuation not a call" sym))))
 
-(define (lookup-parallel-moves sym allocation)
-  (match (lookup-allocation sym allocation)
+(define (lookup-parallel-moves sym moves-table)
+  (match (hashq-ref moves-table sym)
     (($ $parallel-move moves) moves)
     (else
      (error "Continuation has no parallel moves" sym))))
@@ -215,7 +215,8 @@ are comparable with eqv?.  A tmp slot may be used."
                      ($ $kentry _ ($ $cont _ _ ($ $kargs names syms))))
                   (length syms))))
         (visited (make-hash-table))
-        (allocation (make-hash-table)))
+        (allocation (make-hash-table))
+        (moves-table (make-hash-table)))
     (define (allocate! sym k hint live-set)
       (match (hashq-ref allocation sym)
         (($ $allocation def slot dead has-const)
@@ -257,7 +258,7 @@ are comparable with eqv?.  A tmp slot may be used."
              (moves (solve-parallel-move src-slots dst-slots tmp-slot)))
         (when (and (>= tmp-slot nlocals) (assv tmp-slot moves))
           (set! nlocals (+ tmp-slot 1)))
-        (hashq-set! allocation src-k (make-parallel-move moves))
+        (hashq-set! moves-table src-k (make-parallel-move moves))
         post-live-set))
 
     (let visit ((exp exp)
@@ -368,4 +369,4 @@ are comparable with eqv?.  A tmp slot may be used."
 
         (_ live-set)))
 
-    (values allocation nlocals)))
+    (values moves-table allocation nlocals)))

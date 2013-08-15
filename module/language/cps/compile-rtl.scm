@@ -103,7 +103,7 @@
 
     (_ seed)))
 
-(define (emit-rtl-sequence exp slots nlocals)
+(define (emit-rtl-sequence exp moves slots nlocals)
   (define (intern-cont! k src cont table)
     (hashq-set! table k cont)
     table)
@@ -144,7 +144,7 @@
           (($ $call proc args)
            (for-each (match-lambda
                       ((src . dst) (emit `(mov ,dst ,src))))
-                     (lookup-parallel-moves label slots))
+                     (lookup-parallel-moves label moves))
            (let ((tail-slots (cdr (iota (1+ (length args))))))
              (for-each maybe-load-constant tail-slots args))
            (emit `(tail-call ,(1+ (length args)))))
@@ -152,7 +152,7 @@
            (let ((tail-slots (cdr (iota (1+ (length args))))))
              (for-each (match-lambda
                         ((src . dst) (emit `(mov ,dst ,src))))
-                       (lookup-parallel-moves label slots))
+                       (lookup-parallel-moves label moves))
              (for-each maybe-load-constant tail-slots args))
            (emit `(return-values ,(length args))))
           (($ $primcall 'return (arg))
@@ -215,7 +215,7 @@
           (($ $values args)
            (for-each (match-lambda
                       ((src . dst) (emit `(mov ,dst ,src))))
-                     (lookup-parallel-moves label slots))
+                     (lookup-parallel-moves label moves))
            (for-each maybe-load-constant (map slot syms) args)))
         (maybe-jump k))
 
@@ -289,7 +289,7 @@
                     (emit `(bind-rest ,(+ proc-slot 1 nreq))))
                   (for-each (match-lambda
                              ((src . dst) (emit `(mov ,dst ,src))))
-                            (lookup-parallel-moves label slots))
+                            (lookup-parallel-moves label moves))
                   (emit `(reset-frame ,nlocals)))
                  ((arg . args)
                   (or (maybe-load-constant n arg)
@@ -337,7 +337,7 @@
 
     (define (emit-fun-entry self body alternate)
       (call-with-values (lambda () (allocate-slots self body))
-        (lambda (slots nlocals)
+        (lambda (moves slots nlocals)
           (match body
             (($ $cont src k
                 ($ $kentry ($ $arity req opt rest kw allow-other-keys?) body))
@@ -350,7 +350,7 @@
                                       ,kw-indices ,allow-other-keys?
                                       ,nlocals
                                       ,alternate))
-               (for-each emit (emit-rtl-sequence body slots nlocals))
+               (for-each emit (emit-rtl-sequence body moves slots nlocals))
                (emit `(end-arity))))))))
 
     (define (emit-fun-entries self entries)

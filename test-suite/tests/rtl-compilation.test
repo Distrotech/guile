@@ -79,3 +79,15 @@
 (with-test-prefix "values context"
   1
   )
+
+(with-test-prefix "mixed contexts"
+  (pass-if-equal "sequences" '(3 4 5)
+    (let* ((pair (cons 1 2))
+           (result ((run-rtl '(lambda (pair)
+                                (set-car! pair 3)
+                                (set-cdr! pair 4)
+                                5))
+                    pair)))
+      (list (car pair)
+            (cdr pair)
+            result))))
