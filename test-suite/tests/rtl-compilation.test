@@ -50,6 +50,12 @@
   (pass-if-equal 1
       ((run-rtl '(lambda (x) x)) 1))
 
+  (pass-if-equal 6
+      ((((run-rtl '(lambda (x)
+                     (lambda (y)
+                       (lambda (z)
+                         (+ x y z))))) 1) 2) 3))
+
   (pass-if-equal 1
       (run-rtl '(identity 1)))
 
@@ -90,4 +96,7 @@
                     pair)))
       (list (car pair)
             (cdr pair)
-            result))))
+            result)))
+
+  (pass-if-equal "mutable lexicals" 2
+    (run-rtl '(let ((n 1)) (set! n 2) n))))

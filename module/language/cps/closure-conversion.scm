@@ -72,17 +72,26 @@ values: the term and a list of additional free variables in the term."
                                             (lambda (syms)
                                               (k (cons sym syms)))))))))
   
-(define (init-closure src v free body)
-  "Initialize the free variables in a closure bound to @var{sym}, and
-continue with @var{body}."
+(define (init-closure src v free outer-self outer-bound body)
+  "Initialize the free variables @var{free} in a closure bound to
+@var{v}, and continue with @var{body}.  @var{outer-self} must be the
+label of the outer procedure, where the initialization will be
+performed, and @var{outer-bound} is the list of bound variables there."
   (fold (lambda (free idx body)
           (let-gensyms (k k* idxsym)
             (build-cps-term
               ($letk ((k src ($kargs () () ,body)))
-                ($letk ((k* src ($kargs ('idx) (idxsym)
-                                  ($continue k
-                                    ($primcall 'free-set! (v idxsym free))))))
-                  ($continue k* ($const idx)))))))
+                ,(convert-free-var
+                  free outer-self outer-bound
+                  (lambda (free)
+                    (values
+                     (build-cps-term
+                       ($letk ((k* src ($kargs ('idx) (idxsym)
+                                         ($continue k
+                                           ($primcall 'free-set!
+                                                      (v idxsym free))))))
+                         ($continue k* ($const idx))))
+                     '())))))))
         body
         free
         (iota (length free))))
@@ -134,15 +143,17 @@ convert functions to flat closures."
                   (free free))
            (match in
              (() (values (bindings body) free))
-             (((name sym ($ $fun meta self () entries)) . in)
-              (receive (entries fun-free) (cc* entries self (list self))
+             (((name sym ($ $fun meta inner-self () entries)) . in)
+              (receive (entries fun-free)
+                  (cc* entries inner-self (list inner-self))
                 (lp in
                     (lambda (body)
                       (let-gensyms (k)
                         (build-cps-term
                           ($letk ((k #f ($kargs (name) (sym) ,(bindings body))))
-                            ($continue k ($fun meta self fun-free ,entries))))))
-                    (init-closure #f sym fun-free body)
+                            ($continue k
+                              ($fun meta inner-self fun-free ,entries))))))
+                    (init-closure #f sym fun-free self bound body)
                     (union free (difference fun-free bound))))))))))
 
     (($ $continue k ($ $var sym))
@@ -157,21 +168,22 @@ convert functions to flat closures."
             ($ $prim)))
      (values exp '()))
 
-    (($ $continue k ($ $fun meta self () entries))
-     (receive (entries free) (cc* entries self (list self))
+    (($ $continue k ($ $fun meta inner-self () entries))
+     (receive (entries free) (cc* entries inner-self (list inner-self))
        (match free
          (()
-          (values (build-cps-term ($continue k ($fun meta self free ,entries)))
+          (values (build-cps-term
+                    ($continue k ($fun meta inner-self free ,entries)))
                   free))
          (else
           (values
            (let-gensyms (kinit v)
              (build-cps-term
                ($letk ((kinit #f ($kargs (v) (v)
-                                   ,(init-closure #f v free
+                                   ,(init-closure #f v free self bound
                                                   (build-cps-term
                                                     ($continue k ($var v)))))))
-                 ($continue kinit ($fun meta self free ,entries)))))
+                 ($continue kinit ($fun meta inner-self free ,entries)))))
            (difference free bound))))))
 
     (($ $continue k ($ $call proc args))

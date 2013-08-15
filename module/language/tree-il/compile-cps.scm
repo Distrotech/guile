@@ -213,7 +213,7 @@
       ((box #t)
        (let-gensyms (k)
          (build-cps-term
-           ($letk ((k #f ($kargs (name) (sym) ,body)))
+           ($letk ((k #f ($kargs (name) (box) ,body)))
              ($continue k ($primcall 'box (sym)))))))
       (else body)))
 
