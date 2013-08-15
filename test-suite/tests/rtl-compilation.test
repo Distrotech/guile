@@ -1,0 +1,81 @@
+;;;; rtl-compilation.test --- test suite for compiling via rtl   -*- scheme -*-
+;;;;
+;;;; 	Copyright (C) 2013 Free Software Foundation, Inc.
+;;;;
+;;;; This library is free software; you can redistribute it and/or
+;;;; modify it under the terms of the GNU Lesser General Public
+;;;; License as published by the Free Software Foundation; either
+;;;; version 3 of the License, or (at your option) any later version.
+;;;;
+;;;; This library is distributed in the hope that it will be useful,
+;;;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;;;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+;;;; Lesser General Public License for more details.
+;;;;
+;;;; You should have received a copy of the GNU Lesser General Public
+;;;; License along with this library; if not, write to the Free Software
+;;;; Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+
+(define-module (test-suite rtl-compilation)
+  #:use-module (test-suite lib)
+  #:use-module (system base compile)
+  #:use-module (system vm assembler))
+
+(define* (compile-via-rtl exp #:key peval? cse?)
+  (assemble-program
+   (compile exp #:to 'rtl #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
+
+(define (run-rtl exp)
+  ((compile-via-rtl exp)))
+
+(with-test-prefix "tail context"
+  (pass-if-equal 1
+      (run-rtl '(let ((x 1)) x)))
+
+  (pass-if-equal 1
+      (run-rtl 1))
+
+  (pass-if-equal (if #f #f)
+      (run-rtl '(if #f #f)))
+
+  (pass-if-equal cons
+      (run-rtl 'cons))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda () 1))))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda (x) 1)) 2))
+
+  (pass-if-equal 1
+      ((run-rtl '(lambda (x) x)) 1))
+
+  (pass-if-equal 1
+      (run-rtl '(identity 1)))
+
+  (pass-if-equal '(1 . 2)
+      (run-rtl '(cons 1 2)))
+
+  ;; FIXME: Not yet working.
+  #;
+  (pass-if-equal '(1 2)
+      (call-with-values (lambda () (run-rtl '(values 1 2))) list))
+
+  ;; prompts
+  )
+
+(with-test-prefix "value context"
+  1
+  )
+
+(with-test-prefix "drop context"
+  1
+  )
+
+(with-test-prefix "test context"
+  1
+  )
+
+(with-test-prefix "values context"
+  1
+  )
