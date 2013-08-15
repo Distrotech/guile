@@ -27,6 +27,7 @@
   #:use-module (srfi srfi-26)
   #:use-module ((system foreign) #:select (make-pointer pointer->scm))
   #:use-module (language cps)
+  #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
   #:use-module ((language tree-il)
@@ -63,12 +64,6 @@
 (define-inlinable (make-let src val-proc body-proc)
   (let ((k (gensym "k")) (sym (gensym "v")))
     (make-$let1v src k 'tmp sym (body-proc sym) (val-proc k))))
-
-(define *branching-primitives*
-  '(null? nil? pair? struct? char? eq? eqv? equal? < <= = >= >))
-
-(define (branching-primitive? name)
-  (memq name *branching-primitives*))
 
 ;; Guile's semantics are that a toplevel lambda captures a reference on
 ;; the current module, and that all contained lambdas use that module to

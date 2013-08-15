@@ -124,6 +124,7 @@ CPS_LANG_SOURCES =						\
   language/cps/closure-conversion.scm				\
   language/cps/compile-rtl.scm					\
   language/cps/dfg.scm						\
+  language/cps/primitives.scm					\
   language/cps/slot-allocation.scm				\
   language/cps/spec.scm						\
   language/cps/verify.scm

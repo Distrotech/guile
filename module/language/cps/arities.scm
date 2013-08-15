@@ -26,8 +26,8 @@
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
-  #:use-module (system vm instruction)
-  #:export (fix-arities *rtl-instruction-aliases*))
+  #:use-module (language cps primitives)
+  #:export (fix-arities))
 
 (define (make-$let1k cont body)
   (make-$letk (list cont) body))
@@ -82,105 +82,6 @@
             (match cont
               (($ $cont _ (? (cut eq? <> k))) cont)
               (else (lp conts))))))))
-
-(define (compute-primcall-arity name args)
-  (define (first-word-arity word)
-    (case word
-      ((U8_X24) 1)
-      ((U8_U24) 1)
-      ((U8_L24) 1)
-      ((U8_U8_I16) 2)
-      ((U8_U12_U12) 2)
-      ((U8_U8_U8_U8) 3)))
-  (define (tail-word-arity word)
-    (case word
-      ((U8_U24) 2)
-      ((U8_L24) 2)
-      ((U8_U8_I16) 3)
-      ((U8_U12_U12) 3)
-      ((U8_U8_U8_U8) 4)
-      ((U32) 1)
-      ((I32) 1)
-      ((A32) 1)
-      ((B32) 0)
-      ((N32) 1)
-      ((S32) 1)
-      ((L32) 1)
-      ((LO32) 1)
-      ((X8_U24) 2)
-      ((X8_U12_U12) 3)
-      ((X8_L24) 2)
-      ((B1_X7_L24) 2)
-      ((B1_U7_L24) 3)
-      ((B1_X31) 1)
-      ((B1_X7_U24) 2)))
-  (match args
-    ((arg0 . args)
-     (fold (lambda (arg arity)
-             (+ (tail-word-arity arg) arity))
-           (first-word-arity arg0)
-           args))))
-
-(define *rtl-instruction-aliases*
-  '((+ . add) (1+ . add1)
-    (- . sub) (1- . sub1)
-    (* . mul) (/ . div)
-    (quotient . quo) (remainder . rem)
-    (modulo . mod)
-    (define! . define)
-    (vector-set! . vector-set)))
-
-(define *macro-instruction-arities*
-  '((cache-current-module! . (0 . 2))
-    (cached-toplevel-box . (1 . 3))
-    (cached-module-box . (1 . 4))))
-
-(define *other-primcall-arities*
-  '((null? . (1 . 1))
-    (nil? . (1 . 1))
-    (pair? . (1 . 1))
-    (struct? . (1 . 1))
-    (char? . (1 . 1))
-    (eq? . (1 . 2))
-    (eqv? . (1 . 2))
-    (equal? . (1 . 2))
-    (= . (1 . 2))
-    (< . (1 . 2))
-    (> . (1 . 2))
-    (<= . (1 . 2))
-    (>= . (1 . 2))))
-
-(define (compute-primcall-arities)
-  (let ((table (make-hash-table)))
-    (for-each
-     (match-lambda
-      ;; Put special cases here.
-      ((name op '! . args)
-       (hashq-set! table name
-                   (cons 0 (compute-primcall-arity name args))))
-      ((name op '<- . args)
-       (hashq-set! table name
-                   (cons 1 (1- (compute-primcall-arity name args))))))
-     (rtl-instruction-list))
-    (for-each (match-lambda
-               ((name . opname)
-                (hashq-set! table name (hashq-ref table opname))))
-              *rtl-instruction-aliases*)
-    (for-each (match-lambda
-               ((name . arity)
-                (hashq-set! table name arity)))
-              *macro-instruction-arities*)
-    (for-each (match-lambda
-               ((name . arity)
-                (hashq-set! table name arity)))
-              *other-primcall-arities*)
-    table))
-
-(define *primcall-arities* (delay (compute-primcall-arities)))
-
-(define (primcall-arity name)
-  (or (hashq-ref (force *primcall-arities*) name)
-      (error "Primcall of unknown arity" name)))
 
 (define (fix-arities term)
   (let ((conts (fold-conts cons '() term)))
@@ -273,7 +174,7 @@
             ;; Primcalls to return are in tail position.
             (make-$continue 'ktail exp))
            (($ $primcall name args)
-            (match (primcall-arity name)
+            (match (prim-arity name)
               ((out . in)
                (adapt
                 out
