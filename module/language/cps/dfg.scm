@@ -97,7 +97,7 @@
 
         ;; Treat the entry continuation as its own parent, and as a hack
         ;; declare "ktail" as being a child of the entry.
-        (($ $cont src k ($ $kentry arity body alternate))
+        (($ $cont src k ($ $kentry arity body))
          (when exp-k
            (error "$kentry not at top level?"))
          (add-def! k k)
@@ -105,8 +105,6 @@
          (hashq-set! uplinks k (make-uplink #f 0))
          (add-def! 'ktail k)
          (link-parent! 'ktail k)
-         ;; The alternate clause, if present, should be analyzed
-         ;; separately.
          (visit body k))
 
         (($ $cont src k cont)

@@ -212,7 +212,7 @@ are comparable with eqv?.  A tmp slot may be used."
         (nlocals 0)
         (nargs (match exp
                  (($ $cont _ _ 
-                     ($ $kentry _ ($ $cont _ _ ($ $kargs names syms)) _))
+                     ($ $kentry _ ($ $cont _ _ ($ $kargs names syms))))
                   (length syms))))
         (visited (make-hash-table))
         (allocation (make-hash-table)))
@@ -297,8 +297,7 @@ are comparable with eqv?.  A tmp slot may be used."
          (hashq-set! visited k #t)
          (visit cont k live-set))
 
-        (($ $kentry arity body alternate)
-         ;; Alternate clauses, if any, should be allocated separately.
+        (($ $kentry arity body)
          (visit body exp-k (allocate! self exp-k 0 live-set)))
 
         (($ $kargs names syms body)

@@ -92,7 +92,7 @@
           #t)
          (($ $prim name)
           (unless (symbol? name) (error "name should be a symbol" exp)))
-         (($ $fun meta self free body)
+         (($ $fun meta self free entries)
           (when (and meta (not (and (list? meta) (and-map pair? meta))))
             (error "meta should be alist" meta))
           (unless (symbol? self)
@@ -101,43 +101,41 @@
             (error "free should be list of symbols" exp))
           (unless (symbol? k)
             (error "entry should be symbol" k))
-          (let lp ((body body))
-            (match body
-              (#f #t)
-              (($ $cont src* k*
-                  ($ $kentry arity ($ $cont src k ($ $kargs names syms body))
-                     alternate))
-               (check-src src*)
-               (check-src src)
-               (match arity
-                 (($ $arity ((? symbol?) ...) ((? symbol?) ...) (or #f (? symbol?))
-                     (((? keyword?)
-                       (? symbol?)
-                       (and (? symbol?) (? (cut memq <> syms))))
-                      ...)
-                     (or #f #t))
-                  #t)
-                 (else (error "bad arity" arity)))
-               (unless (and (list? names) (and-map symbol? names))
-                 (error "letrec names not symbols" exp))
-               (unless (and (list? syms) (and-map symbol? syms))
-                 (error "letrec syms not symbols" exp))
-               (unless (match arity
-                         (($ $arity req opt rest kw allow-other-keys?)
-                          (= (length syms) 
-                             (length names)
-                             (+ (length req)
-                                (length opt)
-                                (if rest 1 0)
-                                ;; FIXME: technically possible for kw syms to
-                                ;; alias other syms
-                                (length kw)))))
-                 (error "unexpected fun-case syms" exp))
-               ;; The continuation environment is null, because we don't turn
-               ;; captured continuations into closures.
-               (visit body (add-env (list k* k) '())
-                      (add-env (cons self syms) v-env))
-               (lp alternate)))))
+          (for-each
+           (match-lambda
+            (($ $cont src* k*
+                ($ $kentry arity ($ $cont src k ($ $kargs names syms body))))
+             (check-src src*)
+             (check-src src)
+             (match arity
+               (($ $arity ((? symbol?) ...) ((? symbol?) ...) (or #f (? symbol?))
+                   (((? keyword?)
+                     (? symbol?)
+                     (and (? symbol?) (? (cut memq <> syms))))
+                    ...)
+                   (or #f #t))
+                #t)
+               (else (error "bad arity" arity)))
+             (unless (and (list? names) (and-map symbol? names))
+               (error "letrec names not symbols" exp))
+             (unless (and (list? syms) (and-map symbol? syms))
+               (error "letrec syms not symbols" exp))
+             (unless (match arity
+                       (($ $arity req opt rest kw allow-other-keys?)
+                        (= (length syms) 
+                           (length names)
+                           (+ (length req)
+                              (length opt)
+                              (if rest 1 0)
+                              ;; FIXME: technically possible for kw syms to
+                              ;; alias other syms
+                              (length kw)))))
+               (error "unexpected fun-case syms" exp))
+             ;; The continuation environment is null, because we don't turn
+             ;; captured continuations into closures.
+             (visit body (add-env (list k* k) '())
+                    (add-env (cons self syms) v-env))))
+           entries))
          (($ $letrec names syms funs body)
           (unless (and (list? names) (and-map symbol? names))
             (error "letrec names not symbols" exp))
@@ -150,8 +148,7 @@
             (error "letrec syms, names, and funs not same length" exp))
           (let ((v-env (add-env syms v-env)))
             (for-each (cut visit <> k-env v-env) funs)
-            (visit body k-env v-env)))
-         (($ $call proc args)
+            (visit body k-env v-env)))(($ $call proc args)
           (check-var proc v-env)
           (for-each (cut check-var <> v-env) args))
          (($ $primcall name args)

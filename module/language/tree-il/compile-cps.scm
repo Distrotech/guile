@@ -47,23 +47,97 @@
                  tree-il-fold))
   #:export (compile-cps))
 
-;; Helpers.
-(define-inlinable (make-$let1k cont body)
-  (make-$letk (list cont) body))
-(define-inlinable (make-$let1v src k name sym cont-body body)
-  (make-$let1k (make-$cont src k (make-$kargs (list name) (list sym) cont-body))
-               body))
-(define-inlinable (make-$let1c src name sym val cont-body)
-  (let ((k (gensym "kconst")))
-    (make-$let1v src k name sym cont-body (make-$continue k (make-$const val)))))
-(define-inlinable (make-$letk* conts body)
-  (match conts
-    (() body)
-    ((cont . conts)
-     (make-$let1k cont (make-$letk* conts body)))))
-(define-inlinable (make-let src val-proc body-proc)
-  (let ((k (gensym "k")) (sym (gensym "v")))
-    (make-$let1v src k 'tmp sym (body-proc sym) (val-proc k))))
+;; (put 'build-cps 'scheme-indent-function 0)
+;; (put 'build-cps* 'scheme-indent-function 1)
+;; (put '$letk 'scheme-indent-function 1)
+;; (put '$letk* 'scheme-indent-function 1)
+;; (put '$letconst 'scheme-indent-function 1)
+;; (put '$continue 'scheme-indent-function 1)
+;; (put '$kargs 'scheme-indent-function 2)
+;; (put 'convert-arg 'scheme-indent-function 1)
+;; (put 'convert-args 'scheme-indent-function 1)
+
+(define-syntax build-cont
+  (syntax-rules (unquote $kif $ktrunc $kargs)
+    ((_ (unquote exp))
+     exp)
+    ((_ ($kif kt kf))
+     (make-$kif kt kf))
+    ((_ ($ktrunc req rest kargs))
+     (make-$ktrunc (make-$arity req '() rest '() #f) kargs))
+    ((_ ($kargs (name ...) (sym ...) body))
+     (make-$kargs (list name ...) (list sym ...) (build-cps body)))
+    ((_ ($kargs names syms body))
+     (make-$kargs names syms (build-cps body)))))
+
+(define-syntax build-cont-decl
+  (syntax-rules (unquote)
+    ((_ (unquote exp)) exp)
+    ((_ (k src cont)) (make-$cont src k (build-cont cont)))))
+
+(define-syntax build-arity
+  (syntax-rules (unquote)
+    ((_ (unquote exp)) exp)
+    ((_ (req opt rest kw allow-other-keys?))
+     (make-$arity req opt rest kw allow-other-keys?))))
+
+(define-syntax build-fun-entry
+  (syntax-rules (unquote)
+    ((_ (unquote exp)) exp)
+    ((_ ($kentry k src arity cont-decl))
+     (make-$cont src k (make-$kentry (build-arity arity)
+                                     (build-cont-decl cont-decl))))))
+
+(define-syntax build-fun
+  (syntax-rules (unquote)
+    ((_ ($fun meta self free (unquote body)))
+     (make-$fun meta self free body))
+    ((_ ($fun meta self free (entry ...)))
+     (make-$fun meta self free (list (build-fun-entry entry) ...)))))
+
+(define-syntax build-call
+  (syntax-rules (unquote
+                 $var $void $const $prim $fun $call $primcall $values $prompt)
+    ((_ (unquote exp)) exp)
+    ((_ ($var sym)) (make-$var sym))
+    ((_ ($void)) (make-$void))
+    ((_ ($const val)) (make-$const val))
+    ((_ ($prim name)) (make-$prim name))
+    ((_ ($fun . args)) (build-fun ($fun . args)))
+    ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
+    ((_ ($call proc args)) (make-$call proc args))
+    ((_ ($primcall name (arg ...))) (make-$primcall name (list arg ...)))
+    ((_ ($primcall name args)) (make-$primcall name args))
+    ((_ ($values (arg ...))) (make-$values (list arg ...)))
+    ((_ ($values args)) (make-$values args))
+    ((_ ($prompt escape? tag handler)) (make-$prompt escape? tag handler))))
+
+(define-syntax build-cps
+  (syntax-rules (unquote $letk $letk* $letconst $letrec $continue)
+    ((_ (unquote exp))
+     exp)
+    ((_ ($letk (cont-decl ...) body))
+     (make-$letk (list (build-cont-decl cont-decl) ...)
+                 (build-cps body)))
+    ((_ ($letk* () body))
+     (build-cps body))
+    ((_ ($letk* (cont-decl cont-decls ...) body))
+     (build-cps ($letk (cont-decl) ($letk* (cont-decls ...) body))))
+    ((_ ($letconst () body))
+     (build-cps body))
+    ((_ ($letconst ((name sym val) tail ...) body))
+     (build-cps* (kconst)
+       ($letk ((kconst #f ($kargs (name) (sym) ($letconst (tail ...) body))))
+         ($continue kconst ($const val)))))
+    ((_ ($letrec names gensyms funs body))
+     (make-$letrec names gensyms funs (build-cps body)))
+    ((_ ($continue k exp)) (make-$continue k (build-call exp)))))
+
+(define-syntax build-cps*
+  (syntax-rules ()
+    ((_ (sym ...) form)
+     (let ((sym (gensym (symbol->string 'sym))) ...)
+      (build-cps form)))))
 
 ;; Guile's semantics are that a toplevel lambda captures a reference on
 ;; the current module, and that all contained lambdas use that module to
@@ -81,62 +155,43 @@
 (define current-topbox-scope (make-parameter #f))
 
 (define (toplevel-box src name bound? val-proc)
-  (let ((name-sym (gensym "name"))
-        (bound?-sym (gensym "bound?")))
-    (make-$let1c
-     src 'name name-sym name
-     (make-$let1c
-      src 'bound? bound?-sym bound?
-      (make-let
-       src
-       (lambda (k)
-         (match (current-topbox-scope)
+  (build-cps* (name-sym bound?-sym kbox box)
+    ($letconst (('name name-sym name)
+                ('bound? bound?-sym bound?))
+      ($letk ((kbox src ($kargs ('box) (box) ,(val-proc box))))
+        ,(match (current-topbox-scope)
            (#f
-            (make-$continue k (make-$primcall
-                               'resolve
-                               (list name-sym bound?-sym))))
+            (build-cps
+              ($continue kbox
+                ($primcall 'resolve
+                           (name-sym bound?-sym)))))
            (scope
-            (let ((scope-sym (gensym "scope")))
-              (make-$let1c
-               src 'scope scope-sym scope
-               (make-$continue k (make-$primcall
-                               'cached-toplevel-box
-                               (list scope-sym name-sym bound?-sym))))))))
-       val-proc)))))
+            (build-cps* (scope-sym)
+              ($letconst (('scope scope-sym scope))
+                ($continue kbox
+                  ($primcall 'cached-toplevel-box
+                             (scope-sym name-sym bound?-sym)))))))))))
 
 (define (module-box src module name public? bound? val-proc)
-  (let ((module-sym (gensym "module"))
-        (name-sym (gensym "name"))
-        (public?-sym (gensym "public?"))
-        (bound?-sym (gensym "bound?")))
-    (make-$let1c
-      src 'module module-sym module
-      (make-$let1c
-       src 'name name-sym name
-       (make-$let1c
-        src 'public? public?-sym public?
-        (make-$let1c
-         src 'bound? bound?-sym bound?
-         (make-let
-          src
-          (lambda (k)
-            (make-$continue k (make-$primcall
-                            'cached-module-box
-                            (list module-sym name-sym public?-sym bound?-sym))))
-          val-proc)))))))
+  (build-cps* (module-sym name-sym public?-sym bound?-sym kbox box)
+    ($letconst (('module module-sym module)
+                ('name name-sym name)
+                ('public? public?-sym public?)
+                ('bound? bound?-sym bound?))
+      ($letk ((kbox src ($kargs ('box) (box) ,(val-proc box))))
+        ($continue kbox
+          ($primcall 'cached-module-box
+                     (module-sym name-sym public?-sym bound?-sym)))))))
 
 (define (capture-toplevel-scope src scope k)
-  (let ((module (gensym "module"))
-        (scope-sym (gensym "scope"))
-        (kmodule (gensym "kmodule")))
-    (make-$let1c
-     src 'scope scope-sym scope
-     (make-$let1v
-      src kmodule 'module module
-      (make-$continue
-       k
-       (make-$primcall 'cache-current-module! (list module scope-sym)))
-      (make-$continue kmodule (make-$primcall 'current-module '()))))))
+  (build-cps* (module scope-sym kmodule)
+    ($letconst (('scope scope-sym scope))
+      ($letk ((kmodule src ($kargs ('module) (module)
+                             ($continue k
+                               ($primcall 'cache-current-module!
+                                          (module scope-sym))))))
+        ($continue kmodule
+          ($primcall 'current-module ()))))))
 
 (define (fold-formals proc seed arity gensyms inits)
   (match arity
@@ -178,45 +233,32 @@
   (define tc8-iflag 4)
   (define unbound-val 9)
   (define unbound-bits (logior (ash unbound-val 8) tc8-iflag))
-  (let ((unbound-sym (gensym "unbound"))
-        (ktest (gensym "ktest")))
-    (make-$let1c
-     src 'unbound unbound-sym (pointer->scm (make-pointer unbound-bits))
-     (make-$let1k
-      (make-$cont src ktest (make-$kif kt kf))
-      (make-$continue ktest (make-$primcall 'eq? (list sym unbound-sym)))))))
+  (build-cps* (unbound ktest)
+    ($letconst (('unbound unbound (pointer->scm (make-pointer unbound-bits))))
+      ($letk ((ktest src ($kif kt kf)))
+        ($continue ktest
+          ($primcall 'eq? (sym unbound)))))))
 
 (define (init-default-value name sym subst init body)
   (match (assq-ref subst sym)
     ((subst-sym box?)
-     (let ((knext (gensym "knext"))
-           (kbound (gensym "kbound"))
-           (kunbound (gensym "kunbound"))
-           (src (tree-il-src init)))
+     (let ((src (tree-il-src init)))
        (define (maybe-box k make-body)
          (if box?
-             (let ((kbox (gensym "kbox"))
-                   (phi (gensym "phi")))
-               (make-$let1k
-                (make-$cont src kbox
-                            (make-$kargs (list name) (list phi)
-                                         (make-$continue
-                                          k
-                                          (make-$primcall 'box (list phi)))))
-                (make-body kbox)))
+             (build-cps* (kbox phi)
+               ($letk ((kbox src ($kargs (name) (phi)
+                                   ($continue k ($primcall 'box (phi))))))
+                 ,(make-body kbox)))
              (make-body k)))
-       (make-$let1k
-        (make-$cont src knext (make-$kargs (list name) (list subst-sym) body))
-        (maybe-box
-         knext
-         (lambda (k)
-           (make-$letk*
-            (list
-             (make-$cont src kbound
-                         (make-$kargs '() '() (make-$continue k (make-$var sym))))
-             (make-$cont src kunbound
-                         (make-$kargs '() '() (convert init k subst))))
-            (unbound? src sym kunbound kbound)))))))))
+       (build-cps* (knext kbound kunbound)
+         ($letk ((knext src ($kargs (name) (subst-sym) ,body)))
+           ,(maybe-box
+             knext
+             (lambda (k)
+               (build-cps
+                 ($letk ((kbound src ($kargs () () ($continue k ($var sym))))
+                         (kunbound src ($kargs () () ,(convert init k subst))))
+                   ,(unbound? src sym kunbound kbound)))))))))))
 
 ;; exp k-name alist -> term
 (define (convert exp k subst)
@@ -226,96 +268,128 @@
       (($ <lexical-ref> src name sym)
        (match (assq-ref subst sym)
          ((box #t)
-          (make-let src
-                    (lambda (k)
-                      (make-$continue k (make-$primcall 'box-ref (list box))))
-                    k))
+          (build-cps* (kunboxed unboxed)
+            ($letk ((kunboxed src ($kargs ('unboxed) (unboxed) ,(k unboxed))))
+              ($continue kunboxed ($primcall 'box-ref (box))))))
          ((subst #f) (k subst))
          (#f (k sym))))
-      (else (make-let (tree-il-src exp)
-                      (cut convert exp <> subst)
-                      k))))
+      (else
+       (let ((src (tree-il-src exp)))
+         (build-cps* (karg arg)
+           ($letk ((karg src ($kargs ('arg) (arg) ,(k arg))))
+             ,(convert exp karg subst)))))))
   ;; (exp ...) ((v-name ...) -> term) -> term
   (define (convert-args exps k)
     (match exps
       (() (k '()))
       ((exp . exps)
        (convert-arg exp
-                    (lambda (name)
-                      (convert-args exps
-                                    (lambda (names)
-                                      (k (cons name names)))))))))
+         (lambda (name)
+           (convert-args exps
+             (lambda (names)
+               (k (cons name names)))))))))
   (define (box-bound-var name sym body)
     (match (assq-ref subst sym)
       ((box #t)
-       (let ((k (gensym "k")))
-         (make-$let1v #f k name box body
-                      (make-$continue k (make-$primcall 'box (list sym))))))
+       (build-cps* (k)
+         ($letk ((k #f ($kargs (name) (sym) ,body)))
+           ($continue k ($primcall 'box (sym))))))
       (else body)))
 
   (match exp
     (($ <lexical-ref> src name sym)
      (match (assq-ref subst sym)
-       ((box #t)
-        (make-$continue k (make-$primcall 'box-ref (list box))))
-       ((subst #f) (make-$continue k (make-$var subst)))
-       (#f (make-$continue k (make-$var sym)))))
-    (($ <void> src) (make-$continue k (make-$void)))
-    (($ <const> src exp) (make-$continue k (make-$const exp)))
-    (($ <primitive-ref> src name) (make-$continue k (make-$prim name)))
+       ((box #t) (build-cps ($continue k ($primcall 'box-ref (box)))))
+       ((subst #f) (build-cps ($continue k ($var subst))))
+       (#f (build-cps ($continue k ($var sym))))))
+
+    (($ <void> src)
+     (build-cps ($continue k ($void))))
+
+    (($ <const> src exp)
+     (build-cps ($continue k ($const exp))))
+
+    (($ <primitive-ref> src name)
+     (build-cps ($continue k ($prim name))))
+
     (($ <lambda> src meta body)
-     ;; FIXME: propagate src to kentry
-     (if (current-topbox-scope)
-         (make-$continue k (make-$fun meta (gensym "self") '()
-                                      (convert body 'ktail subst)))
-         (let ((scope (gensym "scope"))
-               (kscope (gensym "kscope")))
-           (make-$let1k
-            (make-$cont src kscope
-                     (make-$kargs '() '() 
-                                  (parameterize ((current-topbox-scope scope))
-                                    (convert exp k subst))))
-            (capture-toplevel-scope src scope kscope)))))
+     ;; FIXME: add src field to fun, add tail field also
+     (let ()
+       (define (convert-entries body)
+         (match body
+           (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
+            (let* ((arity (make-$arity req (or opt '()) rest
+                                       (if kw (cdr kw) '()) (and kw (car kw))))
+                   (names (fold-formals (lambda (name sym init names)
+                                          (cons name names))
+                                        '()
+                                        arity gensyms inits)))
+              (cons
+               (build-cps* (kentry kargs)
+                 ,(build-fun-entry
+                   ($kentry
+                    kentry src ,arity
+                    (kargs
+                     src
+                     ($kargs names gensyms
+                       ,(fold-formals
+                         (lambda (name sym init body)
+                           (if init
+                               (init-default-value name sym subst init body)
+                               (box-bound-var name sym body)))
+                         (convert body 'ktail subst)
+                         arity gensyms inits))))))
+               (if alternate (convert-entries alternate) '()))))))
+       (if (current-topbox-scope)
+           (build-cps* (self)
+             ($continue k
+               ($fun meta self '() ,(convert-entries body))))
+           (build-cps* (scope kscope)
+             ($letk ((kscope src ($kargs () ()
+                                   ,(parameterize ((current-topbox-scope scope))
+                                      (convert exp k subst)))))
+               ,(capture-toplevel-scope src scope kscope))))))
 
     (($ <module-ref> src mod name public?)
      (module-box
       src mod name public? #t
       (lambda (box)
-        (make-$continue k (make-$primcall 'box-ref (list box))))))
+        (build-cps ($continue k ($primcall 'box-ref (box)))))))
+
     (($ <module-set> src mod name public? exp)
-     (convert-arg
-      exp
-      (lambda (val)
-        (module-box
-         src mod name public? #f
-         (lambda (box)
-           (make-$continue k (make-$primcall 'box-set! (list box val))))))))
+     (convert-arg exp
+       (lambda (val)
+         (module-box
+          src mod name public? #f
+          (lambda (box)
+            (build-cps ($continue k ($primcall 'box-set! (box val)))))))))
+
     (($ <toplevel-ref> src name)
      (toplevel-box
       src name #t
       (lambda (box)
-        (make-$continue k (make-$primcall 'box-ref (list box))))))
+        (build-cps ($continue k ($primcall 'box-ref (box)))))))
+
     (($ <toplevel-set> src name exp)
-     (convert-arg
-      exp
-      (lambda (val)
-        (toplevel-box
-         src name #f
-         (lambda (box)
-           (make-$continue k (make-$primcall 'box-set! (list box val))))))))
+     (convert-arg exp
+       (lambda (val)
+         (toplevel-box
+          src name #f
+          (lambda (box)
+            (build-cps ($continue k ($primcall 'box-set! (box val)))))))))
+
     (($ <toplevel-define> src name exp)
-     (make-let src
-               (lambda (k) (make-$continue k (make-$const name)))
-               (lambda (name)
-                 (convert-arg
-                  exp
-                  (lambda (val)
-                    (make-$continue k (make-$primcall 'define! (list name val))))))))
+     (convert-arg exp
+       (lambda (val)
+         (build-cps* (kname name-sym)
+           ($letconst (('name name-sym name))
+             ($continue k ($primcall 'define! (name-sym val))))))))
 
     (($ <call> src proc args)
      (convert-args (cons proc args)
-                   (match-lambda
-                    ((proc . args) (make-$continue k (make-$call proc args))))))
+       (match-lambda
+        ((proc . args)
+         (build-cps ($continue k ($call proc args)))))))
 
     (($ <primcall> src name args)
      (if (branching-primitive? name)
@@ -323,8 +397,8 @@
                                     (make-const #f #f))
                   k subst)
          (convert-args args
-                       (lambda (args)
-                         (make-$continue k (make-$primcall name args))))))
+           (lambda (args)
+             (build-cps ($continue k ($primcall name args)))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
@@ -345,101 +419,74 @@
      (convert-arg
       tag
       (lambda (tag)
-        (let ((khargs (gensym "khargs"))
-              (khbody (gensym "khbody")))
-          (make-$let1k
-           (let ((hnames (append hreq (if hrest (list hrest) '()))))
-             (make-$cont hsrc khbody
-                         (make-$kargs hnames hsyms
-                                      (fold box-bound-var
-                                            (convert hbody k subst)
-                                            hnames hsyms))))
-           (make-$let1k
-            (make-$cont hsrc khargs
-                        (make-$ktrunc (make-$arity hreq '() hrest '() #f)
-                                      khbody))
-            (cond
-             (escape-only?
-              (let ((kret (gensym "kret"))
-                    (kprim (gensym "kvalues"))
-                    (prim (gensym "values"))
-                    (kpop (gensym "kpop"))
-                    (krest (gensym "krest"))
-                    (vals (gensym "vals")))
-                (make-$letk*
-                 (list
-                  (make-$cont
-                   src kpop
-                   (make-$kargs
-                    (list 'rest) (list vals)
-                    (make-$let1k
-                     (make-$cont
-                      src kret
-                      (make-$kargs
-                       '() '()
-                       (make-$let1k
-                        (make-$cont
-                         src kprim
-                         (make-$kargs
-                          (list 'prim) (list prim)
-                          (make-$continue
-                           k
-                           (make-$primcall 'apply (list prim vals)))))
-                        (make-$continue kprim (make-$prim 'values)))))
-                     (make-$continue kret (make-$primcall 'pop-prompt '())))))
-                  (make-$cont src krest
-                              (make-$ktrunc (make-$arity '() '() 'rest '() #f)
-                                            kpop)))
-                 (let ((kbody (gensym "kbody")))
-                   (if escape-only?
-                       (make-$let1k
-                        (make-$cont (tree-il-src body) kbody
-                                    (convert body krest subst))
-                        (make-$continue kbody (make-$prompt #t tag khargs)))
-                       (convert-arg
-                        body
-                        (lambda (body)
-                          (make-$let1k
-                           (make-$cont
-                            (tree-il-src body) kbody
-                            (make-$continue
-                             krest
-                             (make-$primcall 'call-thunk/no-inline (list body))))
-                           (make-$continue
-                            kbody
-                            (make-$prompt #f tag khargs)))))))))))))))))
+        (let ((hnames (append hreq (if hrest (list hrest) '()))))
+          (build-cps* (khargs khbody kret kprim prim kpop krest vals kbody)
+            ($letk* ((khbody hsrc ($kargs hnames hsyms
+                                    ,(fold box-bound-var
+                                           (convert hbody k subst)
+                                           hnames hsyms)))
+                     (khargs hsrc ($ktrunc hreq hrest khbody))
+                     (kpop src
+                           ($kargs ('rest) (vals)
+                             ($letk ((kret
+                                      src
+                                      ($kargs () ()
+                                        ($letk ((kprim
+                                                 src
+                                                 ($kargs ('prim) (prim)
+                                                   ($continue k
+                                                     ($primcall 'apply
+                                                                (prim vals))))))
+                                          ($continue kprim
+                                            ($prim 'values))))))
+                               ($continue kret
+                                 ($primcall 'pop-prompt ())))))
+                     (krest src ($ktrunc '() 'rest kpop)))
+              ,(if escape-only?
+                   (build-cps
+                     ($letk ((kbody (tree-il-src body) 
+                                    ($kargs () ()
+                                      ,(convert body krest subst))))
+                       ($continue kbody ($prompt #t tag khargs))))
+                   (convert-arg body
+                     (lambda (thunk)
+                       (build-cps
+                         ($letk ((kbody (tree-il-src body) 
+                                        ($kargs () ()
+                                          ($continue krest
+                                            ($primcall 'call-thunk/no-inline
+                                                       (thunk))))))
+                           ($continue kbody
+                             ($prompt #f tag khargs)))))))))))))
 
     ;; Eta-convert prompts without inline handlers.
     (($ <prompt> src escape-only? tag body handler)
      (convert-args
       (list tag body handler)
       (lambda (args)
-        (make-$continue k (make-$primcall 'call-with-prompt args)))))
+        (build-cps
+          ($continue k ($primcall 'call-with-prompt args))))))
 
     (($ <abort> src tag args tail)
      (convert-args (append (list tag) args (list tail))
                    (lambda (args*)
-                     (make-$continue k (make-$primcall 'abort args*)))))
+                     (build-cps ($continue k ($primcall 'abort args*))))))
 
     (($ <conditional> src test consequent alternate)
-     (let ((kif (gensym "kif"))
-           (kt (gensym "k"))
-           (kf (gensym "k")))
-       (make-$letk*
-        (list (make-$cont (tree-il-src consequent) kt
-                          (make-$kargs '() '() (convert consequent k subst)))
-              (make-$cont (tree-il-src alternate) kf
-                          (make-$kargs '() '() (convert alternate k subst))))
-        (make-$let1k
-         (make-$cont src kif (make-$kif kt kf))
-         (match test
-           (($ <primcall> src (? branching-primitive? name) args)
-            (convert-args args
-                          (lambda (args)
-                            (make-$continue kif (make-$primcall name args)))))
-           (_ (convert-arg test
-                           (lambda (test)
-                             (make-$continue kif (make-$var test))))))))))
+     (build-cps* (kif kt kf)
+       ($letk* ((kt (tree-il-src consequent) ($kargs () ()
+                                               ,(convert consequent k subst)))
+                (kf (tree-il-src alternate) ($kargs () ()
+                                              ,(convert alternate k subst)))
+                (kif src ($kif kt kf)))
+         ,(match test
+            (($ <primcall> src (? branching-primitive? name) args)
+             (convert-args args
+               (lambda (args)
+                 (build-cps ($continue kif ($primcall name args))))))
+            (_ (convert-arg test
+                 (lambda (test)
+                   (build-cps ($continue kif ($var test))))))))))
 
     (($ <lexical-set> src name gensym exp)
      (convert-arg
@@ -447,76 +494,55 @@
       (lambda (exp)
         (match (assq-ref subst gensym)
           ((box #t)
-           (make-$continue k (make-$primcall 'box-set! (list box exp))))))))
-
-    (($ <lambda-case> src req opt rest kw inits gensyms body alternate)
-     (let ((arity (make-$arity req (or opt '()) rest
-                               (if kw (cdr kw) '()) (and kw (car kw)))))
-       (make-$cont
-        src (gensym "kentry")
-        (make-$kentry
-         arity
-         (make-$cont
-          src (gensym "kcase")
-          (make-$kargs
-           (fold-formals (lambda (name sym init names)
-                           (cons name names))
-                         '()
-                         arity gensyms inits)
-           gensyms
-           (fold-formals (lambda (name sym init body)
-                           (if init
-                               (init-default-value name sym subst init body)
-                               (box-bound-var name sym body)))
-                         (convert body k subst)
-                         arity gensyms inits)))
-         (and alternate (convert alternate k subst))))))
+           (build-cps
+             ($continue k ($primcall 'box-set! (box exp)))))))))
 
     (($ <seq> src head tail)
-     (let ((ktrunc (gensym "ktrunc"))
-           (kseq (gensym "kseq")))
-       (make-$letk* (list (make-$cont (tree-il-src tail) kseq
-                                   (make-$kargs '() '()
-                                                (convert tail k subst)))
-                          (make-$cont src ktrunc
-                                   (make-$ktrunc (make-$arity '() '() #f '() #f)
-                                                 kseq)))
-                    (convert head ktrunc subst))))
+     (build-cps* (ktrunc kseq)
+       ($letk* ((kseq (tree-il-src tail) ($kargs () ()
+                                           ,(convert tail k subst)))
+                (ktrunc src ($ktrunc '() #f kseq)))
+         ,(convert head ktrunc subst))))
 
     (($ <let> src names syms vals body)
      (let lp ((names names) (syms syms) (vals vals))
        (match (list names syms vals)
          ((() () ()) (convert body k subst))
          (((name . names) (sym . syms) (val . vals))
-          (let ((klet (gensym "k")))
-            (make-$let1v src klet name sym
-                         (box-bound-var name sym (lp names syms vals))
-                         (convert val klet subst)))))))
+          (build-cps* (klet)
+            ($letk ((klet src ($kargs (name) (sym)
+                                ,(box-bound-var name sym
+                                                (lp names syms vals)))))
+              ,(convert val klet subst)))))))
 
-    (($ <fix> src names gensyms (($ <lambda> lsrc lmeta lbody) ...) body)
+    (($ <fix> src names gensyms funs body)
      ;; Some letrecs can be contified; that happens later.
-     (make-$letrec names gensyms
-                   (map (lambda (src meta body)
-                          ;; FIXME: propagate src to kentry
-                          (make-$fun meta (gensym "self") '()
-                                     (convert body 'ktail subst)))
-                        lsrc lmeta lbody)
-                   (convert body k subst)))
+     (if (current-topbox-scope)
+         (build-cps* (self)
+           ($letrec names
+                    gensyms
+                    (map (lambda (fun)
+                           (match (convert fun k subst)
+                             (($ $continue _ (and fun ($ $fun)))
+                              fun)))
+                         funs)
+                    ,(convert body k subst)))
+         (build-cps* (scope kscope)
+           ($letk ((kscope src ($kargs () ()
+                                 ,(parameterize ((current-topbox-scope scope))
+                                    (convert exp k subst)))))
+             ,(capture-toplevel-scope src scope kscope)))))
 
     (($ <let-values> src exp
         ($ <lambda-case> lsrc req () rest #f () syms body #f))
-     (let* ((ktrunc (gensym "ktrunc"))
-            (kargs (gensym "kargs"))
-            (names (append req (if rest (list rest) '())))
-            (arity (make-$arity req '() rest '() #f)))
-       (make-$letk* (list (make-$cont src kargs
-                                   (make-$kargs names syms
-                                                (fold box-bound-var
-                                                      (convert body k subst)
-                                                      names syms)))
-                          (make-$cont src ktrunc
-                                   (make-$ktrunc arity kargs)))
-                    (convert exp ktrunc subst))))))
+     (let ((names (append req (if rest (list rest) '()))))
+       (build-cps* (ktrunc kargs)
+         ($letk* ((kargs src ($kargs names syms
+                               ,(fold box-bound-var
+                                      (convert body k subst)
+                                      names syms)))
+                  (ktrunc src ($ktrunc req rest kargs)))
+           ,(convert exp ktrunc subst)))))))
 
 (define (build-subst exp)
   "Compute a mapping from lexical gensyms to substituted gensyms.  The
@@ -555,17 +581,13 @@ indicates that the replacement variable is in a box."
   (convert exp 'ktail (build-subst exp)))
 
 (define (cps-convert/thunk exp)
-  (make-$fun '() (gensym "init") '()
-             (make-$cont
-              (tree-il-src exp)
-              (gensym "kentry")
-              (make-$kentry (make-$arity '() '() #f '() #f)
-                            (make-$cont
-                             (tree-il-src exp)
-                             (gensym "kinit")
-                             (make-$kargs '() '()
-                                          (cps-convert exp)))
-                            #f))))
+  (let ((src (tree-il-src exp)))
+    (build-cps* (init kentry kinit)
+      ,(build-fun
+        ($fun '() init '()
+              (($kentry kentry src ('() '() #f '() #f)
+                        (kinit src ($kargs () ()
+                                     ,(cps-convert exp))))))))))
 
 (define *comp-module* (make-fluid))
 

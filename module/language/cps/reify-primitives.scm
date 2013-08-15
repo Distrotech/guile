@@ -53,8 +53,11 @@
 
 (define (fold-conts proc seed term)
   (match term
-    (($ $fun meta self free body)
-     (fold-conts proc seed body))
+    (($ $fun meta self free entries)
+     (fold (lambda (exp seed)
+             (fold-conts proc seed exp))
+           seed
+           entries))
 
     (($ $letrec names syms funs body)
      (fold-conts proc
@@ -75,11 +78,8 @@
     (($ $cont src sym ($ $kargs names syms body))
      (fold-conts proc (proc term seed) body))
 
-    (($ $cont src sym ($ $kentry arity body alternate))
-     (let ((seed (fold-conts proc (proc term seed) body)))
-       (if alternate
-           (fold-conts proc seed alternate)
-           seed)))
+    (($ $cont src sym ($ $kentry arity body))
+     (fold-conts proc (proc term seed) body))
 
     (($ $cont)
      (proc term seed))
@@ -132,15 +132,13 @@
   (let ((conts (build-cont-table fun)))
     (define (visit-fun term)
       (match term
-        (($ $fun meta self free body)
-         (make-$fun meta self free (visit-entry body)))))
+        (($ $fun meta self free entries)
+         (make-$fun meta self free (map visit-entry entries)))))
     (define (visit-entry term)
       (match term
-        (($ $cont src sym ($ $kentry arity body alternate))
+        (($ $cont src sym ($ $kentry arity body))
          (make-$cont src sym
-                     (make-$kentry arity (visit-cont body)
-                                   (and alternate
-                                        (visit-entry alternate)))))))
+                     (make-$kentry arity (visit-cont body))))))
     (define (visit-cont term)
       (match term
         (($ $cont src sym ($ $kargs names syms body))

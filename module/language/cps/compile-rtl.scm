@@ -71,9 +71,9 @@
     (($ $continue _ exp)
      (visit-funs proc exp))
 
-    (($ $fun meta self free body)
+    (($ $fun meta self free entries)
      (proc exp)
-     (visit-funs proc body))
+     (for-each (lambda (entry) (visit-funs proc entry)) entries))
 
     (($ $letk conts body)
      (visit-funs proc body)
@@ -82,10 +82,8 @@
     (($ $cont src sym ($ $kargs names syms body))
      (visit-funs proc body))
 
-    (($ $cont src sym ($ $kentry arity body alternate))
-     (visit-funs proc body)
-     (when alternate
-       (visit-funs proc alternate)))
+    (($ $cont src sym ($ $kentry arity body))
+     (visit-funs proc body))
 
     (_ (values))))
 
@@ -170,9 +168,9 @@
             (($ $const exp)
              (when dst
                (emit `(load-constant ,dst ,exp))))
-            (($ $fun meta self () body)
+            (($ $fun meta self () entries)
              (emit `(load-static-procedure ,dst ,self)))
-            (($ $fun meta self free body)
+            (($ $fun meta self free entries)
              (emit `(make-closure ,dst ,self ,(length free))))
             (($ $call proc args)
              (let ((proc-slot (lookup-call-proc-slot label slots))
@@ -333,14 +331,12 @@
     (define (emit asm)
       (set! rtl (cons asm rtl)))
 
-    (define (emit-fun-body self body)
+    (define (emit-fun-entry self body alternate)
       (call-with-values (lambda () (allocate-slots self body))
         (lambda (slots nlocals)
           (match body
             (($ $cont src k
-                ($ $kentry ($ $arity req opt rest kw allow-other-keys?)
-                   body
-                   alternate))
+                ($ $kentry ($ $arity req opt rest kw allow-other-keys?) body))
              (let ((kw-indices (map (match-lambda
                                      ((key name sym)
                                       (cons key (lookup-slot sym slots))))
@@ -349,19 +345,25 @@
                (emit `(begin-kw-arity ,req ,opt ,rest
                                       ,kw-indices ,allow-other-keys?
                                       ,nlocals
-                                      ,(match alternate
-                                         (($ $cont _ k) k)
-                                         (#f #f))))
+                                      ,alternate))
                (for-each emit (emit-rtl-sequence body slots nlocals))
-               (emit `(end-arity))
-               (when alternate
-                 (emit-fun-body self alternate))))))))
+               (emit `(end-arity))))))))
+
+    (define (emit-fun-entries self entries)
+      (match entries
+        ((entry . entries)
+         (let ((alternate (match entries
+                            (($cont _ k) k)
+                            (() #f))))
+           (emit-fun-entry self entry alternate)
+           (when alternate
+             (emit-fun-entries self entries))))))
 
     (match f
       ;; FIXME: We shouldn't use SELF as a label.
-      (($ $fun meta self free body)
+      (($ $fun meta self free entries)
        (emit `(begin-program ,self ,(or meta '())))
-       (emit-fun-body self body)
+       (emit-fun-entries self entries)
        (emit `(end-program))
        (reverse rtl)))))
 

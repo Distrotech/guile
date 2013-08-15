@@ -38,8 +38,11 @@
 
 (define (fold-conts proc seed term)
   (match term
-    (($ $fun meta self free body)
-     (fold-conts proc seed body))
+    (($ $fun meta self free entries)
+     (fold (lambda (exp seed)
+             (fold-conts proc seed exp))
+           seed
+           entries))
     
     (($ $letrec names syms funs body)
      (fold-conts proc
@@ -60,11 +63,8 @@
     (($ $cont src sym ($ $kargs names syms body))
      (fold-conts proc (proc term seed) body))
 
-    (($ $cont src sym ($ $kentry arity body alternate))
-     (let ((seed (fold-conts proc (proc term seed) body)))
-       (if alternate
-           (fold-conts proc seed alternate)
-           seed)))
+    (($ $cont src sym ($ $kentry arity body))
+     (fold-conts proc (proc term seed) body))
 
     (($ $cont)
      (proc term seed))
@@ -143,13 +143,12 @@
          (make-$letk (map lp conts) (lp body)))
         (($ $cont src sym ($ $kargs names syms body))
          (make-$cont src sym (make-$kargs names syms (lp body))))
-        (($ $cont src sym ($ $kentry arity body alternate))
-         (make-$cont src sym (make-$kentry arity (lp body)
-                                           (and alternate (lp alternate)))))
+        (($ $cont src sym ($ $kentry arity body))
+         (make-$cont src sym (make-$kentry arity (lp body))))
         (($ $cont)
          term)
-        (($ $fun meta self free body)
-         (make-$fun meta self free (lp body)))
+        (($ $fun meta self free entries)
+         (make-$fun meta self free (map lp entries)))
         (($ $letrec names syms funs body)
          (make-$letrec names syms (map lp funs) (lp body)))
         (($ $continue k exp)
