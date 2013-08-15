@@ -23,7 +23,9 @@
 
 (define-module (language cps closure-conversion)
   #:use-module (ice-9 match)
-  #:use-module ((srfi srfi-1) #:select (fold lset-union lset-difference))
+  #:use-module ((srfi srfi-1) #:select (fold
+                                        lset-union lset-difference
+                                        list-index))
   #:use-module (ice-9 receive)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
@@ -34,19 +36,6 @@
 
 (define (difference s1 s2)
   (lset-difference eq? s1 s2))
-
-(define (make-$let1k cont body)
-  (make-$letk (list cont) body))
-
-(define (make-$let1v src k name sym cont-body body)
-  (make-$let1k (make-$cont src k (make-$kargs (list name) (list sym) cont-body))
-               body))
-
-(define (make-$letk* conts body)
-  (match conts
-    (() body)
-    ((cont . conts)
-     (make-$let1k cont (make-$letk* conts body)))))
 
 ;; bound := sym ...
 ;; free := sym ...
@@ -63,12 +52,11 @@ called with @var{sym}.
 values in the term."
   (if (memq sym bound)
       (k sym)
-      (let* ((k* (gensym "k"))
-             (sym* (gensym "v")))
+      (let-gensyms (k* sym*)
         (receive (exp free) (k sym*)
-          (values (make-$let1v
-                   #f k* sym* sym* exp
-                   (make-$continue k* (make-$primcall 'free-ref (list self sym))))
+          (values (build-cps-term
+                    ($letk ((k* #f ($kargs (sym*) (sym*) ,exp)))
+                      ($continue k* ($primcall 'free-ref (self sym)))))
                   (cons sym free))))))
   
 (define (convert-free-vars syms self bound k)
@@ -88,15 +76,13 @@ values: the term and a list of additional free variables in the term."
   "Initialize the free variables in a closure bound to @var{sym}, and
 continue with @var{body}."
   (fold (lambda (free idx body)
-          (let ((k (gensym "k"))
-                (k* (gensym "k*"))
-                (idxsym (gensym "idx")))
-            (make-$let1k
-             (make-$cont src k (make-$kargs '() '() body))
-             (make-$let1v
-              src k* 'idx idxsym
-              (make-$continue k (make-$primcall 'free-set! (list v idxsym free)))
-              (make-$continue k* (make-$const idx))))))
+          (let-gensyms (k k* idxsym)
+            (build-cps-term
+              ($letk ((k src ($kargs () () ,body)))
+                ($letk ((k* src ($kargs ('idx) (idxsym)
+                                  ($continue k
+                                    ($primcall 'free-set! (v idxsym free))))))
+                  ($continue k* ($const idx)))))))
         body
         free
         (iota (length free))))
@@ -125,12 +111,12 @@ convert functions to flat closures."
 
     (($ $cont src sym ($ $kargs names syms body))
      (receive (body free) (cc body self (append syms bound))
-       (values (make-$cont src sym (make-$kargs names syms body))
+       (values (build-cps-cont (sym src ($kargs names syms ,body)))
                free)))
 
     (($ $cont src sym ($ $kentry arity body))
      (receive (body free) (cc body self bound)
-       (values (make-$cont src sym (make-$kentry arity body))
+       (values (build-cps-cont (sym src ($kentry ,arity ,body)))
                free)))
 
     (($ $cont)
@@ -152,17 +138,17 @@ convert functions to flat closures."
               (receive (entries fun-free) (cc* entries self (list self))
                 (lp in
                     (lambda (body)
-                      (let ((k (gensym "k")))
-                        (make-$let1v
-                         #f k name sym (bindings body)
-                         (make-$continue k (make-$fun meta self fun-free entries)))))
+                      (let-gensyms (k)
+                        (build-cps-term
+                          ($letk ((k #f ($kargs (name) (sym) ,(bindings body))))
+                            ($continue k ($fun meta self fun-free ,entries))))))
                     (init-closure #f sym fun-free body)
                     (union free (difference fun-free bound))))))))))
 
     (($ $continue k ($ $var sym))
      (convert-free-var sym self bound
                        (lambda (sym)
-                         (values (make-$continue k (make-$var sym))
+                         (values (build-cps-term ($continue k ($var sym)))
                                  '()))))
 
     (($ $continue k
@@ -175,43 +161,47 @@ convert functions to flat closures."
      (receive (entries free) (cc* entries self (list self))
        (match free
          (()
-          (values (make-$continue k (make-$fun meta self free entries))
+          (values (build-cps-term ($continue k ($fun meta self free ,entries)))
                   free))
          (else
           (values
-           (let ((kinit (gensym "kinit"))
-                 (v (gensym "v")))
-             (make-$let1v
-              #f kinit v v
-              (init-closure #f v free
-                            (make-$continue k (make-$var v)))
-              (make-$continue kinit (make-$fun meta self free entries))))
+           (let-gensyms (kinit v)
+             (build-cps-term
+               ($letk ((kinit #f ($kargs (v) (v)
+                                   ,(init-closure #f v free
+                                                  (build-cps-term
+                                                    ($continue k ($var v)))))))
+                 ($continue kinit ($fun meta self free ,entries)))))
            (difference free bound))))))
 
     (($ $continue k ($ $call proc args))
      (convert-free-vars (cons proc args) self bound
                         (match-lambda
                          ((proc . args)
-                          (values (make-$continue k (make-$call proc args))
+                          (values (build-cps-term
+                                    ($continue k ($call proc args)))
                                   '())))))
 
     (($ $continue k ($ $primcall name args))
      (convert-free-vars args self bound
                         (lambda (args)
-                          (values (make-$continue k (make-$primcall name args))
+                          (values (build-cps-term
+                                    ($continue k ($primcall name args)))
                                   '()))))
 
     (($ $continue k ($ $values args))
      (convert-free-vars args self bound
                         (lambda (args)
-                          (values (make-$continue k (make-$values args))
+                          (values (build-cps-term
+                                    ($continue k ($values args)))
                                   '()))))
 
     (($ $continue k ($ $prompt escape? tag handler))
      (convert-free-var
       tag self bound
       (lambda (tag)
-        (values (make-$continue k (make-$prompt escape? tag handler))
+        (values (build-cps-term
+                  ($continue k ($prompt escape? tag handler)))
                 '()))))
 
     (_ (error "what" exp))))
@@ -225,41 +215,24 @@ convert functions to flat closures."
         (($ $letk conts body)
          (make-$letk (map lp conts) (lp body)))
         (($ $cont src sym ($ $kargs names syms body))
-         (make-$cont src sym (make-$kargs names syms (lp body))))
+         (build-cps-cont (sym src ($kargs names syms ,(lp body)))))
         (($ $cont src sym ($ $kentry arity body))
-         (make-$cont src sym (make-$kentry arity (lp body))))
+         (build-cps-cont (sym src ($kentry ,arity ,(lp body)))))
         ;; Other kinds of continuations don't
         ;; bind values and don't have bodies.
         (($ $cont) exp)
-        (($ $kif kt kf) exp)
-        (($ $ktrunc arity k) exp)
-        (($ $letrec names syms funs body)
-         (make-$letrec names syms (map lp funs) (lp body)))
-        (($ $call proc args) exp)
-        (($ $continue k ($ $primcall 'free-ref args))
-         (match args
-           ((closure sym)
-            (let ((idx (let lp ((i 0) (f free))
-                         (cond ((null? f)
-                                ((error "convert-to-indices: free variable not found!"
-                                        sym free exp)))
-                               ((eq? sym (car f))
-                                i)
-                               (else (lp (+ i 1) (cdr f))))))
-                  (idxsym (gensym "idx"))
-                  (k* (gensym "k")))
-              (make-$let1v #f k* 'idx idxsym
-                           (make-$continue k (make-$primcall
-                                              'free-ref (list closure idxsym)))
-                           (make-$continue k* (make-$const idx)))))))
-        (($ $continue k (or ($ $var) ($ $void) ($ $const) ($ $prim)
-                            ($ $call) ($ $values) ($ $prompt) ($ $primcall)))
-         exp)
+        (($ $continue k ($ $primcall 'free-ref (closure sym)))
+         (let ((idx (or (list-index (cut eq? <> sym) free)
+                        (error "free variable not found!" sym free exp))))
+           (let-gensyms (idxsym)
+             (build-cps-term
+               ($letconst (('idx idxsym idx))
+                 ($continue k ($primcall 'free-ref (closure idxsym))))))))
         (($ $continue k ($ $fun meta self free entries))
-         (make-$continue k (make-$fun meta self free
-                                      (map (cut lpfree <> free) entries))))
-        (($ $values args) exp)
-        (_ ((error "convert-to-indices: unhandled case")))))))
+         (build-cps-term
+           ($continue k ($fun meta self free
+                              ,(map (cut lpfree <> free) entries)))))
+        (($ $continue) exp)))))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
