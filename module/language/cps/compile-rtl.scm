@@ -228,6 +228,8 @@
            (emit `(free-set! ,(slot closure) ,(slot value) ,(constant idx))))
           (($ $primcall 'box-set! (box value))
            (emit `(box-set! ,(slot box) ,(slot value))))
+          (($ $primcall 'vector-set! (vector index value))
+           (emit `(vector-set ,(slot vector) ,(slot index) ,(slot value))))
           (($ $primcall 'define! (sym value))
            (emit `(define ,(slot sym) ,(slot value))))
           (($ $primcall name args)

@@ -127,7 +127,8 @@
     (* . mul) (/ . div)
     (quotient . quo) (remainder . rem)
     (modulo . mod)
-    (define! . define)))
+    (define! . define)
+    (vector-set! . vector-set)))
 
 (define *macro-instruction-arities*
   '((cache-current-module! . (0 . 2))
