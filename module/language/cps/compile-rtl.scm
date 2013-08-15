@@ -164,7 +164,8 @@
             (($ $var sym)
              (maybe-mov dst (slot sym)))
             (($ $void)
-             (emit `(load-constant ,dst ,*unspecified*)))
+             (when dst
+               (emit `(load-constant ,dst ,*unspecified*))))
             (($ $const exp)
              (when dst
                (emit `(load-constant ,dst ,exp))))
