@@ -27,7 +27,6 @@
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (system vm instruction)
-  #:use-module ((language tree-il primitives) #:select (branching-primitive?))
   #:export (fix-arities *rtl-instruction-aliases*))
 
 (define (make-$let1k cont body)
@@ -135,7 +134,19 @@
     (cached-module-box . (1 . 4))))
 
 (define *other-primcall-arities*
-  '((eq? . (1 . 2))))
+  '((null? . (1 . 1))
+    (nil? . (1 . 1))
+    (pair? . (1 . 1))
+    (struct? . (1 . 1))
+    (char? . (1 . 1))
+    (eq? . (1 . 2))
+    (eqv? . (1 . 2))
+    (equal? . (1 . 2))
+    (= . (1 . 2))
+    (< . (1 . 2))
+    (> . (1 . 2))
+    (<= . (1 . 2))
+    (>= . (1 . 2))))
 
 (define (compute-primcall-arities)
   (let ((table (make-hash-table)))
@@ -211,9 +222,6 @@
 
     (let lp ((term term))
       (match term
-        (($ $letk (($ $cont src kif ($ $kif kt kf)))
-            ($ $continue kif ($ $primcall (? branching-primitive? name) args)))
-         term)
         (($ $letk conts body)
          (make-$letk (map lp conts) (lp body)))
         (($ $cont src sym ($ $kargs names syms body))

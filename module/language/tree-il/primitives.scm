@@ -31,7 +31,7 @@
             effect-free-primitive? effect+exception-free-primitive?
             constructor-primitive? accessor-primitive?
             singly-valued-primitive? equality-primitive?
-            bailout-primitive? branching-primitive?
+            bailout-primitive?
             negate-primitive))
 
 ;; When adding to this, be sure to update *multiply-valued-primitives*
@@ -196,10 +196,6 @@
 (define *bailout-primitives*
   '(throw error scm-error))
 
-;; Primitives that are implemented as br-if-* instructions in RTL VM.
-(define *branching-primitives*
-  '(null? nil? pair? struct? char? eq? eqv? equal? < <= = >= >))
-
 ;; Negatable predicates.
 (define *negatable-primitives*
   '((even? . odd?)
@@ -216,7 +212,6 @@
 (define *equality-primitive-table* (make-hash-table))
 (define *multiply-valued-primitive-table* (make-hash-table))
 (define *bailout-primitive-table* (make-hash-table))
-(define *branching-primitive-table* (make-hash-table))
 (define *negatable-primitive-table* (make-hash-table))
 
 (for-each (lambda (x)
@@ -234,9 +229,6 @@
 (for-each (lambda (x)
             (hashq-set! *bailout-primitive-table* x #t))
           *bailout-primitives*)
-(for-each (lambda (x)
-            (hashq-set! *branching-primitive-table* x #t))
-          *branching-primitives*)
 (for-each (lambda (x)
             (hashq-set! *negatable-primitive-table* (car x) (cdr x))
             (hashq-set! *negatable-primitive-table* (cdr x) (car x)))
@@ -256,8 +248,6 @@
   (not (hashq-ref *multiply-valued-primitive-table* prim)))
 (define (bailout-primitive? prim)
   (hashq-ref *bailout-primitive-table* prim))
-(define (branching-primitive? prim)
-  (hashq-ref *branching-primitive-table* prim))
 (define (negate-primitive prim)
   (hashq-ref *negatable-primitive-table* prim))
 
