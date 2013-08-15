@@ -126,7 +126,8 @@
     (- . sub) (1- . sub1)
     (* . mul) (/ . div)
     (quotient . quo) (remainder . rem)
-    (modulo . mod)))
+    (modulo . mod)
+    (define! . define)))
 
 (define *macro-instruction-arities*
   '((cache-current-module! . (0 . 2))
@@ -187,7 +188,21 @@
         (match nvals
           (0
            (match cont
-             (#f (proc k))
+             (#f      ;(proc k)
+              ;; XXX I'm not sure if this is desirable, but it's
+              ;; needed to handle things like 'define!' and 'box-set!'
+              ;; in tail position.
+              (let ((kvoid (gensym "kvoid"))
+                    (kunspec (gensym "kunspec"))
+                    (unspec (gensym "unspec")))
+                (make-$let1v
+                 #f kunspec unspec unspec
+                 (make-$continue k (make-$primcall 'return (list unspec)))
+                 (make-$let1k
+                  (make-$cont #f kvoid
+                              (make-$kargs '() '()
+                                           (make-$continue kunspec (make-$void))))
+                  (proc kvoid)))))
              (($ $cont _ _ ($ $ktrunc ($ $arity () () #f () #f) kseq))
               (proc kseq))
              (($ $cont _ _ ($ $kargs () () _))
