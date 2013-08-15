@@ -301,7 +301,7 @@
         (($ $kargs names syms) (emit-vals syms))
         (($ $kargs (name) (sym)) (emit-val sym))
         (($ $kif kt kf) (emit-test kt kf))
-        (($ $ktrunc ($ $arity req () rest () #f) arity k)
+        (($ $ktrunc ($ $arity req () rest () #f) k)
          (emit-trunc (length req) (and rest #t) k))))
 
     (define (collect-exps k src cont tail)

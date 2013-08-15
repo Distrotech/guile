@@ -328,7 +328,7 @@ are comparable with eqv?.  A tmp slot may be used."
                         args)))
              (match (lookup-cont k dfg)
                (($ $ktrunc arity kargs)
-                (let* ((proc-slot (lookup-call-proc-slot k allocation))
+                (let* ((proc-slot (lookup-call-proc-slot exp-k allocation))
                        (dst-syms (lookup-bound-syms kargs dfg))
                        (nvals (length dst-syms))
                        (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))

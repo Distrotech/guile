@@ -315,5 +315,5 @@
   (match dfg
     (($ $dfg conts use-maps uplinks)
      (match (lookup-cont* k conts)
-       (($ $cont src k ($ $kargs names syms body))
+       (($ $kargs names syms body)
         syms)))))
