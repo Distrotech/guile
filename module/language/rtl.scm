@@ -19,5 +19,74 @@
 ;;; Code:
 
 (define-module (language rtl)
+  #:use-module (ice-9 match)
+  #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (system vm instruction)
-  #:re-export (rtl-instruction-list))
+  #:re-export (rtl-instruction-list)
+  #:export (rtl-instruction-arity))
+
+(define (compute-rtl-instruction-arity name args)
+  (define (first-word-arity word)
+    (case word
+      ((U8_X24) 1)
+      ((U8_U24) 1)
+      ((U8_L24) 1)
+      ((U8_U8_I16) 2)
+      ((U8_U12_U12) 2)
+      ((U8_U8_U8_U8) 3)))
+  (define (tail-word-arity word)
+    (case word
+      ((U8_U24) 2)
+      ((U8_L24) 2)
+      ((U8_U8_I16) 3)
+      ((U8_U12_U12) 3)
+      ((U8_U8_U8_U8) 4)
+      ((U32) 1)
+      ((I32) 1)
+      ((A32) 1)
+      ((B32) 0)
+      ((N32) 1)
+      ((S32) 1)
+      ((L32) 1)
+      ((LO32) 1)
+      ((X8_U24) 2)
+      ((X8_U12_U12) 3)
+      ((X8_L24) 2)
+      ((B1_X7_L24) 2)
+      ((B1_U7_L24) 3)
+      ((B1_X31) 1)
+      ((B1_X7_U24) 2)))
+  (match args
+    ((arg0 . args)
+     (fold (lambda (arg arity)
+             (+ (tail-word-arity arg) arity))
+           (first-word-arity arg0)
+           args))))
+
+(define *macro-instruction-arities*
+  '((cache-current-module! . (0 . 2))
+    (cached-toplevel-box . (1 . 3))
+    (cached-module-box . (1 . 4))))
+
+(define (compute-rtl-instruction-arities)
+  (let ((table (make-hash-table)))
+    (for-each
+     (match-lambda
+      ;; Put special cases here.
+      ((name op '! . args)
+       (hashq-set! table name
+                   (cons 0 (compute-rtl-instruction-arity name args))))
+      ((name op '<- . args)
+       (hashq-set! table name
+                   (cons 1 (1- (compute-rtl-instruction-arity name args))))))
+     (rtl-instruction-list))
+    (for-each (match-lambda
+               ((name . arity)
+                (hashq-set! table name arity)))
+              *macro-instruction-arities*)
+    table))
+
+(define *rtl-instruction-arities* (delay (compute-rtl-instruction-arities)))
+
+(define (rtl-instruction-arity name)
+  (hashq-ref (force *rtl-instruction-arities*) name))
