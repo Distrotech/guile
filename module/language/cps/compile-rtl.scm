@@ -197,7 +197,6 @@
             (($ $primcall 'resolve (name bound?))
              (emit `(resolve ,dst ,(constant bound?) ,(slot name))))
             (($ $primcall 'free-ref (closure idx))
-             ;; XXX FIXME prevent IDX from being needlessly loaded into a register!
              (emit `(free-ref ,dst ,(slot closure) ,(constant idx))))
             (($ $primcall name args)
              (let ((name (or (assq-ref *rtl-instruction-aliases* name)
@@ -226,7 +225,6 @@
           (($ $primcall 'cache-current-module! (sym scope))
            (emit `(cache-current-module! ,(slot sym) ,(constant scope))))
           (($ $primcall 'free-set! (closure idx value))
-           ;; XXX FIXME prevent IDX from being needlessly loaded into a register!
            (emit `(free-set! ,(slot closure) ,(slot value) ,(constant idx))))
           (($ $primcall name args)
            (emit `(primcall/seq ,name ,@args)))
