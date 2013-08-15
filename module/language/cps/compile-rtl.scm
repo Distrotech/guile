@@ -154,7 +154,7 @@
                         ((src . dst) (emit `(mov ,dst ,src))))
                        (lookup-parallel-moves label slots))
              (for-each maybe-load-constant tail-slots args))
-           (emit `(return/values ,(length args))))
+           (emit `(return-values ,(length args))))
           (($ $primcall 'return (arg))
            (emit `(return ,(slot arg))))))
 
