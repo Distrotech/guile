@@ -70,7 +70,13 @@
             make-$call make-$primcall make-$values make-$prompt
 
             parse-cps
-            unparse-cps))
+            unparse-cps
+
+            ;; Building macros.
+            let-gensyms
+            build-cps-term
+            build-cps-call
+            build-cps-cont))
 
 ;; FIXME: Use SRFI-99, when Guile adds it.
 (define-syntax define-record-type*
@@ -226,3 +232,91 @@
      `(prompt ,escape? ,tag ,handler))
     (_
      (error "unexpected cps" exp))))
+
+;; FIXME: Figure out how to evaluate this automatically when Emacs
+;; visits this buffer.
+;;
+;; (put 'let-gensyms 'scheme-indent-function 1)
+;; (put 'build-cps-term 'scheme-indent-function 0)
+;; (put 'build-cps-call 'scheme-indent-function 0)
+;; (put 'build-cps-cont 'scheme-indent-function 0)
+;; (put '$letk 'scheme-indent-function 1)
+;; (put '$letk* 'scheme-indent-function 1)
+;; (put '$letconst 'scheme-indent-function 1)
+;; (put '$continue 'scheme-indent-function 1)
+;; (put '$kargs 'scheme-indent-function 2)
+
+(define-syntax let-gensyms
+  (syntax-rules ()
+    ((_ (sym ...) body body* ...)
+     (let ((sym (gensym (symbol->string 'sym))) ...)
+       body body* ...))))
+
+(define-syntax build-arity
+  (syntax-rules (unquote)
+    ((_ (unquote exp)) exp)
+    ((_ (req opt rest kw allow-other-keys?))
+     (make-$arity req opt rest kw allow-other-keys?))))
+
+(define-syntax build-cont-body
+  (syntax-rules (unquote $kif $ktrunc $kargs $kentry)
+    ((_ (unquote exp))
+     exp)
+    ((_ ($kif kt kf))
+     (make-$kif kt kf))
+    ((_ ($ktrunc req rest kargs))
+     (make-$ktrunc (make-$arity req '() rest '() #f) kargs))
+    ((_ ($kargs (name ...) (sym ...) body))
+     (make-$kargs (list name ...) (list sym ...) (build-cps-term body)))
+    ((_ ($kargs names syms body))
+     (make-$kargs names syms (build-cps-term body)))
+    ((_ ($kentry arity cont))
+     (make-$kentry (build-arity arity) (build-cps-cont cont)))))
+
+(define-syntax build-cps-cont
+  (syntax-rules (unquote)
+    ((_ (unquote exp)) exp)
+    ((_ (k src cont)) (make-$cont src k (build-cont-body cont)))))
+
+(define-syntax build-cps-call
+  (syntax-rules (unquote
+                 $var $void $const $prim $fun $call $primcall $values $prompt)
+    ((_ (unquote exp)) exp)
+    ((_ ($var sym)) (make-$var sym))
+    ((_ ($void)) (make-$void))
+    ((_ ($const val)) (make-$const val))
+    ((_ ($prim name)) (make-$prim name))
+    ((_ ($fun meta self free (unquote entries)))
+     (make-$fun meta self free entries))
+    ((_ ($fun meta self free (entry ...)))
+     (make-$fun meta self free (list (build-cps-cont entry) ...)))
+    ((_ ($call proc (arg ...))) (make-$call proc (list arg ...)))
+    ((_ ($call proc args)) (make-$call proc args))
+    ((_ ($primcall name (arg ...))) (make-$primcall name (list arg ...)))
+    ((_ ($primcall name args)) (make-$primcall name args))
+    ((_ ($values (arg ...))) (make-$values (list arg ...)))
+    ((_ ($values args)) (make-$values args))
+    ((_ ($prompt escape? tag handler)) (make-$prompt escape? tag handler))))
+
+(define-syntax build-cps-term
+  (syntax-rules (unquote $letk $letk* $letconst $letrec $continue)
+    ((_ (unquote exp))
+     exp)
+    ((_ ($letk (cont ...) body))
+     (make-$letk (list (build-cps-cont cont) ...)
+                 (build-cps-term body)))
+    ((_ ($letk* () body))
+     (build-cps-term body))
+    ((_ ($letk* (cont conts ...) body))
+     (build-cps-term ($letk (cont) ($letk* (conts ...) body))))
+    ((_ ($letconst () body))
+     (build-cps-term body))
+    ((_ ($letconst ((name sym val) tail ...) body))
+     (let-gensyms (kconst)
+       (build-cps-term
+         ($letk ((kconst #f ($kargs (name) (sym) ($letconst (tail ...) body))))
+           ($continue kconst ($const val))))))
+    ((_ ($letrec names gensyms funs body))
+     (make-$letrec names gensyms funs (build-cps-term body)))
+    ((_ ($continue k exp))
+     (make-$continue k (build-cps-call exp)))))
