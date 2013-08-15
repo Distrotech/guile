@@ -28,6 +28,7 @@
   #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
   #:use-module (language cps primitives)
+  #:use-module (language cps reify-primitives)
   #:use-module (language cps slot-allocation)
   #:export (compile-rtl))
 
@@ -368,6 +369,7 @@
   (let* ((exp (fix-arities exp))
          (exp (optimize exp opts))
          (exp (convert-closures exp))
+         (exp (reify-primitives exp))
          (rtl '()))
     (visit-funs (lambda (fun)
                   (set! rtl (cons (compile-fun fun) rtl)))
