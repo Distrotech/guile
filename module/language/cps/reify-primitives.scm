@@ -34,9 +34,6 @@
   #:use-module (language rtl)
   #:export (reify-primitives))
 
-;; FIXME: Some of these common utilities should be factored elsewhere,
-;; perhaps (language cps).
-
 (define (module-box src module name public? bound? val-proc)
   (let-gensyms (module-sym name-sym public?-sym bound?-sym kbox box)
     (build-cps-term

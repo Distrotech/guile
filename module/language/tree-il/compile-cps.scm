@@ -231,7 +231,7 @@
      (build-cps-term ($continue k ($prim name))))
 
     (($ <lambda> fun-src meta body)
-     ;; FIXME: add src field to fun
+     ;; FIXME: Add a src field to $fun.
      (let ()
        (define (convert-entries body)
          (match body
