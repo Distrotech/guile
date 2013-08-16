@@ -118,12 +118,12 @@ convert functions to flat closures."
          (values (build-cps-term ($letk ,conts ,body))
                  (union free free*)))))
 
-    (($ $cont src sym ($ $kargs names syms body))
+    (($ $cont sym src ($ $kargs names syms body))
      (receive (body free) (cc body self (append syms bound))
        (values (build-cps-cont (sym src ($kargs names syms ,body)))
                free)))
 
-    (($ $cont src sym ($ $kentry arity body))
+    (($ $cont sym src ($ $kentry arity body))
      (receive (body free) (cc body self bound)
        (values (build-cps-cont (sym src ($kentry ,arity ,body)))
                free)))
@@ -242,9 +242,9 @@ convert functions to flat closures."
          ,term)))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
-        (($ $cont src sym ($ $kargs names syms body))
+        (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont src sym ($ $kentry arity body))
+        (($ $cont sym src ($ $kentry arity body))
          (sym src ($kentry ,arity ,(visit-cont body))))
         ;; Other kinds of continuations don't bind values and don't have
         ;; bodies.

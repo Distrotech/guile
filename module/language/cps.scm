@@ -113,7 +113,7 @@
 
 ;; Continuations.
 (define-cps-type $letk conts body)
-(define-cps-type $cont src k cont)
+(define-cps-type $cont k src cont)
 (define-cps-type $kif kt kf)
 (define-cps-type $ktrunc arity k)
 (define-cps-type $kargs names syms body)
@@ -175,7 +175,7 @@
 (define-syntax build-cps-cont
   (syntax-rules (unquote)
     ((_ (unquote exp)) exp)
-    ((_ (k src cont)) (make-$cont src k (build-cont-body cont)))))
+    ((_ (k src cont)) (make-$cont k src (build-cont-body cont)))))
 
 (define-syntax build-cps-call
   (syntax-rules (unquote
@@ -294,12 +294,12 @@
 (define (unparse-cps exp)
   (match exp
     ;; Continuations.
-    (($ $letk (($ $cont src k ($ $kargs (name) (sym) body))) val)
+    (($ $letk (($ $cont k src ($ $kargs (name) (sym) body))) val)
      `(let ,k (,name ,sym ,(unparse-cps val))
            ,(unparse-cps body)))
     (($ $letk conts body)
      `(letk ,(map unparse-cps conts) ,(unparse-cps body)))
-    (($ $cont src sym body)
+    (($ $cont sym src body)
      `(k ,sym ,(unparse-cps body)))
     (($ $kif kt kf)
      `(kif ,kt ,kf))

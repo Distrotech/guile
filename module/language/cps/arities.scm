@@ -53,10 +53,10 @@
                        conts)
                  body))
 
-    (($ $cont src sym ($ $kargs names syms body))
+    (($ $cont sym src ($ $kargs names syms body))
      (fold-conts proc (proc term seed) body))
 
-    (($ $cont src sym ($ $kentry arity body))
+    (($ $cont sym src ($ $kentry arity body))
      (fold-conts proc (proc term seed) body))
 
     (($ $cont)
@@ -73,7 +73,7 @@
          (match conts
            ((cont . conts)
             (match cont
-              (($ $cont _ (? (cut eq? <> k))) cont)
+              (($ $cont (? (cut eq? <> k))) cont)
               (else (lp conts))))))))
 
 (define (fix-arities fun)
@@ -105,7 +105,7 @@
               ($continue kseq ,exp))
              (($ $cont _ _ ($ $kargs () () _))
               ($continue k ,exp))
-             (($ $cont src k)
+             (($ $cont k src)
               ,(let-gensyms (k*)
                  (build-cps-term
                    ($letk ((k* src ($kargs () () ($continue k ($void)))))
@@ -130,9 +130,9 @@
                                           ($continue k
                                             ($primcall 'return (v))))))
                            ($continue k* ,exp)))))))
-               (($ $cont src _ ($ $ktrunc ($ $arity () () #f () #f) kseq))
+               (($ $cont _ src ($ $ktrunc ($ $arity () () #f () #f) kseq))
                 ,(drop-result src kseq))
-               (($ $cont src kseq ($ $kargs () () _))
+               (($ $cont kseq src ($ $kargs () () _))
                 ,(drop-result src kseq))
                (($ $cont)
                 ($continue k ,exp))))))))
@@ -183,9 +183,9 @@
 
     (define (visit-cont cont)
       (rewrite-cps-cont cont
-        (($ $cont src sym ($ $kargs names syms body))
+        (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont src sym ($ $kentry arity body))
+        (($ $cont sym src ($ $kentry arity body))
          (sym src ($kentry ,arity ,(visit-cont body))))
         (($ $cont)
          ,cont)))

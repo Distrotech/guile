@@ -294,7 +294,7 @@ are comparable with eqv?.  A tmp slot may be used."
            (for-each (cut visit <> exp-k live-set) conts))
          live-set)
 
-        (($ $cont src k cont)
+        (($ $cont k src cont)
          (hashq-set! visited k #t)
          (visit cont k live-set))
 

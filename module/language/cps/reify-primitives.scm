@@ -60,10 +60,10 @@
                        conts)
                  body))
 
-    (($ $cont src sym ($ $kargs names syms body))
+    (($ $cont sym src ($ $kargs names syms body))
      (fold-conts proc (proc term seed) body))
 
-    (($ $cont src sym ($ $kentry arity body))
+    (($ $cont sym src ($ $kentry arity body))
      (fold-conts proc (proc term seed) body))
 
     (($ $cont)
@@ -82,7 +82,7 @@
 (define (build-cont-table term)
   (fold-conts (lambda (cont table)
                 (match cont
-                  (($ $cont src k cont)
+                  (($ $cont k src cont)
                    (vhash-consq k cont table))))
               vlist-null
               term))
@@ -113,9 +113,9 @@
          ($fun meta self free ,(map visit-cont entries)))))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
-        (($ $cont src sym ($ $kargs names syms body))
+        (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont src sym ($ $kentry arity body))
+        (($ $cont sym src ($ $kentry arity body))
          (sym src ($kentry ,arity ,(visit-cont body))))
         (($ $cont)
          ,cont)))

@@ -55,7 +55,7 @@
               (v-env '()))
     (match exp
       ;; Continuations.
-      (($ $letk (($ $cont src k cont) ...) body)
+      (($ $letk (($ $cont k src cont) ...) body)
        (let ((k-env (add-env k k-env)))
          (for-each check-src src)
          (for-each (match-lambda
@@ -103,8 +103,8 @@
             (error "entry should be symbol" k))
           (for-each
            (match-lambda
-            (($ $cont src* k*
-                ($ $kentry arity ($ $cont src k ($ $kargs names syms body))))
+            (($ $cont k* src*
+                ($ $kentry arity ($ $cont k src ($ $kargs names syms body))))
              (check-src src*)
              (check-src src)
              (match arity

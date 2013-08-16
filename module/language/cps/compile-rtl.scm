@@ -79,10 +79,10 @@
      (visit-funs proc body)
      (for-each (lambda (cont) (visit-funs proc cont)) conts))
 
-    (($ $cont src sym ($ $kargs names syms body))
+    (($ $cont sym src ($ $kargs names syms body))
      (visit-funs proc body))
 
-    (($ $cont src sym ($ $kentry arity body))
+    (($ $cont sym src ($ $kentry arity body))
      (visit-funs proc body))
 
     (_ (values))))
@@ -95,7 +95,7 @@
            (fold-conts proc seed body)
            conts))
 
-    (($ $cont src k cont)
+    (($ $cont k src cont)
      (fold-conts proc (proc k src cont seed) cont))
 
     (($ $kargs names syms body)
@@ -342,7 +342,7 @@
       (call-with-values (lambda () (allocate-slots self body))
         (lambda (moves slots nlocals)
           (match body
-            (($ $cont src k
+            (($ $cont k src
                 ($ $kentry ($ $arity req opt rest kw allow-other-keys?) body))
              (let ((kw-indices (map (match-lambda
                                      ((key name sym)
