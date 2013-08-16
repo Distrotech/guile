@@ -76,7 +76,10 @@
             let-gensyms
             build-cps-term
             build-cps-call
-            build-cps-cont))
+            build-cps-cont
+            rewrite-cps-term
+            rewrite-cps-call
+            rewrite-cps-cont))
 
 ;; FIXME: Use SRFI-99, when Guile adds it.
 (define-syntax define-record-type*
@@ -322,3 +325,16 @@
      (make-$letrec names gensyms funs (build-cps-term body)))
     ((_ ($continue k exp))
      (make-$continue k (build-cps-call exp)))))
+
+;; (put 'rewrite-cps-term 'scheme-indent-function 1)
+;; (put 'rewrite-cps-cont 'scheme-indent-function 1)
+;; (put 'rewrite-cps-call 'scheme-indent-function 1)
+(define-syntax-rule (rewrite-cps-term x (pat body) ...)
+  (match x
+    (pat (build-cps-term body)) ...))
+(define-syntax-rule (rewrite-cps-cont x (pat body) ...)
+  (match x
+    (pat (build-cps-cont body)) ...))
+(define-syntax-rule (rewrite-cps-call x (pat body) ...)
+  (match x
+    (pat (build-cps-call body)) ...))

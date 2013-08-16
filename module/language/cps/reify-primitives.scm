@@ -36,21 +36,6 @@
 ;; FIXME: Some of these common utilities should be factored elsewhere,
 ;; perhaps (language cps).
 
-(define (make-$let1k cont body)
-  (make-$letk (list cont) body))
-
-(define (make-$let1v src k name sym cont-body body)
-  (make-$let1k (make-$cont src k (make-$kargs (list name) (list sym) cont-body))
-               body))
-
-(define (make-let src val-proc body-proc)
-  (let ((k (gensym "k")) (sym (gensym "v")))
-    (make-$let1v src k 'tmp sym (body-proc sym) (val-proc k))))
-
-(define (make-$let1c src name sym val cont-body)
-  (let ((k (gensym "kconst")))
-    (make-$let1v src k name sym cont-body (make-$continue k (make-$const val)))))
-
 (define (fold-conts proc seed term)
   (match term
     (($ $fun meta self free entries)
@@ -103,70 +88,60 @@
               term))
 
 (define (module-box src module name public? bound? val-proc)
-  (let ((module-sym (gensym "module"))
-        (name-sym (gensym "name"))
-        (public?-sym (gensym "public?"))
-        (bound?-sym (gensym "bound?")))
-    (make-$let1c
-     src 'module module-sym module
-     (make-$let1c
-      src 'name name-sym name
-      (make-$let1c
-       src 'public? public?-sym public?
-       (make-$let1c
-        src 'bound? bound?-sym bound?
-        (make-let
-         src
-         (lambda (k)
-           (make-$continue k (make-$primcall
-                              'cached-module-box
-                              (list module-sym name-sym public?-sym bound?-sym))))
-         val-proc)))))))
+  (let-gensyms (module-sym name-sym public?-sym bound?-sym kbox box)
+    (build-cps-term
+      ($letconst (('module module-sym module)
+                  ('name name-sym name)
+                  ('public? public?-sym public?)
+                  ('bound? bound?-sym bound?))
+        ($letk ((kbox src ($kargs ('box) (box) ,(val-proc box))))
+          ($continue kbox
+            ($primcall 'cached-module-box
+                       (module-sym name-sym public?-sym bound?-sym))))))))
 
 (define (primitive-ref name k)
   (module-box #f '(guile) name #f #t
               (lambda (box)
-                (make-$continue k (make-$primcall 'box-ref (list box))))))
+                (build-cps-term
+                  ($continue k ($primcall 'box-ref (box)))))))
 
 (define (reify-primitives fun)
   (let ((conts (build-cont-table fun)))
     (define (visit-fun term)
-      (match term
+      (rewrite-cps-call term
         (($ $fun meta self free entries)
-         (make-$fun meta self free (map visit-entry entries)))))
-    (define (visit-entry term)
-      (match term
-        (($ $cont src sym ($ $kentry arity body))
-         (make-$cont src sym
-                     (make-$kentry arity (visit-cont body))))))
-    (define (visit-cont term)
-      (match term
+         ($fun meta self free ,(map visit-cont entries)))))
+    (define (visit-cont cont)
+      (rewrite-cps-cont cont
         (($ $cont src sym ($ $kargs names syms body))
-         (make-$cont src sym (make-$kargs names syms (visit-term body))))
-        (_ term)))
+         (sym src ($kargs names syms ,(visit-term body))))
+        (($ $cont src sym ($ $kentry arity body))
+         (sym src ($kentry ,arity ,(visit-cont body))))
+        (($ $cont)
+         ,cont)))
     (define (visit-term term)
-      (match term
+      (rewrite-cps-term term
         (($ $letk conts body)
-         (make-$letk (map visit-cont conts) (visit-term body)))
+         ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $continue k exp)
-         (match exp
-           (($ $prim name)
-            (match (lookup-cont conts k)
-              (($ $kargs (_)) (primitive-ref name k))
-              (_ (make-$continue k (make-$void)))))
-           (($ $fun)
-            (make-$continue k (visit-fun exp)))
-           (($ $primcall name args)
-            (cond
-             ((or (prim-rtl-instruction name) (branching-primitive? name))
-              ;; Assume arities are correct.
-              term)
-             (else
-              (make-let #f
-                        (lambda (k)
-                          (primitive-ref name k))
-                        (lambda (v)
-                          (make-$continue k (make-$call v args)))))))
-           (_ term)))))
+         ,(match exp
+            (($ $prim name)
+             (match (lookup-cont conts k)
+               (($ $kargs (_)) (primitive-ref name k))
+               (_ (build-cps-term ($continue k ($void))))))
+            (($ $fun)
+             (build-cps-term ($continue k ,(visit-fun exp))))
+            (($ $primcall name args)
+             (cond
+              ((or (prim-rtl-instruction name) (branching-primitive? name))
+               ;; Assume arities are correct.
+               term)
+              (else
+               (let-gensyms (k* v)
+                 (build-cps-term
+                   ($letk ((k* #f ($kargs (v) (v)
+                                    ($continue k ($call v args)))))
+                     ,(primitive-ref name k*)))))))
+            (_ term)))))
 
     (visit-fun fun)))

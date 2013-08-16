@@ -76,19 +76,6 @@
               (($ $cont _ (? (cut eq? <> k))) cont)
               (else (lp conts))))))))
 
-;; (put 'rewrite-cps-term 'scheme-indent-function 1)
-;; (put 'rewrite-cps-cont 'scheme-indent-function 1)
-;; (put 'rewrite-cps-call 'scheme-indent-function 1)
-(define-syntax-rule (rewrite-cps-term x (pat body) ...)
-  (match x
-    (pat (build-cps-term body)) ...))
-(define-syntax-rule (rewrite-cps-cont x (pat body) ...)
-  (match x
-    (pat (build-cps-cont body)) ...))
-(define-syntax-rule (rewrite-cps-call x (pat body) ...)
-  (match x
-    (pat (build-cps-call body)) ...))
-
 (define (fix-arities fun)
   (let ((conts (fold-conts cons '() fun)))
     (define (visit-term term)
