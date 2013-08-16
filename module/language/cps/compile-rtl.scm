@@ -228,6 +228,8 @@
            (emit `(free-set! ,(slot closure) ,(slot value) ,(constant idx))))
           (($ $primcall 'box-set! (box value))
            (emit `(box-set! ,(slot box) ,(slot value))))
+          (($ $primcall 'struct-set! (struct index value))
+           (emit `(struct-set! ,(slot struct) ,(slot index) ,(slot value))))
           (($ $primcall 'vector-set! (vector index value))
            (emit `(vector-set ,(slot vector) ,(slot index) ,(slot value))))
           (($ $primcall 'set-car! (pair value))
@@ -285,7 +287,7 @@
                (match args
                  (()
                   (emit `(call ,proc-slot ,(+ nargs 1)))
-                  (emit `(receive-values ,(1+ proc-slot) ,nreq))
+                  (emit `(receive-values ,proc-slot ,nreq))
                   (when rest?
                     (emit `(bind-rest ,(+ proc-slot 1 nreq))))
                   (for-each (match-lambda

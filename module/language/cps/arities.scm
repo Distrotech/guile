@@ -173,19 +173,25 @@
             ;; Primcalls to return are in tail position.
             (make-$continue 'ktail exp))
            (($ $primcall name args)
-            (match (prim-arity name)
-              ((out . in)
-               (adapt
-                out
-                k
-                (if (= in (length args))
-                    (cut make-$continue <> exp)
-                    (lambda (k)
-                      (let ((k* (gensym "kprim"))
-                            (p* (gensym "vprim")))
-                        (make-$let1v #f k* 'prim p*
-                                     (make-$continue k (make-$call p* args))
-                                     (make-$continue k* (make-$prim name))))))))))
+            (if (or (prim-rtl-instruction name)
+                    (branching-primitive? name))
+                (match (prim-arity name)
+                  ((out . in)
+                   (adapt
+                    out
+                    k
+                    (if (= in (length args))
+                        (cut make-$continue <> exp)
+                        (lambda (k)
+                          (let ((k* (gensym "kprim"))
+                                (p* (gensym (symbol->string name))))
+                            (make-$let1v #f k* 'prim p*
+                                         (make-$continue k (make-$call p* args))
+                                         (make-$continue k* (make-$prim name)))))))))
+                ;; If it's not implemented in the VM, it will be
+                ;; converted into a normal procedure call, so we don't
+                ;; need to adapt.
+                term))
            (($ $values)
             ;; Values nodes are inserted by CPS optimization passes, so
             ;; we assume they are correct.

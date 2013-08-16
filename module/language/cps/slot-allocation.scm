@@ -159,9 +159,9 @@ are comparable with eqv?.  A tmp slot may be used."
   (define (non-trivial-moves in moves)
     (match in
       (() (reverse moves))
-      (((and move (cut . dst)) . in)
+      (((and move (dst . cut)) . in)
        (let lp ((in in) (in* '())
-                (moves (cons* (cons cut tmp) move moves)))
+                (moves (cons* move (cons cut tmp) moves)))
          (match in
            (() (trivial-moves in* moves))
            (((and move (src . dst)) . in)
@@ -333,7 +333,7 @@ are comparable with eqv?.  A tmp slot may be used."
                        (nvals (length dst-syms))
                        (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
                        (live-set* (fold (cut allocate! <> kargs <> <>)
-                                        live-set src-slots dst-syms))
+                                        live-set dst-syms src-slots))
                        (dst-slots (map (cut lookup-slot <> allocation)
                                        dst-syms)))
                   (parallel-move! exp-k
