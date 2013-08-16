@@ -23,7 +23,7 @@
 
 (define-module (language tree-il compile-cps)
   #:use-module (ice-9 match)
-  #:use-module ((srfi srfi-1) #:select (fold filter-map))
+  #:use-module ((srfi srfi-1) #:select (fold fold-right filter-map))
   #:use-module (srfi srfi-26)
   #:use-module ((system foreign) #:select (make-pointer pointer->scm))
   #:use-module (language cps)
@@ -42,7 +42,7 @@
                  <lambda> <lambda-case>
                  <let> <letrec> <fix> <let-values>
                  <prompt> <abort>
-                 make-conditional make-const
+                 make-conditional make-const make-primcall
                  tree-il-src
                  tree-il-fold))
   #:export (compile-cps))
@@ -318,15 +318,24 @@
          (build-cps-term ($continue k ($call proc args)))))))
 
     (($ <primcall> src name args)
-     (if (branching-primitive? name)
-         (convert (make-conditional src exp (make-const #f #t)
-                                    (make-const #f #f))
-                  k subst)
-         (convert-args args
-           (lambda (args)
-             (if (eq? name 'values)
-                 (build-cps-term ($continue k ($values args)))
-                 (build-cps-term ($continue k ($primcall name args))))))))
+     (case name
+       ((list)
+        (convert (fold-right (lambda (elem tail)
+                               (make-primcall src 'cons
+                                              (list elem tail)))
+                             (make-const src '())
+                             args)
+                 k subst))
+       (else
+        (if (branching-primitive? name)
+            (convert (make-conditional src exp (make-const #f #t)
+                                       (make-const #f #f))
+                     k subst)
+            (convert-args args
+              (lambda (args)
+                (if (eq? name 'values)
+                    (build-cps-term ($continue k ($values args)))
+                    (build-cps-term ($continue k ($primcall name args))))))))))
 
     ;; Prompts with inline handlers.
     (($ <prompt> src escape-only? tag body
