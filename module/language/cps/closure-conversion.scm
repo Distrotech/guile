@@ -115,7 +115,7 @@ convert functions to flat closures."
     (($ $letk conts body)
      (receive (conts free) (cc* conts self bound)
        (receive (body free*) (cc body self bound)
-         (values (make-$letk conts body)
+         (values (build-cps-term ($letk ,conts ,body))
                  (union free free*)))))
 
     (($ $cont src sym ($ $kargs names syms body))
@@ -221,30 +221,37 @@ convert functions to flat closures."
 ;; Convert the slot arguments of 'free-ref' primcalls from symbols to
 ;; indices.
 (define (convert-to-indices exp)
-  (let lpfree ((exp exp) (free '()))
-    (let lp ((exp exp))
-      (match exp
+  (define (visit-fun-entry entry free)
+    (define (free-index sym)
+      (or (list-index (cut eq? <> sym) free)
+          (error "free variable not found!" sym free)))
+    (define (visit-term term)
+      (rewrite-cps-term term
         (($ $letk conts body)
-         (make-$letk (map lp conts) (lp body)))
-        (($ $cont src sym ($ $kargs names syms body))
-         (build-cps-cont (sym src ($kargs names syms ,(lp body)))))
-        (($ $cont src sym ($ $kentry arity body))
-         (build-cps-cont (sym src ($kentry ,arity ,(lp body)))))
-        ;; Other kinds of continuations don't
-        ;; bind values and don't have bodies.
-        (($ $cont) exp)
+         ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $continue k ($ $primcall 'free-ref (closure sym)))
-         (let ((idx (or (list-index (cut eq? <> sym) free)
-                        (error "free variable not found!" sym free exp))))
-           (let-gensyms (idxsym)
-             (build-cps-term
-               ($letconst (('idx idxsym idx))
-                 ($continue k ($primcall 'free-ref (closure idxsym))))))))
+         ,(let-gensyms (idx)
+            (build-cps-term
+              ($letconst (('idx idx (free-index sym)))
+                ($continue k ($primcall 'free-ref (closure idx)))))))
         (($ $continue k ($ $fun meta self free entries))
-         (build-cps-term
-           ($continue k ($fun meta self free
-                              ,(map (cut lpfree <> free) entries)))))
-        (($ $continue) exp)))))
+         ($continue k
+           ($fun meta self free
+                 ,(map (cut visit-fun-entry <> free) entries))))
+        (($ $continue)
+         ,term)))
+    (define (visit-cont cont)
+      (rewrite-cps-cont cont
+        (($ $cont src sym ($ $kargs names syms body))
+         (sym src ($kargs names syms ,(visit-term body))))
+        (($ $cont src sym ($ $kentry arity body))
+         (sym src ($kentry ,arity ,(visit-cont body))))
+        ;; Other kinds of continuations don't bind values and don't have
+        ;; bodies.
+        (($ $cont)
+         ,cont)))
+    (visit-cont entry))
+  (visit-fun-entry exp '()))
 
 (define (convert-closures exp)
   "Convert free reference in @var{exp} to primcalls to @code{free-ref},
@@ -254,4 +261,5 @@ and allocate and initialize flat closures."
      (receive (entries free) (cc* entries #f '())
        (unless (null? free)
          (error "Expected no free vars in toplevel thunk" exp entries free))
-       (make-$fun meta self '() (map convert-to-indices entries))))))
+       (build-cps-call
+         ($fun meta self '() ,(map convert-to-indices entries)))))))
