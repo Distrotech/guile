@@ -465,7 +465,7 @@
                ,(capture-toplevel-scope src scope kscope))))))
 
     (($ <let-values> src exp
-        ($ <lambda-case> lsrc req () rest #f () syms body #f))
+        ($ <lambda-case> lsrc req #f rest #f () syms body #f))
      (let ((names (append req (if rest (list rest) '()))))
        (let-gensyms (ktrunc kargs)
          (build-cps-term
