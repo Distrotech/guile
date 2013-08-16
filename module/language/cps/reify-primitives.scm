@@ -29,25 +29,13 @@
   #:use-module (ice-9 vlist)
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (language cps)
+  #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:use-module (language rtl)
   #:export (reify-primitives))
 
 ;; FIXME: Some of these common utilities should be factored elsewhere,
 ;; perhaps (language cps).
-
-(define (lookup-cont table k)
-  (cond
-   ((vhash-assq k table) => cdr)
-   (else (error "unknown cont" k))))
-
-(define (build-cont-table term)
-  (fold-conts (lambda (cont table)
-                (match cont
-                  (($ $cont k src cont)
-                   (vhash-consq k cont table))))
-              vlist-null
-              term))
 
 (define (module-box src module name public? bound? val-proc)
   (let-gensyms (module-sym name-sym public?-sym bound?-sym kbox box)
@@ -67,6 +55,7 @@
                 (build-cps-term
                   ($continue k ($primcall 'box-ref (box)))))))
 
+;; FIXME: Operate on one function at a time, for efficiency.
 (define (reify-primitives fun)
   (let ((conts (build-cont-table fun)))
     (define (visit-fun term)
@@ -77,8 +66,8 @@
       (rewrite-cps-cont cont
         (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont sym src ($ $kentry arity body))
-         (sym src ($kentry ,arity ,(visit-cont body))))
+        (($ $cont sym src ($ $kentry arity tail body))
+         (sym src ($kentry ,arity ,tail ,(visit-cont body))))
         (($ $cont)
          ,cont)))
     (define (visit-term term)
@@ -88,7 +77,7 @@
         (($ $continue k exp)
          ,(match exp
             (($ $prim name)
-             (match (lookup-cont conts k)
+             (match (lookup-cont k conts)
                (($ $kargs (_)) (primitive-ref name k))
                (_ (build-cps-term ($continue k ($void))))))
             (($ $fun)

@@ -26,20 +26,15 @@
   #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
+  #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (lookup-cont conts k)
-  (and (not (eq? k 'ktail))
-       (let lp ((conts conts))
-         (match conts
-           ((cont . conts)
-            (match cont
-              (($ $cont (? (cut eq? <> k))) cont)
-              (else (lp conts))))))))
-
 (define (fix-entry-arities entry)
-  (let ((conts (fold-local-conts cons '() entry)))
+  (let ((conts (build-local-cont-table entry))
+        (ktail (match entry
+                 (($ $cont _ _ ($ $kentry _ ($ $cont ktail _ ($ $ktail))))
+                  ktail))))
     (define (visit-term term)
       (rewrite-cps-term term
         (($ $letk conts body)
@@ -50,54 +45,53 @@
          ,(visit-call k exp))))
 
     (define (adapt-call nvals k exp)
-      (let ((cont (lookup-cont conts k)))
-        (match nvals
-          (0
-           (rewrite-cps-term cont
-             (#f
-              ,(let-gensyms (kvoid kunspec unspec)
-                 (build-cps-term
-                   ($letk* ((kunspec #f ($kargs (unspec) (unspec)
-                                          ($continue k
-                                            ($primcall 'return (unspec)))))
-                            (kvoid #f ($kargs () ()
-                                        ($continue kunspec ($values ())))))
-                     ($continue kvoid ,exp)))))
-             (($ $cont _ _ ($ $ktrunc ($ $arity () () #f () #f) kseq))
-              ($continue kseq ,exp))
-             (($ $cont _ _ ($ $kargs () () _))
-              ($continue k ,exp))
-             (($ $cont k src)
-              ,(let-gensyms (k*)
-                 (build-cps-term
-                   ($letk ((k* src ($kargs () () ($continue k ($void)))))
-                     ($continue k* ,exp)))))))
-          (1
-           (let ((drop-result
-                  (lambda (src kseq)
-                    (let-gensyms (k* drop)
-                      (build-cps-term
-                        ($letk ((k* src ($kargs ('drop) (drop)
-                                          ($continue kseq ($values ())))))
-                          ($continue k* ,exp)))))))
-             (rewrite-cps-term cont
-               (#f
-                ,(rewrite-cps-term exp
-                   (($var sym)
-                    ($continue 'ktail ($primcall 'return (sym))))
-                   (_
-                    ,(let-gensyms (k* v)
-                       (build-cps-term
-                         ($letk ((k* #f ($kargs (v) (v)
-                                          ($continue k
-                                            ($primcall 'return (v))))))
-                           ($continue k* ,exp)))))))
-               (($ $cont _ src ($ $ktrunc ($ $arity () () #f () #f) kseq))
-                ,(drop-result src kseq))
-               (($ $cont kseq src ($ $kargs () () _))
-                ,(drop-result src kseq))
-               (($ $cont)
-                ($continue k ,exp))))))))
+      (match nvals
+        (0
+         (rewrite-cps-term (lookup-cont k conts)
+           (($ $ktail)
+            ,(let-gensyms (kvoid kunspec unspec)
+               (build-cps-term
+                 ($letk* ((kunspec #f ($kargs (unspec) (unspec)
+                                        ($continue k
+                                          ($primcall 'return (unspec)))))
+                          (kvoid #f ($kargs () ()
+                                      ($continue kunspec ($values ())))))
+                   ($continue kvoid ,exp)))))
+           (($ $ktrunc ($ $arity () () #f () #f) kseq)
+            ($continue kseq ,exp))
+           (($ $kargs () () _)
+            ($continue k ,exp))
+           (_
+            ,(let-gensyms (k*)
+               (build-cps-term
+                 ($letk ((k* #f ($kargs () () ($continue k ($void)))))
+                   ($continue k* ,exp)))))))
+        (1
+         (let ((drop-result
+                (lambda (kseq)
+                  (let-gensyms (k* drop)
+                    (build-cps-term
+                      ($letk ((k* #f ($kargs ('drop) (drop)
+                                       ($continue kseq ($values ())))))
+                        ($continue k* ,exp)))))))
+           (rewrite-cps-term (lookup-cont k conts)
+             (($ $ktail)
+              ,(rewrite-cps-term exp
+                 (($var sym)
+                  ($continue ktail ($primcall 'return (sym))))
+                 (_
+                  ,(let-gensyms (k* v)
+                     (build-cps-term
+                       ($letk ((k* #f ($kargs (v) (v)
+                                        ($continue k
+                                          ($primcall 'return (v))))))
+                         ($continue k* ,exp)))))))
+             (($ $ktrunc ($ $arity () () #f () #f) kseq)
+              ,(drop-result kseq))
+             (($ $kargs () () _)
+              ,(drop-result k))
+             (_
+              ($continue k ,exp)))))))
 
     (define (visit-call k exp)
       (rewrite-cps-term exp
@@ -116,7 +110,7 @@
          ($continue k ,exp))
         (($ $primcall 'return (arg))
          ;; Primcalls to return are in tail position.
-         ($continue 'ktail ,exp))
+         ($continue ktail ,exp))
         (($ $primcall (? (lambda (name)
                            (and (not (prim-rtl-instruction name))
                                 (not (branching-primitive? name))))))
@@ -146,8 +140,8 @@
          ,cont)))
 
     (rewrite-cps-cont entry
-      (($ $cont sym src ($ $kentry arity body))
-       (sym src ($kentry ,arity ,(visit-cont body)))))))
+      (($ $cont sym src ($ $kentry arity tail body))
+       (sym src ($kentry ,arity ,tail ,(visit-cont body)))))))
 
 (define (fix-arities fun)
   (rewrite-cps-call fun

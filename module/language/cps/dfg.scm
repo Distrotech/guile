@@ -27,9 +27,12 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
-  #:export (compute-dfg
-
+  #:export (build-cont-table
+            build-local-cont-table
             lookup-cont
+
+            compute-dfg
+            dfg-local-cont-table
             find-constant-value
             constant-needs-allocation?
             dead-after-def?
@@ -39,12 +42,32 @@
             dead-after-branch?
             lookup-bound-syms))
 
+(define (build-cont-table fun)
+  (fold-conts (lambda (k src cont table)
+                (hashq-set! table k cont)
+                table)
+              (make-hash-table)
+              fun))
+
+(define (build-local-cont-table cont)
+  (fold-local-conts (lambda (k src cont table)
+                      (hashq-set! table k cont)
+                      table)
+                    (make-hash-table)
+                    cont))
+
+(define (lookup-cont sym conts)
+  (let ((res (hashq-ref conts sym)))
+    (unless res
+      (error "Unknown continuation!" sym (hash-fold acons '() conts)))
+    res))
+
 ;; Data-flow graph for CPS: both for values and continuations.
 (define-record-type $dfg
   (make-dfg conts use-maps uplinks)
   dfg?
   ;; hash table of sym -> $cont
-  (conts dfg-conts)
+  (conts dfg-local-cont-table)
   ;; hash table of sym -> $use-map
   (use-maps dfg-use-maps)
   ;; hash table of sym -> $parent-link
@@ -95,16 +118,14 @@
          (for-each recur conts)
          (recur body))
 
-        ;; Treat the entry continuation as its own parent, and as a hack
-        ;; declare "ktail" as being a child of the entry.
-        (($ $cont k src ($ $kentry arity body))
+        ;; Treat the entry continuation as its own parent.
+        (($ $cont k src ($ $kentry arity tail body))
          (when exp-k
            (error "$kentry not at top level?"))
          (add-def! k k)
          (add-def! self k)
          (hashq-set! uplinks k (make-uplink #f 0))
-         (add-def! 'ktail k)
-         (link-parent! 'ktail k)
+         (visit tail k)
          (visit body k))
 
         (($ $cont k src cont)
@@ -123,6 +144,9 @@
 
         (($ $ktrunc arity k)
          (use! k))
+
+        (($ $ktail)
+         #f)
 
         (($ $continue k exp)
          (use! k)
@@ -160,20 +184,6 @@
       (error "Unknown lexical!" sym (hash-fold acons '() use-maps)))
     res))
 
-(define (lookup-cont* sym conts)
-  (let ((res (hashq-ref conts sym)))
-    (unless res
-      (error "Unknown continuation!" sym (hash-fold acons '() conts)))
-    res))
-
-(define (lookup-cont sym dfg)
-  (match dfg
-    (($ $dfg conts use-maps uplinks)
-     (let ((res (hashq-ref conts sym)))
-       (unless res
-         (error "Unknown continuation!" sym (hash-fold acons '() conts)))
-       res))))
-
 (define (find-defining-term sym dfg)
   (match dfg
     (($ $dfg conts use-maps uplinks)
@@ -181,7 +191,7 @@
        (($ $use-map sym def uses)
         (match (lookup-use-map def use-maps)
           (($ $use-map _ _ (def-exp-k))
-           (lookup-cont* def-exp-k conts))
+           (lookup-cont def-exp-k conts))
           (else #f)))))))
 
 (define (find-constant-value sym dfg)
@@ -210,7 +220,7 @@
        (($ $use-map _ def uses)
         (or-map
          (lambda (use)
-           (match (find-exp (lookup-cont* use conts))
+           (match (find-exp (lookup-cont use conts))
              (($ $continue _ ($ $call)) #f)
              (($ $continue _ ($ $values)) #f)
              (($ $continue _ ($ $primcall 'free-ref (closure slot)))
@@ -274,7 +284,7 @@
        (($ $use-map sym def uses)
         (and (not (null? uses))
              (and-map (lambda (k)
-                        (match (lookup-cont* k conts)
+                        (match (lookup-cont k conts)
                           (($ $kif) #t)
                           (_ #f)))
                       uses)))))))
@@ -285,7 +295,7 @@
      (match (lookup-use-map k use-maps)
        (($ $use-map sym def (uses ..1))
         (map (lambda (kif)
-               (match (lookup-cont* kif conts)
+               (match (lookup-cont kif conts)
                  (($ $kif (? (cut eq? <> k)) kf)
                   kf)
                  (($ $kif kt (? (cut eq? <> k)))
@@ -312,6 +322,6 @@
 (define (lookup-bound-syms k dfg)
   (match dfg
     (($ $dfg conts use-maps uplinks)
-     (match (lookup-cont* k conts)
+     (match (lookup-cont k conts)
        (($ $kargs names syms body)
         syms)))))

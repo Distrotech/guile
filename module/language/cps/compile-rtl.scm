@@ -27,6 +27,7 @@
   #:use-module (language cps)
   #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
+  #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
   #:use-module (language cps slot-allocation)
@@ -82,20 +83,13 @@
     (($ $cont sym src ($ $kargs names syms body))
      (visit-funs proc body))
 
-    (($ $cont sym src ($ $kentry arity body))
+    (($ $cont sym src ($ $kentry arity tail body))
      (visit-funs proc body))
 
     (_ (values))))
 
-(define (emit-rtl-sequence exp moves slots nlocals)
-  (define (intern-cont! cont table)
-    (match cont
-      (($ $cont k src cont)
-       (hashq-set! table k cont)
-       table)))
-
-  (let* ((cont-table (fold-local-conts intern-cont! (make-hash-table) exp))
-         (rtl '()))
+(define (emit-rtl-sequence exp moves slots nlocals cont-table)
+  (let ((rtl '()))
     (define (slot sym)
       (lookup-slot sym slots))
 
@@ -286,8 +280,8 @@
                   (lp (1+ n) args)))))))
         (maybe-jump k))
 
-      (match (hashq-ref cont-table k)
-        (#f (emit-tail))
+      (match (lookup-cont k cont-table)
+        (($ $ktail) (emit-tail))
         (($ $kargs (name) (sym)) (emit-val sym))
         (($ $kargs () ()) (emit-seq))
         (($ $kargs names syms) (emit-vals syms))
@@ -296,7 +290,7 @@
         (($ $ktrunc ($ $arity req () rest () #f) k)
          (emit-trunc (length req) (and rest #t) k))))
 
-    (define (collect-exps cont tail)
+    (define (collect-exps k src cont tail)
       (define (find-exp k src term)
         (match term
           (($ $continue exp-k exp)
@@ -304,7 +298,7 @@
           (($ $letk conts body)
            (find-exp k src body))))
       (match cont
-        (($ $cont k src ($ $kargs names syms body))
+        (($ $kargs names syms body)
          (find-exp k src body))
         (_ tail)))
 
@@ -324,12 +318,14 @@
     (define (emit asm)
       (set! rtl (cons asm rtl)))
 
-    (define (emit-fun-entry self body alternate)
-      (call-with-values (lambda () (allocate-slots self body))
+    (define (emit-fun-entry self entry alternate)
+      (call-with-values (lambda () (allocate-slots self entry))
         (lambda (moves slots nlocals)
-          (match body
+          (match entry
             (($ $cont k src
-                ($ $kentry ($ $arity req opt rest kw allow-other-keys?) body))
+                ($ $kentry ($ $arity req opt rest kw allow-other-keys?)
+                   tail
+                   body))
              (let ((kw-indices (map (match-lambda
                                      ((key name sym)
                                       (cons key (lookup-slot sym slots))))
@@ -339,7 +335,9 @@
                                       ,kw-indices ,allow-other-keys?
                                       ,nlocals
                                       ,alternate))
-               (for-each emit (emit-rtl-sequence body moves slots nlocals))
+               (for-each emit
+                         (emit-rtl-sequence body moves slots nlocals
+                                            (build-local-cont-table entry)))
                (emit `(end-arity))))))))
 
     (define (emit-fun-entries self entries)

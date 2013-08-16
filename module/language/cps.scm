@@ -51,7 +51,7 @@
   #:use-module (srfi srfi-9)
   #:use-module (srfi srfi-9 gnu)
   #:export (;; Continuations.
-            $letk $cont $kif $ktrunc $kargs $kentry
+            $letk $cont $kif $ktrunc $kargs $kentry $ktail
 
             ;; Calls.
             $continue
@@ -61,7 +61,7 @@
 
             ;; Constructors.
             make-$letk make-$cont
-            make-$kif make-$ktrunc make-$kargs make-$kentry
+            make-$kif make-$ktrunc make-$kargs make-$kentry make-$ktail
 
             make-$fun make-$arity make-$letrec
 
@@ -120,7 +120,8 @@
 (define-cps-type $kif kt kf)
 (define-cps-type $ktrunc arity k)
 (define-cps-type $kargs names syms body)
-(define-cps-type $kentry arity cont)
+(define-cps-type $kentry arity tail cont)
+(define-cps-type $ktail)
 
 ;; Calls.
 (define-cps-type $continue k exp)
@@ -147,6 +148,7 @@
 ;; (put '$letconst 'scheme-indent-function 1)
 ;; (put '$continue 'scheme-indent-function 1)
 ;; (put '$kargs 'scheme-indent-function 2)
+;; (put '$kentry 'scheme-indent-function 1)
 
 (define-syntax let-gensyms
   (syntax-rules ()
@@ -161,7 +163,7 @@
      (make-$arity req opt rest kw allow-other-keys?))))
 
 (define-syntax build-cont-body
-  (syntax-rules (unquote $kif $ktrunc $kargs $kentry)
+  (syntax-rules (unquote $kif $ktrunc $kargs $kentry $ktail)
     ((_ (unquote exp))
      exp)
     ((_ ($kif kt kf))
@@ -172,8 +174,11 @@
      (make-$kargs (list name ...) (list sym ...) (build-cps-term body)))
     ((_ ($kargs names syms body))
      (make-$kargs names syms (build-cps-term body)))
-    ((_ ($kentry arity cont))
-     (make-$kentry (build-arity arity) (build-cps-cont cont)))))
+    ((_ ($kentry arity tail cont))
+     (make-$kentry (build-arity arity) (build-cps-cont tail)
+                   (build-cps-cont cont)))
+    ((_ ($ktail))
+     (make-$ktail))))
 
 (define-syntax build-cps-cont
   (syntax-rules (unquote)
@@ -261,9 +266,10 @@
      (build-cont-body ($ktrunc req rest k)))
     (('kargs names syms body)
      (build-cont-body ($kargs names syms ,(parse-cps body))))
-    (('kentry (req opt rest kw allow-other-keys?) body)
+    (('kentry (req opt rest kw allow-other-keys?) tail body)
      (build-cont-body
-      ($kentry (req opt rest kw allow-other-keys?) ,(parse-cps body))))
+      ($kentry (req opt rest kw allow-other-keys?)
+               ,(parse-cps tail) ,(parse-cps body))))
     (('kseq body)
      (build-cont-body ($kargs () () ,(parse-cps body))))
 
@@ -312,9 +318,11 @@
      `(kseq ,(unparse-cps body)))
     (($ $kargs names syms body)
      `(kargs ,names ,syms ,(unparse-cps body)))
-    (($ $kentry ($ $arity req opt rest kw allow-other-keys?) body)
+    (($ $kentry ($ $arity req opt rest kw allow-other-keys?) tail body)
      `(kentry (,req ,opt ,rest ,kw ,allow-other-keys?)
-              ,(unparse-cps body)))
+              ,(unparse-cps tail) ,(unparse-cps body)))
+    (($ $ktail)
+     `(ktail))
 
     ;; Calls.
     (($ $continue k exp)
@@ -348,14 +356,14 @@
 (define (fold-conts proc seed fun)
   (define (cont-folder cont seed)
     (match cont
-      (($ $cont k src ($ $kargs names syms body))
-       (term-folder body (proc cont seed)))
+      (($ $cont k src (and cont ($ $kargs names syms body)))
+       (term-folder body (proc k src cont seed)))
 
-      (($ $cont k src ($ $kentry arity body))
-       (cont-folder body (proc cont seed)))
+      (($ $cont k src (and cont ($ $kentry arity tail body)))
+       (cont-folder body (cont-folder tail (proc k src cont seed))))
 
-      (($ $cont)
-       (proc cont seed))))
+      (($ $cont k src cont)
+       (proc k src cont seed))))
 
   (define (fun-folder fun seed)
     (match fun
@@ -380,14 +388,14 @@
 (define (fold-local-conts proc seed cont)
   (define (cont-folder cont seed)
     (match cont
-      (($ $cont k src ($ $kargs names syms body))
-       (term-folder body (proc cont seed)))
+      (($ $cont k src (and cont ($ $kargs names syms body)))
+       (term-folder body (proc k src cont seed)))
 
-      (($ $cont k src ($ $kentry arity body))
-       (cont-folder body (proc cont seed)))
+      (($ $cont k src (and cont ($ $kentry arity tail body)))
+       (cont-folder body (cont-folder tail (proc k src cont seed))))
 
-      (($ $cont)
-       (proc cont seed))))
+      (($ $cont k src cont)
+       (proc k src cont seed))))
 
   (define (term-folder term seed)
     (match term

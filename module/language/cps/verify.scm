@@ -75,7 +75,8 @@
                      (unless (list? syms)
                        (error "syms should be list" names))
                      (visit body k-env (add-env syms v-env)))
-                    ;; $kentry is only ever seen in $fun.
+                    ;; $kentry is only ever seen in $fun. $ktail is only
+                    ;; seen in $kentry.
                     )
                    cont)
          (visit body k-env v-env)))
@@ -104,7 +105,9 @@
           (for-each
            (match-lambda
             (($ $cont k* src*
-                ($ $kentry arity ($ $cont k src ($ $kargs names syms body))))
+                ($ $kentry arity
+                   ($ $cont ktail _ ($ $ktail))
+                   ($ $cont k src ($ $kargs names syms body))))
              (check-src src*)
              (check-src src)
              (match arity

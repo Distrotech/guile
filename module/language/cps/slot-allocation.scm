@@ -212,7 +212,7 @@ are comparable with eqv?.  A tmp slot may be used."
         (nlocals 0)
         (nargs (match exp
                  (($ $cont _ _ 
-                     ($ $kentry _ ($ $cont _ _ ($ $kargs names syms))))
+                     ($ $kentry _ _ ($ $cont _ _ ($ $kargs names syms))))
                   (length syms))))
         (visited (make-hash-table))
         (allocation (make-hash-table))
@@ -298,7 +298,7 @@ are comparable with eqv?.  A tmp slot may be used."
          (hashq-set! visited k #t)
          (visit cont k live-set))
 
-        (($ $kentry arity body)
+        (($ $kentry arity tail body)
          (visit body exp-k (allocate! self exp-k 0 live-set)))
 
         (($ $kargs names syms body)
@@ -312,36 +312,34 @@ are comparable with eqv?.  A tmp slot may be used."
          (use sym live-set))
 
         (($ $continue k ($ $call proc args))
-         (cond
-          ((eq? k 'ktail)
-           (let ((tail-nlocals (1+ (length args))))
-             (set! nlocals (max nlocals tail-nlocals))
-             (parallel-move! exp-k
-                             (map (cut lookup-slot <> allocation)
-                                  (cons proc args))
-                             live-set (fold use live-set (cons proc args))
-                             (iota tail-nlocals))))
-          (else
-           (let ((live-set
-                  (fold use
-                        (use proc (allocate-frame! exp-k (length args) live-set))
-                        args)))
-             (match (lookup-cont k dfg)
-               (($ $ktrunc arity kargs)
-                (let* ((proc-slot (lookup-call-proc-slot exp-k allocation))
-                       (dst-syms (lookup-bound-syms kargs dfg))
-                       (nvals (length dst-syms))
-                       (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
-                       (live-set* (fold (cut allocate! <> kargs <> <>)
-                                        live-set dst-syms src-slots))
-                       (dst-slots (map (cut lookup-slot <> allocation)
-                                       dst-syms)))
-                  (parallel-move! exp-k
-                                  src-slots
-                                  live-set live-set*
-                                  dst-slots)))
-               (else
-                live-set))))))
+         (match (lookup-cont k (dfg-local-cont-table dfg))
+           (($ $ktail)
+            (let ((tail-nlocals (1+ (length args))))
+              (set! nlocals (max nlocals tail-nlocals))
+              (parallel-move! exp-k
+                              (map (cut lookup-slot <> allocation)
+                                   (cons proc args))
+                              live-set (fold use live-set (cons proc args))
+                              (iota tail-nlocals))))
+           (($ $ktrunc arity kargs)
+            (let* ((live-set
+                    (fold use
+                          (use proc
+                               (allocate-frame! exp-k (length args) live-set))
+                          args))
+                   (proc-slot (lookup-call-proc-slot exp-k allocation))
+                   (dst-syms (lookup-bound-syms kargs dfg))
+                   (nvals (length dst-syms))
+                   (src-slots (map (cut + proc-slot 1 <>) (iota nvals)))
+                   (live-set* (fold (cut allocate! <> kargs <> <>)
+                                    live-set dst-syms src-slots))
+                   (dst-slots (map (cut lookup-slot <> allocation)
+                                   dst-syms)))
+              (parallel-move! exp-k src-slots live-set live-set* dst-slots)))
+           (else
+            (fold use
+                  (use proc (allocate-frame! exp-k (length args) live-set))
+                  args))))
 
         (($ $continue k ($ $primcall name args))
          (fold use live-set args))
@@ -349,15 +347,17 @@ are comparable with eqv?.  A tmp slot may be used."
         (($ $continue k ($ $values args))
          (let ((live-set* (fold use live-set args)))
            (define (compute-dst-slots)
-             (if (eq? k 'ktail)
-                 (let ((tail-nlocals (1+ (length args))))
-                   (set! nlocals (max nlocals tail-nlocals))
-                   (cdr (iota tail-nlocals)))
-                 (let* ((src-slots (map (cut lookup-slot <> allocation) args))
-                        (dst-syms (lookup-bound-syms k dfg))
-                        (dst-live-set (fold (cut allocate! <> k <> <>)
-                                            live-set* dst-syms src-slots)))
-                   (map (cut lookup-slot <> allocation) dst-syms))))
+             (match (lookup-cont k (dfg-local-cont-table dfg))
+               (($ $ktail)
+                (let ((tail-nlocals (1+ (length args))))
+                  (set! nlocals (max nlocals tail-nlocals))
+                  (cdr (iota tail-nlocals))))
+               (_
+                (let* ((src-slots (map (cut lookup-slot <> allocation) args))
+                       (dst-syms (lookup-bound-syms k dfg))
+                       (dst-live-set (fold (cut allocate! <> k <> <>)
+                                           live-set* dst-syms src-slots)))
+                  (map (cut lookup-slot <> allocation) dst-syms)))))
 
            (parallel-move! exp-k
                            (map (cut lookup-slot <> allocation) args)

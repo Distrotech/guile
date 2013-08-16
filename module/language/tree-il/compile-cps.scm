@@ -233,8 +233,8 @@
     (($ <primitive-ref> src name)
      (build-cps-term ($continue k ($prim name))))
 
-    (($ <lambda> src meta body)
-     ;; FIXME: add src field to fun, add tail field also
+    (($ <lambda> fun-src meta body)
+     ;; FIXME: add src field to fun
      (let ()
        (define (convert-entries body)
          (match body
@@ -246,22 +246,22 @@
                                         '()
                                         arity gensyms inits)))
               (cons
-               (let-gensyms (kentry kargs)
+               (let-gensyms (kentry ktail kargs)
                  (build-cps-cont
                    (kentry
                     src
-                    ($kentry
-                     ,arity
-                     (kargs
-                      src
-                      ($kargs names gensyms
-                        ,(fold-formals
-                          (lambda (name sym init body)
-                            (if init
-                                (init-default-value name sym subst init body)
-                                (box-bound-var name sym body)))
-                          (convert body 'ktail subst)
-                          arity gensyms inits)))))))
+                    ($kentry ,arity
+                      (ktail fun-src ($ktail))
+                      (kargs
+                       src
+                       ($kargs names gensyms
+                         ,(fold-formals
+                           (lambda (name sym init body)
+                             (if init
+                                 (init-default-value name sym subst init body)
+                                 (box-bound-var name sym body)))
+                           (convert body ktail subst)
+                           arity gensyms inits)))))))
                (if alternate (convert-entries alternate) '()))))))
        (if (current-topbox-scope)
            (let-gensyms (self)
@@ -270,10 +270,11 @@
                  ($fun meta self '() ,(convert-entries body)))))
            (let-gensyms (scope kscope)
              (build-cps-term
-               ($letk ((kscope src ($kargs () ()
-                                     ,(parameterize ((current-topbox-scope scope))
-                                        (convert exp k subst)))))
-                 ,(capture-toplevel-scope src scope kscope)))))))
+               ($letk ((kscope fun-src
+                               ($kargs () ()
+                                 ,(parameterize ((current-topbox-scope scope))
+                                    (convert exp k subst)))))
+                 ,(capture-toplevel-scope fun-src scope kscope)))))))
 
     (($ <module-ref> src mod name public?)
      (module-box
@@ -518,18 +519,17 @@ indicates that the replacement variable is in a box."
       (_ subst)))
   (tree-il-fold box-set-vars default-args '() exp))
 
-(define (cps-convert exp)
-  (convert exp 'ktail (build-subst exp)))
-
 (define (cps-convert/thunk exp)
   (let ((src (tree-il-src exp)))
-    (let-gensyms (init kentry kinit)
+    (let-gensyms (init kentry kinit ktail)
       (build-cps-call
         ($fun '() init '()
               ((kentry src
                        ($kentry ('() '() #f '() #f)
-                                (kinit src ($kargs () ()
-                                             ,(cps-convert exp)))))))))))
+                         (ktail src ($ktail))
+                         (kinit src ($kargs () ()
+                                      ,(convert exp ktail
+                                                (build-subst exp))))))))))))
 
 (define *comp-module* (make-fluid))
 
