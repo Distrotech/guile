@@ -29,44 +29,6 @@
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (fold-conts proc seed term)
-  (match term
-    (($ $fun meta self free entries)
-     (fold (lambda (exp seed)
-             (fold-conts proc seed exp))
-           seed
-           entries))
-    
-    (($ $letrec names syms funs body)
-     (fold-conts proc
-                 (fold (lambda (exp seed)
-                         (fold-conts proc seed exp))
-                       seed
-                       funs)
-                 body))
-
-    (($ $letk conts body)
-     (fold-conts proc
-                 (fold (lambda (exp seed)
-                         (fold-conts proc seed exp))
-                       seed
-                       conts)
-                 body))
-
-    (($ $cont sym src ($ $kargs names syms body))
-     (fold-conts proc (proc term seed) body))
-
-    (($ $cont sym src ($ $kentry arity body))
-     (fold-conts proc (proc term seed) body))
-
-    (($ $cont)
-     (proc term seed))
-
-    (($ $continue k exp)
-     (match exp
-       (($ $fun) (fold-conts proc seed exp))
-       (_ seed)))))
-
 (define (lookup-cont conts k)
   (and (not (eq? k 'ktail))
        (let lp ((conts conts))
@@ -76,14 +38,14 @@
               (($ $cont (? (cut eq? <> k))) cont)
               (else (lp conts))))))))
 
-(define (fix-arities fun)
-  (let ((conts (fold-conts cons '() fun)))
+(define (fix-entry-arities entry)
+  (let ((conts (fold-local-conts cons '() entry)))
     (define (visit-term term)
       (rewrite-cps-term term
         (($ $letk conts body)
          ($letk ,(map visit-cont conts) ,(visit-term body)))
         (($ $letrec names syms funs body)
-         ($letrec names syms (map visit-fun funs) ,(visit-term body)))
+         ($letrec names syms (map fix-arities funs) ,(visit-term body)))
         (($ $continue k exp)
          ,(visit-call k exp))))
 
@@ -145,7 +107,7 @@
              ($ $var))
          ,(adapt-call 1 k exp))
         (($ $fun)
-         ,(adapt-call 1 k (visit-fun exp)))
+         ,(adapt-call 1 k (fix-arities exp)))
         (($ $call)
          ;; In general, calls have unknown return arity.  For that
          ;; reason every non-tail call has an implicit adaptor
@@ -176,18 +138,18 @@
         (($ $prompt)
          ($continue k ,exp))))
 
-    (define (visit-fun fun)
-      (rewrite-cps-call fun
-        (($ $fun meta self free entries)
-         ($fun meta self free ,(map visit-cont entries)))))
-
     (define (visit-cont cont)
       (rewrite-cps-cont cont
         (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body))))
-        (($ $cont sym src ($ $kentry arity body))
-         (sym src ($kentry ,arity ,(visit-cont body))))
         (($ $cont)
          ,cont)))
 
-    (visit-fun fun)))
+    (rewrite-cps-cont entry
+      (($ $cont sym src ($ $kentry arity body))
+       (sym src ($kentry ,arity ,(visit-cont body)))))))
+
+(define (fix-arities fun)
+  (rewrite-cps-call fun
+    (($ $fun meta self free entries)
+     ($fun meta self free ,(map fix-entry-arities entries)))))

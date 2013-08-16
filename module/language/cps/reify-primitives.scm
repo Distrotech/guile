@@ -36,44 +36,6 @@
 ;; FIXME: Some of these common utilities should be factored elsewhere,
 ;; perhaps (language cps).
 
-(define (fold-conts proc seed term)
-  (match term
-    (($ $fun meta self free entries)
-     (fold (lambda (exp seed)
-             (fold-conts proc seed exp))
-           seed
-           entries))
-
-    (($ $letrec names syms funs body)
-     (fold-conts proc
-                 (fold (lambda (exp seed)
-                         (fold-conts proc seed exp))
-                       seed
-                       funs)
-                 body))
-
-    (($ $letk conts body)
-     (fold-conts proc
-                 (fold (lambda (exp seed)
-                         (fold-conts proc seed exp))
-                       seed
-                       conts)
-                 body))
-
-    (($ $cont sym src ($ $kargs names syms body))
-     (fold-conts proc (proc term seed) body))
-
-    (($ $cont sym src ($ $kentry arity body))
-     (fold-conts proc (proc term seed) body))
-
-    (($ $cont)
-     (proc term seed))
-
-    (($ $continue k exp)
-     (match exp
-       (($ $fun) (fold-conts proc seed exp))
-       (_ seed)))))
-
 (define (lookup-cont table k)
   (cond
    ((vhash-assq k table) => cdr)

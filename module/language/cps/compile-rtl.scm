@@ -87,28 +87,14 @@
 
     (_ (values))))
 
-(define (fold-conts proc seed exp)
-  (match exp
-    (($ $letk conts body)
-     (fold (lambda (exp seed)
-             (fold-conts proc seed exp))
-           (fold-conts proc seed body)
-           conts))
-
-    (($ $cont k src cont)
-     (fold-conts proc (proc k src cont seed) cont))
-
-    (($ $kargs names syms body)
-     (fold-conts proc seed body))
-
-    (_ seed)))
-
 (define (emit-rtl-sequence exp moves slots nlocals)
-  (define (intern-cont! k src cont table)
-    (hashq-set! table k cont)
-    table)
+  (define (intern-cont! cont table)
+    (match cont
+      (($ $cont k src cont)
+       (hashq-set! table k cont)
+       table)))
 
-  (let* ((cont-table (fold-conts intern-cont! (make-hash-table) exp))
+  (let* ((cont-table (fold-local-conts intern-cont! (make-hash-table) exp))
          (rtl '()))
     (define (slot sym)
       (lookup-slot sym slots))
@@ -310,19 +296,19 @@
         (($ $ktrunc ($ $arity req () rest () #f) k)
          (emit-trunc (length req) (and rest #t) k))))
 
-    (define (collect-exps k src cont tail)
-      (define (find-exp term)
+    (define (collect-exps cont tail)
+      (define (find-exp k src term)
         (match term
           (($ $continue exp-k exp)
            (cons (list k src exp-k exp) tail))
           (($ $letk conts body)
-           (find-exp body))))
+           (find-exp k src body))))
       (match cont
-        (($ $kargs names syms body)
-         (find-exp body))
-        (else tail)))
+        (($ $cont k src ($ $kargs names syms body))
+         (find-exp k src body))
+        (_ tail)))
 
-    (let lp ((exps (reverse (fold-conts collect-exps '() exp))))
+    (let lp ((exps (reverse (fold-local-conts collect-exps '() exp))))
       (match exps
         (() (reverse rtl))
         (((k src exp-k exp) . exps)

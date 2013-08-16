@@ -69,9 +69,6 @@
             make-$var make-$void make-$const make-$prim
             make-$call make-$primcall make-$values make-$prompt
 
-            parse-cps
-            unparse-cps
-
             ;; Building macros.
             let-gensyms
             build-cps-term
@@ -79,7 +76,13 @@
             build-cps-cont
             rewrite-cps-term
             rewrite-cps-call
-            rewrite-cps-cont))
+            rewrite-cps-cont
+
+            parse-cps
+            unparse-cps
+
+            fold-conts
+            fold-local-conts))
 
 ;; FIXME: Use SRFI-99, when Guile adds it.
 (define-syntax define-record-type*
@@ -342,3 +345,57 @@
     (_
      (error "unexpected cps" exp))))
 
+(define (fold-conts proc seed fun)
+  (define (cont-folder cont seed)
+    (match cont
+      (($ $cont k src ($ $kargs names syms body))
+       (term-folder body (proc cont seed)))
+
+      (($ $cont k src ($ $kentry arity body))
+       (cont-folder body (proc cont seed)))
+
+      (($ $cont)
+       (proc cont seed))))
+
+  (define (fun-folder fun seed)
+    (match fun
+      (($ $fun meta self free entries)
+       (fold cont-folder seed entries))))
+
+  (define (term-folder term seed)
+    (match term
+      (($ $letk conts body)
+       (fold cont-folder (term-folder body seed) conts))
+
+      (($ $continue k exp)
+       (match exp
+         (($ $fun) (fun-folder exp seed))
+         (_ seed)))
+
+      (($ $letrec names syms funs body)
+       (fold fun-folder funs (term-folder body seed)))))
+
+  (fun-folder fun seed))
+
+(define (fold-local-conts proc seed cont)
+  (define (cont-folder cont seed)
+    (match cont
+      (($ $cont k src ($ $kargs names syms body))
+       (term-folder body (proc cont seed)))
+
+      (($ $cont k src ($ $kentry arity body))
+       (cont-folder body (proc cont seed)))
+
+      (($ $cont)
+       (proc cont seed))))
+
+  (define (term-folder term seed)
+    (match term
+      (($ $letk conts body)
+       (fold cont-folder (term-folder body seed) conts))
+
+      (($ $continue) seed)
+
+      (($ $letrec names syms funs body) (term-folder body seed))))
+
+  (cont-folder cont seed))
