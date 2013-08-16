@@ -302,6 +302,8 @@
   (syntax-rules (unquote $letk $letk* $letconst $letrec $continue)
     ((_ (unquote exp))
      exp)
+    ((_ ($letk (unquote conts) body))
+     (make-$letk conts (build-cps-term body)))
     ((_ ($letk (cont ...) body))
      (make-$letk (list (build-cps-cont cont) ...)
                  (build-cps-term body)))

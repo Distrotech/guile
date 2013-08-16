@@ -29,13 +29,6 @@
   #:use-module (language cps primitives)
   #:export (fix-arities))
 
-(define (make-$let1k cont body)
-  (make-$letk (list cont) body))
-
-(define (make-$let1v src k name sym cont-body body)
-  (make-$let1k (make-$cont src k (make-$kargs (list name) (list sym) cont-body))
-               body))
-
 (define (fold-conts proc seed term)
   (match term
     (($ $fun meta self free entries)
@@ -83,118 +76,131 @@
               (($ $cont _ (? (cut eq? <> k))) cont)
               (else (lp conts))))))))
 
-(define (fix-arities term)
-  (let ((conts (fold-conts cons '() term)))
-    (define (adapt nvals k proc)
+;; (put 'rewrite-cps-term 'scheme-indent-function 1)
+;; (put 'rewrite-cps-cont 'scheme-indent-function 1)
+;; (put 'rewrite-cps-call 'scheme-indent-function 1)
+(define-syntax-rule (rewrite-cps-term x (pat body) ...)
+  (match x
+    (pat (build-cps-term body)) ...))
+(define-syntax-rule (rewrite-cps-cont x (pat body) ...)
+  (match x
+    (pat (build-cps-cont body)) ...))
+(define-syntax-rule (rewrite-cps-call x (pat body) ...)
+  (match x
+    (pat (build-cps-call body)) ...))
+
+(define (fix-arities fun)
+  (let ((conts (fold-conts cons '() fun)))
+    (define (visit-term term)
+      (rewrite-cps-term term
+        (($ $letk conts body)
+         ($letk ,(map visit-cont conts) ,(visit-term body)))
+        (($ $letrec names syms funs body)
+         ($letrec names syms (map visit-fun funs) ,(visit-term body)))
+        (($ $continue k exp)
+         ,(visit-call k exp))))
+
+    (define (adapt-call nvals k exp)
       (let ((cont (lookup-cont conts k)))
         (match nvals
           (0
-           (match cont
-             (#f      ;(proc k)
-              ;; XXX I'm not sure if this is desirable, but it's
-              ;; needed to handle things like 'define!' and 'box-set!'
-              ;; in tail position.
-              (let ((kvoid (gensym "kvoid"))
-                    (kunspec (gensym "kunspec"))
-                    (unspec (gensym "unspec")))
-                (make-$let1v
-                 #f kunspec unspec unspec
-                 (make-$continue k (make-$primcall 'return (list unspec)))
-                 (make-$let1k
-                  (make-$cont #f kvoid
-                              (make-$kargs '() '()
-                                           (make-$continue kunspec (make-$void))))
-                  (proc kvoid)))))
+           (rewrite-cps-term cont
+             (#f
+              ,(let-gensyms (kvoid kunspec unspec)
+                 (build-cps-term
+                   ($letk* ((kunspec #f ($kargs (unspec) (unspec)
+                                          ($continue k
+                                            ($primcall 'return (unspec)))))
+                            (kvoid #f ($kargs () ()
+                                        ($continue kunspec ($values ())))))
+                     ($continue kvoid ,exp)))))
              (($ $cont _ _ ($ $ktrunc ($ $arity () () #f () #f) kseq))
-              (proc kseq))
+              ($continue kseq ,exp))
              (($ $cont _ _ ($ $kargs () () _))
-              (proc k))
+              ($continue k ,exp))
              (($ $cont src k)
-              (let ((k* (gensym "kvoid")))
-                (make-$letk
-                 (list (make-$cont src k*
-                                (make-$kargs '() '()
-                                             (make-$continue k (make-$void)))))
-                 (proc k*))))))
+              ,(let-gensyms (k*)
+                 (build-cps-term
+                   ($letk ((k* src ($kargs () () ($continue k ($void)))))
+                     ($continue k* ,exp)))))))
           (1
            (let ((drop-result
                   (lambda (src kseq)
-                    (let ((k* (gensym "kdrop")))
-                      (make-$let1v src k* 'drop (gensym "vdrop")
-                                   (make-$continue kseq (make-$values '()))
-                                   (proc k*))))))
-             (match cont
+                    (let-gensyms (k* drop)
+                      (build-cps-term
+                        ($letk ((k* src ($kargs ('drop) (drop)
+                                          ($continue kseq ($values ())))))
+                          ($continue k* ,exp)))))))
+             (rewrite-cps-term cont
                (#f
-                (let ((k* (gensym "ktail"))
-                      (v (gensym "v")))
-                  (make-$let1v #f k* v v
-                               (make-$continue k (make-$primcall 'return (list v)))
-                               (proc k*))))
+                ,(rewrite-cps-term exp
+                   (($var sym)
+                    ($continue 'ktail ($primcall 'return (sym))))
+                   (_
+                    ,(let-gensyms (k* v)
+                       (build-cps-term
+                         ($letk ((k* #f ($kargs (v) (v)
+                                          ($continue k
+                                            ($primcall 'return (v))))))
+                           ($continue k* ,exp)))))))
                (($ $cont src _ ($ $ktrunc ($ $arity () () #f () #f) kseq))
-                (drop-result src kseq))
+                ,(drop-result src kseq))
                (($ $cont src kseq ($ $kargs () () _))
-                (drop-result src kseq))
+                ,(drop-result src kseq))
                (($ $cont)
-                (proc k))))))))
+                ($continue k ,exp))))))))
 
-    (let lp ((term term))
-      (match term
-        (($ $letk conts body)
-         (make-$letk (map lp conts) (lp body)))
-        (($ $cont src sym ($ $kargs names syms body))
-         (make-$cont src sym (make-$kargs names syms (lp body))))
-        (($ $cont src sym ($ $kentry arity body))
-         (make-$cont src sym (make-$kentry arity (lp body))))
-        (($ $cont)
-         term)
+    (define (visit-call k exp)
+      (rewrite-cps-term exp
+        ((or ($ $void)
+             ($ $const)
+             ($ $prim)
+             ($ $var))
+         ,(adapt-call 1 k exp))
+        (($ $fun)
+         ,(adapt-call 1 k (visit-fun exp)))
+        (($ $call)
+         ;; In general, calls have unknown return arity.  For that
+         ;; reason every non-tail call has an implicit adaptor
+         ;; continuation to adapt the return to the target
+         ;; continuation, and we don't need to do any adapting here.
+         ($continue k ,exp))
+        (($ $primcall 'return (arg))
+         ;; Primcalls to return are in tail position.
+         ($continue 'ktail ,exp))
+        (($ $primcall (? (lambda (name)
+                           (and (not (prim-rtl-instruction name))
+                                (not (branching-primitive? name))))))
+         ($continue k ,exp))
+        (($ $primcall name args)
+         ,(match (prim-arity name)
+            ((out . in)
+             (if (= in (length args))
+                 (adapt-call out k exp)
+                 (let-gensyms (k* p*)
+                   (build-cps-term
+                     ($letk ((k* #f ($kargs ('prim) (p*)
+                                      ($continue k ($call p* args)))))
+                       ($continue k* ($prim name)))))))))
+        (($ $values)
+         ;; Values nodes are inserted by CPS optimization passes, so
+         ;; we assume they are correct.
+         ($continue k ,exp))
+        (($ $prompt)
+         ($continue k ,exp))))
+
+    (define (visit-fun fun)
+      (rewrite-cps-call fun
         (($ $fun meta self free entries)
-         (make-$fun meta self free (map lp entries)))
-        (($ $letrec names syms funs body)
-         (make-$letrec names syms (map lp funs) (lp body)))
-        (($ $continue k exp)
-         (match exp
-           (($ $var sym)
-            (if (eq? k 'ktail)
-                (make-$continue k (make-$primcall 'return (list sym)))
-                (adapt 1 k (lambda (k) (make-$continue k exp)))))
-           ((or ($ $void)
-                ($ $const)
-                ($ $prim))
-            (adapt 1 k (lambda (k) (make-$continue k exp))))
-           (($ $fun)
-            (adapt 1 k (lambda (k) (make-$continue k (lp exp)))))
-           (($ $call)
-            ;; In general, calls have unknown return arity.  For that
-            ;; reason every non-tail call has an implicit adaptor
-            ;; continuation to adapt the return to the target
-            ;; continuation, and we don't need to do any adapting here.
-            term)
-           (($ $primcall 'return (arg))
-            ;; Primcalls to return are in tail position.
-            (make-$continue 'ktail exp))
-           (($ $primcall name args)
-            (if (or (prim-rtl-instruction name)
-                    (branching-primitive? name))
-                (match (prim-arity name)
-                  ((out . in)
-                   (adapt
-                    out
-                    k
-                    (if (= in (length args))
-                        (cut make-$continue <> exp)
-                        (lambda (k)
-                          (let ((k* (gensym "kprim"))
-                                (p* (gensym (symbol->string name))))
-                            (make-$let1v #f k* 'prim p*
-                                         (make-$continue k (make-$call p* args))
-                                         (make-$continue k* (make-$prim name)))))))))
-                ;; If it's not implemented in the VM, it will be
-                ;; converted into a normal procedure call, so we don't
-                ;; need to adapt.
-                term))
-           (($ $values)
-            ;; Values nodes are inserted by CPS optimization passes, so
-            ;; we assume they are correct.
-            term)
-           (($ $prompt)
-            term)))))))
+         ($fun meta self free ,(map visit-cont entries)))))
+
+    (define (visit-cont cont)
+      (rewrite-cps-cont cont
+        (($ $cont src sym ($ $kargs names syms body))
+         (sym src ($kargs names syms ,(visit-term body))))
+        (($ $cont src sym ($ $kentry arity body))
+         (sym src ($kentry ,arity ,(visit-cont body))))
+        (($ $cont)
+         ,cont)))
+
+    (visit-fun fun)))
