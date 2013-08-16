@@ -62,8 +62,6 @@
   (pass-if-equal '(1 . 2)
       (run-rtl '(cons 1 2)))
 
-  ;; FIXME: Not yet working.
-  #;
   (pass-if-equal '(1 2)
       (call-with-values (lambda () (run-rtl '(values 1 2))) list))
 
