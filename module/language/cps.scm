@@ -136,20 +136,6 @@
 (define-cps-type $values args)
 (define-cps-type $prompt escape? tag handler)
 
-;; FIXME: Figure out how to evaluate this automatically when Emacs
-;; visits this buffer.
-;;
-;; (put 'let-gensyms 'scheme-indent-function 1)
-;; (put 'build-cps-term 'scheme-indent-function 0)
-;; (put 'build-cps-call 'scheme-indent-function 0)
-;; (put 'build-cps-cont 'scheme-indent-function 0)
-;; (put '$letk 'scheme-indent-function 1)
-;; (put '$letk* 'scheme-indent-function 1)
-;; (put '$letconst 'scheme-indent-function 1)
-;; (put '$continue 'scheme-indent-function 1)
-;; (put '$kargs 'scheme-indent-function 2)
-;; (put '$kentry 'scheme-indent-function 1)
-
 (define-syntax let-gensyms
   (syntax-rules ()
     ((_ (sym ...) body body* ...)
@@ -230,9 +216,6 @@
     ((_ ($continue k exp))
      (make-$continue k (build-cps-call exp)))))
 
-;; (put 'rewrite-cps-term 'scheme-indent-function 1)
-;; (put 'rewrite-cps-cont 'scheme-indent-function 1)
-;; (put 'rewrite-cps-call 'scheme-indent-function 1)
 (define-syntax-rule (rewrite-cps-term x (pat body) ...)
   (match x
     (pat (build-cps-term body)) ...))
@@ -407,3 +390,19 @@
       (($ $letrec names syms funs body) (term-folder body seed))))
 
   (cont-folder cont seed))
+
+;;; Local Variables:
+;;; eval: (put 'let-gensyms 'scheme-indent-function 1)
+;;; eval: (put 'build-cps-term 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-call 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-cont 'scheme-indent-function 0)
+;;; eval: (put 'rewrite-cps-term 'scheme-indent-function 1)
+;;; eval: (put 'rewrite-cps-cont 'scheme-indent-function 1)
+;;; eval: (put 'rewrite-cps-call 'scheme-indent-function 1)
+;;; eval: (put '$letk 'scheme-indent-function 1)
+;;; eval: (put '$letk* 'scheme-indent-function 1)
+;;; eval: (put '$letconst 'scheme-indent-function 1)
+;;; eval: (put '$continue 'scheme-indent-function 1)
+;;; eval: (put '$kargs 'scheme-indent-function 2)
+;;; eval: (put '$kentry 'scheme-indent-function 1)
+;;; End:

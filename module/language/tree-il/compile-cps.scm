@@ -47,9 +47,6 @@
                  tree-il-fold))
   #:export (compile-cps))
 
-;; (put 'convert-arg 'scheme-indent-function 1)
-;; (put 'convert-args 'scheme-indent-function 1)
-
 ;; Guile's semantics are that a toplevel lambda captures a reference on
 ;; the current module, and that all contained lambdas use that module to
 ;; resolve toplevel variables.  This parameter tracks whether or not we
@@ -557,3 +554,18 @@ indicates that the replacement variable is in a box."
   (values (cps-convert/thunk (optimize-tree-il exp env opts))
           env
           env))
+
+;;; Local Variables:
+;;; eval: (put 'convert-arg 'scheme-indent-function 1)
+;;; eval: (put 'convert-args 'scheme-indent-function 1)
+;;; eval: (put 'let-gensyms 'scheme-indent-function 1)
+;;; eval: (put 'build-cps-term 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-call 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-cont 'scheme-indent-function 0)
+;;; eval: (put '$letk 'scheme-indent-function 1)
+;;; eval: (put '$letk* 'scheme-indent-function 1)
+;;; eval: (put '$letconst 'scheme-indent-function 1)
+;;; eval: (put '$continue 'scheme-indent-function 1)
+;;; eval: (put '$kargs 'scheme-indent-function 2)
+;;; eval: (put '$kentry 'scheme-indent-function 1)
+;;; End:

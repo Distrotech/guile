@@ -263,3 +263,19 @@ and allocate and initialize flat closures."
          (error "Expected no free vars in toplevel thunk" exp entries free))
        (build-cps-call
          ($fun meta self '() ,(map convert-to-indices entries)))))))
+
+;;; Local Variables:
+;;; eval: (put 'let-gensyms 'scheme-indent-function 1)
+;;; eval: (put 'build-cps-term 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-call 'scheme-indent-function 0)
+;;; eval: (put 'build-cps-cont 'scheme-indent-function 0)
+;;; eval: (put 'rewrite-cps-term 'scheme-indent-function 1)
+;;; eval: (put 'rewrite-cps-cont 'scheme-indent-function 1)
+;;; eval: (put 'rewrite-cps-call 'scheme-indent-function 1)
+;;; eval: (put '$letk 'scheme-indent-function 1)
+;;; eval: (put '$letk* 'scheme-indent-function 1)
+;;; eval: (put '$letconst 'scheme-indent-function 1)
+;;; eval: (put '$continue 'scheme-indent-function 1)
+;;; eval: (put '$kargs 'scheme-indent-function 2)
+;;; eval: (put '$kentry 'scheme-indent-function 1)
+;;; End:
