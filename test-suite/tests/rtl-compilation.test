@@ -56,6 +56,37 @@
       (let ((result (run-rtl '(set! v 1) #:env mod)))
         (list result (module-ref mod 'v)))))
 
+  (pass-if-equal "top-level apply [single value]"
+      8
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'args '(2 3))
+      (run-rtl '(apply expt args) #:env mod)))
+
+  (pass-if-equal "top-level apply [zero values]"
+      '()
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'proc (lambda () (values)))
+      (module-define! mod 'args '())
+      (call-with-values
+          (lambda () (run-rtl '(apply proc args) #:env mod))
+        list)))
+
+  (pass-if-equal "top-level apply [two values]"
+      '(1 2)
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'proc (lambda (n d) (floor/ n d)))
+      (module-define! mod 'args '(5 3))
+      (call-with-values
+          (lambda () (run-rtl '(apply proc args) #:env mod))
+        list)))
+
+  (pass-if-equal "call-with-values"
+      '(1 2 3)
+    ((run-rtl '(lambda (n d)
+                 (call-with-values (lambda () (floor/ n d))
+                   (lambda (q r) (list q r (+ q r))))))
+     5 3))
+
   (pass-if-equal cons
       (run-rtl 'cons))
 
