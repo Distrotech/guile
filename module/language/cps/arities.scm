@@ -147,11 +147,3 @@
   (rewrite-cps-call fun
     (($ $fun meta self free entries)
      ($fun meta self free ,(map fix-entry-arities entries)))))
-
-;;; Local Variables:
-;;; eval: (put 'let-gensyms 'scheme-indent-function 1)
-;;; eval: (put 'build-cps-term 'scheme-indent-function 0)
-;;; eval: (put '$letk 'scheme-indent-function 1)
-;;; eval: (put '$continue 'scheme-indent-function 1)
-;;; eval: (put '$kargs 'scheme-indent-function 2)
-;;; End:
