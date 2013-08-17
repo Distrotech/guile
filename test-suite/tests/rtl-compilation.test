@@ -21,12 +21,15 @@
   #:use-module (system base compile)
   #:use-module (system vm assembler))
 
-(define* (compile-via-rtl exp #:key peval? cse?)
+(define* (compile-via-rtl exp #:key peval? cse? (env (make-fresh-user-module)))
   (assemble-program
-   (compile exp #:to 'rtl #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
+   (compile exp #:env env #:to 'rtl
+            #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
 
 (define (run-rtl exp)
   ((compile-via-rtl exp)))
+
+(define test-var #f)
 
 (with-test-prefix "tail context"
   (pass-if-equal 1
@@ -37,6 +40,14 @@
 
   (pass-if-equal (if #f #f)
       (run-rtl '(if #f #f)))
+
+  (pass-if-equal (list 1 (if #f #f))
+      (begin
+        (set! test-var #f)
+        (let ((result ((compile-via-rtl
+                        '(set! test-var 1)
+                        #:env (current-module)))))
+          (list test-var result))))
 
   (pass-if-equal cons
       (run-rtl 'cons))

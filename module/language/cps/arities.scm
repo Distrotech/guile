@@ -55,7 +55,7 @@
                                         ($continue k
                                           ($primcall 'return (unspec)))))
                           (kvoid #f ($kargs () ()
-                                      ($continue kunspec ($values ())))))
+                                      ($continue kunspec ($void)))))
                    ($continue kvoid ,exp)))))
            (($ $ktrunc ($ $arity () () #f () #f) kseq)
             ($continue kseq ,exp))
