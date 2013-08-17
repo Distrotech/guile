@@ -208,7 +208,7 @@ are comparable with eqv?.  A tmp slot may be used."
   (define (compute-call-proc-slot live-set nlocals)
     (+ 3 (find-first-trailing-zero (car live-set) nlocals)))
 
-  (let ((dfg (compute-dfg self exp))
+  (let ((dfg (compute-local-dfg self exp))
         (nlocals 0)
         (nargs (match exp
                  (($ $cont _ _ 
@@ -312,7 +312,7 @@ are comparable with eqv?.  A tmp slot may be used."
          (use sym live-set))
 
         (($ $continue k ($ $call proc args))
-         (match (lookup-cont k (dfg-local-cont-table dfg))
+         (match (lookup-cont k (dfg-cont-table dfg))
            (($ $ktail)
             (let ((tail-nlocals (1+ (length args))))
               (set! nlocals (max nlocals tail-nlocals))
@@ -347,7 +347,7 @@ are comparable with eqv?.  A tmp slot may be used."
         (($ $continue k ($ $values args))
          (let ((live-set* (fold use live-set args)))
            (define (compute-dst-slots)
-             (match (lookup-cont k (dfg-local-cont-table dfg))
+             (match (lookup-cont k (dfg-cont-table dfg))
                (($ $ktail)
                 (let ((tail-nlocals (1+ (length args))))
                   (set! nlocals (max nlocals tail-nlocals))

@@ -27,6 +27,7 @@
   #:use-module (language cps)
   #:use-module (language cps arities)
   #:use-module (language cps closure-conversion)
+  #:use-module (language cps contification)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)
   #:use-module (language cps reify-primitives)
@@ -36,36 +37,37 @@
 ;; TODO: Source info, local var names.  Needs work in the linker and the
 ;; debugger.
 
+(define (kw-arg-ref args kw default)
+  (match (memq kw args)
+    ((_ val . _) val)
+    (_ default)))
+
 (define (optimize exp opts)
+  (define (run-pass exp pass kw default)
+    (if (kw-arg-ref opts kw default)
+        (pass exp)
+        exp))
+
   ;; Calls to source-to-source optimization passes go here.
+  (let* ((exp (run-pass exp contify #:contify? #t)))
+    ;; Passes that are needed:
+    ;; 
+    ;;  * Abort contification: turning abort primcalls into continuation
+    ;;    calls, and eliding prompts if possible.
+    ;;
+    ;;  * Common subexpression elimination.  Desperately needed.  Requires
+    ;;    effects analysis.
+    ;;
+    ;;  * Loop peeling.  Unrolls the first round through a loop if the
+    ;;    loop has effects that CSE can work on.  Requires effects
+    ;;    analysis.  When run before CSE, loop peeling is the equivalent
+    ;;    of loop-invariant code motion (LICM).
+    ;;
+    ;;  * Generic simplification pass, to be run as needed.  Used to
+    ;;    "clean up", both on the original raw input and after specific
+    ;;    optimization passes.
 
-  ;; Passes that are needed:
-  ;; 
-  ;;  * Contification: turn a $fun into a $cont if all calls to the $fun
-  ;;    return to the same continuation.  This is a more rigorous
-  ;;    variant of our old "fixpoint labels allocation" optimization.
-  ;;
-  ;;  * Test inlining, to inline some tests, turning:
-  ;;
-  ;;      (let ((tmp (eq? x y))) (if tmp (kt) (kf))
-  ;;      => (if (eq? x y) (kt) (kf))
-  ;;
-  ;;  * Abort contification: turning abort primcalls into continuation
-  ;;    calls, and eliding prompts if possible.
-  ;;
-  ;;  * Common subexpression elimination.  Desperately needed.  Requires
-  ;;    effects analysis.
-  ;;
-  ;;  * Loop peeling.  Unrolls the first round through a loop if the
-  ;;    loop has effects that CSE can work on.  Requires effects
-  ;;    analysis.  When run before CSE, loop peeling is the equivalent
-  ;;    of loop-invariant code motion (LICM).
-  ;;
-  ;;  * Generic simplification pass, to be run as needed.  Used to
-  ;;    "clean up", both on the original raw input and after specific
-  ;;    optimization passes.
-
-  exp)
+    exp))
 
 (define (visit-funs proc exp)
   (match exp
@@ -184,7 +186,7 @@
              (let ((inst (prim-rtl-instruction name)))
                (emit `(,inst ,dst ,@(map slot args)))))
             (($ $values (arg))
-             (or (maybe-load-constant (slot dst) arg)
+             (or (maybe-load-constant dst arg)
                  (maybe-mov dst (slot arg))))
             (($ $prompt escape? tag handler)
              (emit `(prompt ,escape? ,tag ,handler))))

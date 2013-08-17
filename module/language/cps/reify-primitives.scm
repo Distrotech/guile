@@ -26,8 +26,6 @@
 
 (define-module (language cps reify-primitives)
   #:use-module (ice-9 match)
-  #:use-module (ice-9 vlist)
-  #:use-module ((srfi srfi-1) #:select (fold))
   #:use-module (language cps)
   #:use-module (language cps dfg)
   #:use-module (language cps primitives)

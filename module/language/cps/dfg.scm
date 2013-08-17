@@ -31,9 +31,17 @@
             build-local-cont-table
             lookup-cont
 
+            compute-local-dfg
             compute-dfg
-            dfg-local-cont-table
+            dfg-cont-table
+            lookup-def
+            lookup-uses
+            find-call
+            call-expression
+            find-expression
+            find-defining-expression
             find-constant-value
+            variable-used-in?
             constant-needs-allocation?
             dead-after-def?
             dead-after-use?
@@ -66,8 +74,8 @@
 (define-record-type $dfg
   (make-dfg conts use-maps uplinks)
   dfg?
-  ;; hash table of sym -> $cont
-  (conts dfg-local-cont-table)
+  ;; hash table of sym -> $kargs, $kif, etc
+  (conts dfg-cont-table)
   ;; hash table of sym -> $use-map
   (use-maps dfg-use-maps)
   ;; hash table of sym -> $parent-link
@@ -86,90 +94,118 @@
   (parent uplink-parent)
   (level uplink-level))
 
-(define (compute-dfg self exp)
+(define (visit-entry self entry conts use-maps uplinks global?)
+  (define (add-def! sym def-k)
+    (unless def-k
+      (error "Term outside labelled continuation?"))
+    (hashq-set! use-maps sym (make-use-map sym def-k '())))
+
+  (define (add-use! sym use-k)
+    (match (hashq-ref use-maps sym)
+      (#f (error "Symbol out of scope?" sym))
+      ((and use-map ($ $use-map sym def uses))
+       (set-use-map-uses! use-map (cons use-k uses)))))
+
+  (define (link-parent! k parent)
+    (match (hashq-ref uplinks parent)
+      (($ $uplink _ level)
+       (hashq-set! uplinks k (make-uplink parent (1+ level))))))
+
+  (define (visit exp exp-k)
+    (define (def! sym)
+      (add-def! sym exp-k))
+    (define (use! sym)
+      (add-use! sym exp-k))
+    (define (recur exp)
+      (visit exp exp-k))
+    (match exp
+      (($ $letk conts body)
+       (for-each recur conts)
+       (recur body))
+
+      (($ $cont k src cont)
+       (def! k)
+       (hashq-set! conts k cont)
+       (link-parent! k exp-k)
+       (visit cont k))
+
+      (($ $kargs names syms body)
+       (for-each def! syms)
+       (recur body))
+
+      (($ $kif kt kf)
+       (use! kt)
+       (use! kf))
+
+      (($ $ktrunc arity k)
+       (use! k))
+
+      (($ $ktail)
+       #f)
+
+      (($ $fun meta self free entries)
+       (unless global?
+         (error "pass a $cont when building a local DFG"))
+       (for-each (cut visit-entry self <> conts use-maps uplinks global?)
+                 entries))
+
+      (($ $letrec names syms funs body)
+       (unless global?
+         (error "$letrec should not be present when building a local DFG"))
+       (for-each def! syms)
+       (for-each (cut visit <> #f) funs)
+       (visit body exp-k))
+
+      (($ $continue k exp)
+       (use! k)
+       (match exp
+         (($ $var sym)
+          (use! sym))
+
+         (($ $call proc args)
+          (use! proc)
+          (for-each use! args))
+
+         (($ $primcall name args)
+          (for-each use! args))
+
+         (($ $values args)
+          (for-each use! args))
+
+         (($ $prompt escape? tag handler)
+          (use! tag)
+          (use! handler))
+
+         (($ $fun)
+          (when global? (visit exp #f)))
+
+         (_ #f)))))
+
+  (match entry
+    ;; Treat the entry continuation as its own parent.
+    (($ $cont k src ($ $kentry arity tail body))
+     (add-def! k k)
+     ;; FIXME: Define self in one place, not in each entry
+     (add-def! self k)
+     (hashq-set! uplinks k (make-uplink #f 0))
+     (visit tail k)
+     (visit body k))))
+
+(define* (compute-local-dfg self exp)
   (let* ((conts (make-hash-table))
          (use-maps (make-hash-table))
          (uplinks (make-hash-table)))
-    (define (add-def! sym def-k)
-      (unless def-k
-        (error "Term outside labelled continuation?"))
-      (hashq-set! use-maps sym (make-use-map sym def-k '())))
+    (visit-entry self exp conts use-maps uplinks #f)
+    (make-dfg conts use-maps uplinks)))
 
-    (define (add-use! sym use-k)
-      (match (hashq-ref use-maps sym)
-        (#f (error "Symbol out of scope?" sym))
-        ((and use-map ($ $use-map sym def uses))
-         (set-use-map-uses! use-map (cons use-k uses)))))
-
-    (define (link-parent! k parent)
-      (match (hashq-ref uplinks parent)
-        (($ $uplink _ level)
-         (hashq-set! uplinks k (make-uplink parent (1+ level))))))
-
-    (let visit ((exp exp) (exp-k #f))
-      (define (def! sym)
-        (add-def! sym exp-k))
-      (define (use! sym)
-        (add-use! sym exp-k))
-      (define (recur exp)
-        (visit exp exp-k))
-      (match exp
-        (($ $letk conts body)
-         (for-each recur conts)
-         (recur body))
-
-        ;; Treat the entry continuation as its own parent.
-        (($ $cont k src ($ $kentry arity tail body))
-         (when exp-k
-           (error "$kentry not at top level?"))
-         (add-def! k k)
-         (add-def! self k)
-         (hashq-set! uplinks k (make-uplink #f 0))
-         (visit tail k)
-         (visit body k))
-
-        (($ $cont k src cont)
-         (def! k)
-         (hashq-set! conts k cont)
-         (link-parent! k exp-k)
-         (visit cont k))
-
-        (($ $kargs names syms body)
-         (for-each def! syms)
-         (recur body))
-
-        (($ $kif kt kf)
-         (use! kt)
-         (use! kf))
-
-        (($ $ktrunc arity k)
-         (use! k))
-
-        (($ $ktail)
-         #f)
-
-        (($ $continue k exp)
-         (use! k)
-         (match exp
-          (($ $var sym)
-           (use! sym))
-
-          (($ $call proc args)
-           (use! proc)
-           (for-each use! args))
-
-          (($ $primcall name args)
-           (for-each use! args))
-
-          (($ $values args)
-           (for-each use! args))
-
-          (($ $prompt escape? tag handler)
-           (use! tag)
-           (use! handler))
-
-          (_ #f)))))
-
+(define* (compute-dfg fun)
+  (let* ((conts (make-hash-table))
+         (use-maps (make-hash-table))
+         (uplinks (make-hash-table)))
+    (match fun
+      (($ $fun meta self free entries)
+       (for-each (cut visit-entry self <> conts use-maps uplinks #t)
+                 entries)))
     (make-dfg conts use-maps uplinks)))
 
 (define (lookup-uplink k uplinks)
@@ -184,24 +220,47 @@
       (error "Unknown lexical!" sym (hash-fold acons '() use-maps)))
     res))
 
-(define (find-defining-term sym dfg)
+(define (lookup-def sym dfg)
   (match dfg
     (($ $dfg conts use-maps uplinks)
      (match (lookup-use-map sym use-maps)
        (($ $use-map sym def uses)
-        (match (lookup-use-map def use-maps)
-          (($ $use-map _ _ (def-exp-k))
-           (lookup-cont def-exp-k conts))
-          (else #f)))))))
+        def)))))
+
+(define (lookup-uses sym dfg)
+  (match dfg
+    (($ $dfg conts use-maps uplinks)
+     (match (lookup-use-map sym use-maps)
+       (($ $use-map sym def uses)
+        uses)))))
+
+(define (find-defining-term sym dfg)
+  (match (lookup-uses (lookup-def sym dfg) dfg)
+    ((def-exp-k)
+     (lookup-cont def-exp-k (dfg-cont-table dfg)))
+    (else #f)))
+
+(define (find-call term)
+  (match term
+    (($ $kargs names syms body) (find-call body))
+    (($ $letk conts body) (find-call body))
+    (($ $letrec names syms funs body) (find-call body))
+    (($ $continue) term)))
+
+(define (call-expression call)
+  (match call
+    (($ $continue k exp) exp)))
+
+(define (find-expression term)
+  (call-expression (find-call term)))
+
+(define (find-defining-expression sym dfg)
+  (and=> (find-defining-term sym dfg)
+         find-expression))
 
 (define (find-constant-value sym dfg)
-  (define (find-exp term)
-    (match term
-      (($ $kargs names syms body) (find-exp body))
-      (($ $letk conts body) (find-exp body))
-      (else term)))
-  (match (find-exp (find-defining-term sym dfg))
-    (($ $continue k ($ $const val))
+  (match (find-defining-expression sym dfg)
+    (($ $const val)
      (values #t val))
     (($ $continue k ($ $void))
      (values #t *unspecified*))
@@ -220,23 +279,42 @@
        (($ $use-map _ def uses)
         (or-map
          (lambda (use)
-           (match (find-exp (lookup-cont use conts))
-             (($ $continue _ ($ $call)) #f)
-             (($ $continue _ ($ $values)) #f)
-             (($ $continue _ ($ $primcall 'free-ref (closure slot)))
+           (match (find-expression (lookup-cont use conts))
+             (($ $call) #f)
+             (($ $values) #f)
+             (($ $primcall 'free-ref (closure slot))
               (not (eq? sym slot)))
-             (($ $continue _ ($ $primcall 'free-set! (closure slot value)))
+             (($ $primcall 'free-set! (closure slot value))
               (not (eq? sym slot)))
-             (($ $continue _ ($ $primcall 'cache-current-module! (mod . _)))
+             (($ $primcall 'cache-current-module! (mod . _))
               (eq? sym mod))
-             (($ $continue _ ($ $primcall 'cached-toplevel-box _))
+             (($ $primcall 'cached-toplevel-box _)
               #f)
-             (($ $continue _ ($ $primcall 'cached-module-box _))
+             (($ $primcall 'cached-module-box _)
               #f)
-             (($ $continue _ ($ $primcall 'resolve (name bound?)))
+             (($ $primcall 'resolve (name bound?))
               (eq? sym name))
-             (else #t)))
+             (_ #t)))
          uses))))))
+
+(define (continuation-scope-contains? parent-k k uplinks)
+  (match (lookup-uplink parent-k uplinks)
+    (($ $uplink _ parent-level)
+     (let lp ((k k))
+       (or (eq? parent-k k)
+           (match (lookup-uplink k uplinks)
+             (($ $uplink parent level)
+              (and (< parent-level level)
+                   (lp parent)))))))))
+
+(define (variable-used-in? var parent-k dfg)
+  (match dfg
+    (($ $dfg conts use-maps uplinks)
+     (or-map (lambda (use)
+               (continuation-scope-contains? parent-k use uplinks))
+             (match (lookup-use-map var use-maps)
+               (($ $use-map sym def uses)
+                uses))))))
 
 ;; Does k1 dominate k2?
 ;;
@@ -247,14 +325,7 @@
 ;; http://mlton.org/pipermail/mlton/2003-January/023054.html for a
 ;; deeper discussion.
 (define (conservatively-dominates? k1 k2 uplinks)
-  (match (lookup-uplink k1 uplinks)
-    (($ $uplink _ k1-level)
-     (let lp ((k2 k2))
-       (or (eq? k1 k2)
-           (match (lookup-uplink k2 uplinks)
-             (($ $uplink k2-parent k2-level)
-              (and (< k1-level k2-level)
-                   (lp k2-parent)))))))))
+  (continuation-scope-contains? k1 k2 uplinks))
 
 (define (dead-after-def? sym dfg)
   (match dfg
