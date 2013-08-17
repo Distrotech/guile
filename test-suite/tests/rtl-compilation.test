@@ -26,10 +26,12 @@
    (compile exp #:env env #:to 'rtl
             #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
 
-(define (run-rtl exp)
-  ((compile-via-rtl exp)))
-
-(define test-var #f)
+(define* (run-rtl exp #:key (env (make-fresh-user-module)))
+  (let ((thunk (compile-via-rtl exp #:env env)))
+    (save-module-excursion
+     (lambda ()
+       (set-current-module env)
+       (thunk)))))
 
 (with-test-prefix "tail context"
   (pass-if-equal 1
@@ -41,13 +43,18 @@
   (pass-if-equal (if #f #f)
       (run-rtl '(if #f #f)))
 
-  (pass-if-equal (list 1 (if #f #f))
-      (begin
-        (set! test-var #f)
-        (let ((result ((compile-via-rtl
-                        '(set! test-var 1)
-                        #:env (current-module)))))
-          (list test-var result))))
+  (pass-if-equal "top-level define"
+      (list (if #f #f) 1)
+    (let ((mod (make-fresh-user-module)))
+      (let ((result (run-rtl '(define v 1) #:env mod)))
+        (list result (module-ref mod 'v)))))
+
+  (pass-if-equal "top-level set!"
+      (list (if #f #f) 1)
+    (let ((mod (make-fresh-user-module)))
+      (module-define! mod 'v #f)
+      (let ((result (run-rtl '(set! v 1) #:env mod)))
+        (list result (module-ref mod 'v)))))
 
   (pass-if-equal cons
       (run-rtl 'cons))
