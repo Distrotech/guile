@@ -78,20 +78,17 @@ values: the term and a list of additional free variables in the term."
 label of the outer procedure, where the initialization will be
 performed, and @var{outer-bound} is the list of bound variables there."
   (fold (lambda (free idx body)
-          (let-gensyms (k k* idxsym)
+          (let-gensyms (k idxsym)
             (build-cps-term
               ($letk ((k src ($kargs () () ,body)))
                 ,(convert-free-var
                   free outer-self outer-bound
                   (lambda (free)
-                    (values
-                     (build-cps-term
-                       ($letk ((k* src ($kargs ('idx) (idxsym)
-                                         ($continue k
-                                           ($primcall 'free-set!
-                                                      (v idxsym free))))))
-                         ($continue k* ($const idx))))
-                     '())))))))
+                    (values (build-cps-term
+                              ($letconst (('idx idxsym idx))
+                                ($continue k
+                                  ($primcall 'free-set! (v idxsym free)))))
+                            '())))))))
         body
         free
         (iota (length free))))
