@@ -137,6 +137,10 @@
          ($fun meta self free ,(map visit-cont entries)))))
     (define (visit-cont cont)
       (rewrite-cps-cont cont
+        (($ $cont sym src
+            ($ $kargs (name) (and sym (? (cut assq <> call-substs)))
+               body))
+         (sym src ($kargs () () ,(visit-term body sym))))
         (($ $cont sym src ($ $kargs names syms body))
          (sym src ($kargs names syms ,(visit-term body sym))))
         (($ $cont sym src ($ $kentry arity tail body))
@@ -207,17 +211,14 @@
              (($ $fun meta self free
                  (($ $cont _ _ ($ $kentry arity
                                   ($ $cont tail-k _ ($ $ktail))
-                                  (and body ($ $cont body-k))))
+                                  (and fun-body ($ $cont body-k))))
                   ...))
               (if (and=> (bound-symbol k*)
                          (lambda (sym)
                            (contify-fun term-k sym self arity tail-k body-k)))
-                  (visit-term (build-cps-term
-                                ($letk ,body
-                                  ,(match (lookup-cont k cont-table)
-                                     (($ $kargs (_) (_) body)
-                                      body))))
-                              term-k)
+                  (build-cps-term
+                    ($letk ,(map visit-cont fun-body)
+                      ($continue k* ($values ()))))
                   (default)))
              (($ $call proc args)
               (or (contify-call proc args)
