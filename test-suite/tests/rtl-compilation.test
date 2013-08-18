@@ -139,6 +139,24 @@
                          (cons q r))))))
           (rat 10 3)))))
 
+(with-test-prefix "contification"
+  (pass-if ((run-rtl '(lambda (x)
+                        (define (even? x)
+                          (if (null? x) #t (odd? (cdr x))))
+                        (define (odd? x)
+                          (if (null? x) #f (even? (cdr x))))
+                        (even? x)))
+            '(1 2 3 4)))
+
+  (pass-if (not ((run-rtl '(lambda (x)
+                             (define (even? x)
+                               (if (null? x) #t (odd? (cdr x))))
+                             (define (odd? x)
+                               (if (null? x) #f (even? (cdr x))))
+                             (even? x)))
+                 '(1 2 3)))))
+
+
 (with-test-prefix "mixed contexts"
   (pass-if-equal "sequences" '(3 4 5)
     (let* ((pair (cons 1 2))

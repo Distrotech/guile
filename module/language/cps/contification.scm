@@ -30,7 +30,7 @@
 
 (define-module (language cps contification)
   #:use-module (ice-9 match)
-  #:use-module ((srfi srfi-1) #:select (partition))
+  #:use-module ((srfi srfi-1) #:select (concatenate))
   #:use-module (srfi srfi-26)
   #:use-module (language cps)
   #:use-module (language cps dfg)
@@ -75,14 +75,19 @@
            (_ #f)))
         (_ #f)))
 
-    (define (contify-fun sym self arities tails bodies)
+    (define (contify-fun term-k sym self arities tails bodies)
+      (contify-funs term-k
+                    (list sym) (list self) (list arities) (list tails)
+                    (list bodies)))
+
+    (define (contify-funs term-k syms selfs arities tails bodies)
       ;; Are the given args compatible with any of the arities?
-      (define (applicable? args)
+      (define (applicable? proc args)
         (or-map (match-lambda
                  (($ $arity req () #f () #f)
                   (= (length args) (length req)))
                  (_ #f))
-                arities))
+                (assq-ref (map cons syms arities) proc)))
 
       ;; If the use of PROC in continuation USE is a call to PROC that
       ;; is compatible with one of the procedure's arities, return the
@@ -90,33 +95,39 @@
       (define (call-target use proc)
         (match (find-call (lookup-cont use cont-table))
           (($ $continue k ($ $call proc* args))
-           (and (eq? proc proc*) (not (memq proc args)) (applicable? args)
+           (and (eq? proc proc*) (not (memq proc args)) (applicable? proc args)
                 k))
           (_ #f)))
 
       (and
-       (null? (lookup-uses self dfg))
-       (match (lookup-uses sym dfg)
-         ((use . uses)
-          ;; Is the first use a contifiable call to SYM?
-          (cond
-           ((call-target use sym)
-            => (lambda (k)
-                 ;; Are all the other uses contifiable calls to SYM
-                 ;; with the same target continuation?
-                 (cond
-                  ((and-map (lambda (use)
-                              (eq? (call-target use sym) k))
-                            uses)
-                   ;; If so, contify: mark SYM for replacement in
-                   ;; calls, and mark the tail continuations for
-                   ;; replacement by K.
-                   (subst-call! sym arities bodies)
-                   (for-each (cut subst-return! <> k) tails)
-                   k)
-                  (else #f))))
-           (else #f)))
-         (_ #f))))
+       (and-map null? (map (cut lookup-uses <> dfg) selfs))
+       (and=> (let visit-syms ((syms syms) (k #f))
+                (match syms
+                  (() k)
+                  ((sym . syms)
+                   (let visit-uses ((uses (lookup-uses sym dfg)) (k k))
+                     (match uses
+                       (() (visit-syms syms k))
+                       ((use . uses)
+                        (and=> (call-target use sym)
+                               (lambda (k*)
+                                 (cond
+                                  ((or-map (cut memq k* <>) tails)
+                                   (visit-uses uses k))
+                                  ((not k) (visit-uses uses k*))
+                                  ((eq? k k*) (visit-uses uses k))
+                                  (else #f))))))))))
+              (lambda (k)
+                ;; We have a common continuation, so we contify: mark
+                ;; all SYMs for replacement in calls, and mark the tail
+                ;; continuations for replacement by K.
+                (for-each (lambda (sym arities tails bodies)
+                            (for-each (cut lift-definition! <> term-k dfg)
+                                      bodies)
+                            (subst-call! sym arities bodies)
+                            (for-each (cut subst-return! <> k) tails))
+                          syms arities tails bodies)
+                k))))
 
     ;; This is a first cut at a contification algorithm.  It contifies
     ;; non-recursive functions that only have positional arguments.
@@ -127,76 +138,86 @@
     (define (visit-cont cont)
       (rewrite-cps-cont cont
         (($ $cont sym src ($ $kargs names syms body))
-         (sym src ($kargs names syms ,(visit-term body))))
+         (sym src ($kargs names syms ,(visit-term body sym))))
         (($ $cont sym src ($ $kentry arity tail body))
          (sym src ($kentry ,arity ,tail ,(visit-cont body))))
         (($ $cont)
          ,cont)))
-    (define (visit-term term)
+    (define (visit-term term term-k)
       (match term
         (($ $letk conts body)
          ;; Visit the body first, so we visit depth-first.
-         (let ((body (visit-term body)))
+         (let ((body (visit-term body term-k)))
            (build-cps-term
              ($letk ,(map visit-cont conts) ,body))))
         (($ $letrec names syms funs body)
-         (let ((nsf (map list names syms funs)))
-           (define recursive?
-             (match-lambda
-              ((n s ($ $fun meta self free (($ $cont entry) ...)))
-               (and-map (lambda (k)
-                          (or-map (cut variable-used-in? <> k dfg) syms))
-                        entry))))
-           (call-with-values (lambda () (partition recursive? nsf))
-             (lambda (rec nonrec)
-               (let lp ((nonrec nonrec))
-                 (match nonrec
-                   (()
-                    (if (null? rec)
-                        (visit-term body)
-                        ;; FIXME: Here contify mutually recursive sets
-                        ;; of functions.
-                        (rewrite-cps-term rec
-                          (((name sym fun) ...)
-                           ($letrec name sym (map visit-fun fun)
-                                    ,(visit-term body))))))
-                   (((name sym fun) . nonrec)
-                    (match fun
-                      (($ $fun meta self free
-                          (($ $cont _ _ ($ $kentry arity
-                                           ($ $cont tail-k _ ($ $ktail))
-                                           (and body ($ $cont body-k))))
-                           ...))
-                       (if (contify-fun sym self arity tail-k body-k)
-                           (visit-term
-                            (build-cps-term
-                              ($letk ,body
-                                ,(lp nonrec))))
-                           (let-gensyms (k)
-                             (build-cps-term
-                               ($letk ((k #f ($kargs (name) (sym)
-                                               ,(lp nonrec))))
-                                 ($continue k ,(visit-fun fun)))))))))))))))
+         (define (split-components nsf)
+           ;; FIXME: Compute strongly-connected components.  Currently
+           ;; we just put non-recursive functions in their own
+           ;; components, and lump everything else in the remaining
+           ;; component.
+           (define (recursive? k)
+             (or-map (cut variable-used-in? <> k dfg) syms))
+           (let lp ((nsf nsf) (rec '()))
+             (match nsf
+               (()
+                (if (null? rec)
+                    '()
+                    (list rec)))
+               (((and elt (n s ($ $fun meta self free (($ $cont entry) ...))))
+                 . nsf)
+                (if (or-map recursive? entry)
+                    (lp nsf (cons elt rec))
+                    (cons (list elt) (lp nsf rec)))))))
+         (define (visit-components components)
+           (match components
+             (() (visit-term body term-k))
+             ((((name sym fun) ...) . components)
+              (match fun
+                ((($ $fun meta self free
+                     (($ $cont _ _ ($ $kentry arity
+                                      ($ $cont tail-k _ ($ $ktail))
+                                      (and body ($ $cont body-k))))
+                      ...)) ...)
+                 (if (contify-funs term-k sym self arity tail-k body-k)
+                     (let ((body* (visit-components components)))
+                       (build-cps-term
+                         ($letk ,(map visit-cont (concatenate body))
+                           ,body*)))
+                     (let-gensyms (k)
+                       (build-cps-term
+                         ($letrec names syms (map visit-fun fun)
+                                  ,(visit-components components))))))))))
+         (visit-components (split-components (map list names syms funs))))
         (($ $continue k exp)
-         (let ((k (lookup-return-cont k)))
+         (let ((k* (lookup-return-cont k)))
            (define (default)
              (rewrite-cps-term exp
-               (($ $fun) ($continue k ,(visit-fun exp)))
-               (_ ($continue k ,exp))))
+               (($ $fun) ($continue k* ,(visit-fun exp)))
+               (($ $primcall 'return (val))
+                ,(if (eq? k k*)
+                     (build-cps-term ($continue k* ,exp))
+                     (build-cps-term ($continue k* ($values (val))))))
+               (($ $primcall 'return-values vals)
+                ,(if (eq? k k*)
+                     (build-cps-term ($continue k* ,exp))
+                     (build-cps-term ($continue k* ($values vals)))))
+               (_ ($continue k* ,exp))))
            (match exp
              (($ $fun meta self free
                  (($ $cont _ _ ($ $kentry arity
                                   ($ $cont tail-k _ ($ $ktail))
                                   (and body ($ $cont body-k))))
                   ...))
-              (if (and=> (bound-symbol k)
+              (if (and=> (bound-symbol k*)
                          (lambda (sym)
-                           (contify-fun sym self arity tail-k body-k)))
+                           (contify-fun term-k sym self arity tail-k body-k)))
                   (visit-term (build-cps-term
                                 ($letk ,body
                                   ,(match (lookup-cont k cont-table)
                                      (($ $kargs (_) (_) body)
-                                      body)))))
+                                      body))))
+                              term-k)
                   (default)))
              (($ $call proc args)
               (or (contify-call proc args)

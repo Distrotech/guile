@@ -41,6 +41,7 @@
             find-expression
             find-defining-expression
             find-constant-value
+            lift-definition!
             variable-used-in?
             constant-needs-allocation?
             dead-after-def?
@@ -119,15 +120,15 @@
     (define (recur exp)
       (visit exp exp-k))
     (match exp
-      (($ $letk conts body)
-       (for-each recur conts)
+      (($ $letk (($ $cont k src cont) ...) body)
+       ;; Set up recursive environment before visiting cont bodies.
+       (for-each (lambda (cont k)
+                   (def! k)
+                   (hashq-set! conts k cont)
+                   (link-parent! k exp-k))
+                 cont k)
+       (for-each visit cont k)
        (recur body))
-
-      (($ $cont k src cont)
-       (def! k)
-       (hashq-set! conts k cont)
-       (link-parent! k exp-k)
-       (visit cont k))
 
       (($ $kargs names syms body)
        (for-each def! syms)
@@ -139,9 +140,6 @@
 
       (($ $ktrunc arity k)
        (use! k))
-
-      (($ $ktail)
-       #f)
 
       (($ $fun meta self free entries)
        (unless global?
@@ -183,13 +181,22 @@
 
   (match entry
     ;; Treat the entry continuation as its own parent.
-    (($ $cont k src ($ $kentry arity tail body))
+    (($ $cont k src (and entry
+                         ($ $kentry arity
+                            ($ $cont ktail _ tail)
+                            ($ $cont kbody _ body))))
      (add-def! k k)
      ;; FIXME: Define self in one place, not in each entry
      (add-def! self k)
      (hashq-set! uplinks k (make-uplink #f 0))
-     (visit tail k)
-     (visit body k))))
+     (hashq-set! conts k entry)
+     (add-def! ktail k)
+     (hashq-set! conts ktail tail)
+     (link-parent! ktail k)
+     (add-def! kbody k)
+     (hashq-set! conts kbody body)
+     (link-parent! kbody k)
+     (visit body kbody))))
 
 (define* (compute-local-dfg self exp)
   (let* ((conts (make-hash-table))
@@ -308,6 +315,23 @@
              (($ $uplink parent level)
               (and (< parent-level level)
                    (lp parent)))))))))
+
+(define (lift-definition! k parent-k dfg)
+  (match dfg
+    (($ $dfg conts use-maps uplinks)
+     (match (lookup-uplink parent-k uplinks)
+       (($ $uplink parent level)
+        (hashq-set! uplinks k
+                    (make-uplink parent-k (1+ level)))
+        ;; Lift definitions of all conts in K.
+        (let lp ((cont (lookup-cont k conts)))
+          (match cont
+            (($ $letk (($ $cont kid) ...) body)
+             (for-each (cut lift-definition! <> k dfg) kid)
+             (lp body))
+            (($ $letrec names syms funs body)
+             (lp body))
+            (_ #t))))))))
 
 (define (variable-used-in? var parent-k dfg)
   (match dfg
