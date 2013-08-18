@@ -190,7 +190,7 @@
                            ,body*)))
                      (let-gensyms (k)
                        (build-cps-term
-                         ($letrec names syms (map visit-fun fun)
+                         ($letrec name sym (map visit-fun fun)
                                   ,(visit-components components))))))))))
          (visit-components (split-components (map list names syms funs))))
         (($ $continue k exp)
