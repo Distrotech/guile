@@ -130,8 +130,14 @@
   )
 
 (with-test-prefix "values context"
-  1
-  )
+  (pass-if-equal '(3 . 1)
+      (run-rtl
+       '(let ((rat (lambda (n d)
+                     (call-with-values
+                         (lambda () (floor/ n d))
+                       (lambda (q r)
+                         (cons q r))))))
+          (rat 10 3)))))
 
 (with-test-prefix "mixed contexts"
   (pass-if-equal "sequences" '(3 4 5)

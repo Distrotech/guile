@@ -255,8 +255,10 @@
   (call-expression (find-call term)))
 
 (define (find-defining-expression sym dfg)
-  (and=> (find-defining-term sym dfg)
-         find-expression))
+  (match (find-defining-term sym dfg)
+    (#f #f)
+    (($ $ktrunc) #f)
+    (term (find-expression term))))
 
 (define (find-constant-value sym dfg)
   (match (find-defining-expression sym dfg)
