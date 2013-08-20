@@ -20,11 +20,12 @@
 
 (define-module (language rtl spec)
   #:use-module (system base language)
+  #:use-module (ice-9 binary-ports)
   #:export (rtl))
 
 (define-language rtl
   #:title	"Register Transfer Language"
   #:compilers   '()
-  #:printer	write
-  #:reader      read
+  #:printer	(lambda (rtl port) (put-bytevector port rtl))
+  #:reader      get-bytevector-all
   #:for-humans? #f)

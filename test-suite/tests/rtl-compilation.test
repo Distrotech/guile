@@ -19,10 +19,10 @@
 (define-module (test-suite rtl-compilation)
   #:use-module (test-suite lib)
   #:use-module (system base compile)
-  #:use-module (system vm assembler))
+  #:use-module (system vm objcode))
 
 (define* (compile-via-rtl exp #:key peval? cse? (env (make-fresh-user-module)))
-  (assemble-program
+  (load-thunk-from-memory
    (compile exp #:env env #:to 'rtl
             #:opts `(#:partial-eval? ,peval? #:cse? ,cse?))))
 
