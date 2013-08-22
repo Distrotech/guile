@@ -337,11 +337,11 @@
   (define (emit-fun-entries self entries)
     (match entries
       ((entry . entries)
-       (let ((alternate (match entries
-                          (($cont _ k) k)
-                          (() #f))))
-         (emit-fun-entry self entry alternate)
-         (when alternate
+       (let ((kalternate (and (not (null? entries))
+                              (gensym "kalternate"))))
+         (emit-fun-entry self entry kalternate)
+         (when kalternate
+           (emit-label asm kalternate)
            (emit-fun-entries self entries))))))
 
   (match f

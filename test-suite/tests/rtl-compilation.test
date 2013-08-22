@@ -160,6 +160,29 @@
                              (even? x)))
                  '(1 2 3)))))
 
+(with-test-prefix "case-lambda"
+  (pass-if-equal "simple"
+      '(0 3 9 28)
+    (let ((proc (run-rtl '(case-lambda
+                            (() 0)
+                            ((x) x)
+                            ((x y) (+ x y))
+                            ((x y z . rest) (apply + x y z rest))))))
+      (map (lambda (args) (apply proc args))
+           '(() (3) (2 7) (2 3 5 7 11)))))
+
+  (pass-if-exception "no match"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda ((x) x) ((x y) (+ x y))))
+     1 2 3))
+
+  (pass-if-exception "zero clauses called with no args"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda))))
+
+  (pass-if-exception "zero clauses called with args"
+      exception:wrong-num-args
+    ((run-rtl '(case-lambda)) 1)))
 
 (with-test-prefix "mixed contexts"
   (pass-if-equal "sequences" '(3 4 5)

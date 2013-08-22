@@ -30,6 +30,7 @@
   #:use-module (language cps primitives)
   #:use-module (language tree-il analyze)
   #:use-module (language tree-il optimize)
+  #:use-module (language tree-il canonicalize)
   #:use-module ((language tree-il)
                 #:select
                 (<void>
@@ -551,7 +552,7 @@ indicates that the replacement variable is in a box."
   (optimize x e opts))
 
 (define (compile-cps exp env opts)
-  (values (cps-convert/thunk (optimize-tree-il exp env opts))
+  (values (cps-convert/thunk (canonicalize (optimize-tree-il exp env opts)))
           env
           env))
 
