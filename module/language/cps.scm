@@ -232,6 +232,11 @@
       (and (pair? props) props)))
   (match exp
     ;; Continuations.
+    (('letconst k (name sym c) body)
+     (build-cps-term
+       ($letk ((k (src exp) ($kargs (name) (sym)
+                              ,(parse-cps body))))
+         ($continue k ($const c)))))
     (('let k (name sym val) body)
      (build-cps-term
       ($letk ((k (src exp) ($kargs (name) (sym)
@@ -286,6 +291,10 @@
 (define (unparse-cps exp)
   (match exp
     ;; Continuations.
+    (($ $letk (($ $cont k src ($ $kargs (name) (sym) body)))
+        ($ $continue k ($ $const c)))
+     `(letconst ,k (,name ,sym ,c)
+                ,(unparse-cps body)))
     (($ $letk (($ $cont k src ($ $kargs (name) (sym) body))) val)
      `(let ,k (,name ,sym ,(unparse-cps val))
            ,(unparse-cps body)))
