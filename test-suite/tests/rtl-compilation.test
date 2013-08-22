@@ -114,6 +114,10 @@
   (pass-if-equal '(1 2)
       (call-with-values (lambda () (run-rtl '(values 1 2))) list))
 
+  (pass-if-equal 28
+      ((run-rtl '(lambda (x y z rest) (apply + x y z rest)))
+       2 3 5 '(7 11)))
+
   ;; prompts
   )
 

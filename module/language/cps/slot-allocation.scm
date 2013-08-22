@@ -128,51 +128,51 @@
 (define (solve-parallel-move src dst tmp)
   "Solve the parallel move problem between src and dst slot lists, which
 are comparable with eqv?.  A tmp slot may be used."
-  ;; A trivial move is a move to a dst that doesn't appear in any src,
-  ;; or an idempotent move.
-  (define (trivial-moves in moves)
-    (let ((orig-moves moves))
-      (let lp ((in in) (in* '()) (moves moves))
-        (match in
-          (() (if (eq? moves orig-moves)
-                  (non-trivial-moves in* moves)
-                  (trivial-moves in* moves)))
-          (((and move (src . dst)) . in)
-           (cond
-            ((eqv? src dst)
-             ;; Idempotent moves.
-             (lp in in* moves))
-            ((not src)
-             ;; The source is a constant and can be loaded directly in
-             ;; place.
-             (lp in in* moves))
-            ((or (assv dst in) (assv dst in*))
-             ;; Non-trivial move.
-             (lp in (cons move in*) moves))
-            (else
-             ;; Trivial move.
-             (lp in in* (cons move moves)))))))))
-  ;; By now, IN contains only strongly connected components.  If it is
-  ;; non-empty, break the cycle using temporary storage for the first
-  ;; item.  Then process all moves to or from that slot, and then solve
-  ;; the remaining parallel move problem.
-  (define (non-trivial-moves in moves)
-    (match in
-      (() (reverse moves))
-      (((and move (dst . cut)) . in)
-       (let lp ((in in) (in* '())
-                (moves (cons* move (cons cut tmp) moves)))
-         (match in
-           (() (trivial-moves in* moves))
-           (((and move (src . dst)) . in)
-            (cond
-             ((eqv? src cut)
-              (lp in in* (acons tmp dst moves)))
-             ((eqv? dst cut)
-              (lp in in* (cons move moves)))
-             (else
-              (lp in (cons move in*) moves)))))))))
-  (trivial-moves (map cons src dst) '()))
+
+  ;; This algorithm is taken from: "Tilting at windmills with Coq:
+  ;; formal verification of a compilation algorithm for parallel moves"
+  ;; by Laurence Rideau, Bernard Paul Serpette, and Xavier Leroy
+  ;; <http://gallium.inria.fr/~xleroy/publi/parallel-move.pdf>
+
+  (define (split-move moves reg)
+    (let loop ((revhead '()) (tail moves))
+      (match tail
+        (((and s+d (s . d)) . rest)
+         (if (eqv? s reg)
+             (cons d (append-reverse revhead rest))
+             (loop (cons s+d revhead) rest)))
+        (_ #f))))
+
+  (define (replace-last-source reg moves)
+    (match moves
+      ((moves ... (s . d))
+       (append moves (list (cons reg d))))))
+
+  (let loop ((to-move (map cons src dst))
+             (being-moved '())
+             (moved '())
+             (last-source #f))
+    ;; 'last-source' should always be equivalent to:
+    ;; (and (pair? being-moved) (car (last being-moved)))
+    (match being-moved
+      (() (match to-move
+            (() (reverse moved))
+            (((and s+d (s . d)) . t1)
+             (if (or (eqv? s d) ; idempotent
+                     (not s))   ; src is a constant and can be loaded directly
+                 (loop t1 '() moved #f)
+                 (loop t1 (list s+d) moved s)))))
+      (((and s+d (s . d)) . b)
+       (match (split-move to-move d)
+         ((r . t1) (loop t1 (acons d r being-moved) moved last-source))
+         (#f (match b
+               (() (loop to-move '() (cons s+d moved) #f))
+               (_ (if (eqv? d last-source)
+                      (loop to-move
+                            (replace-last-source tmp b)
+                            (cons s+d (acons d tmp moved))
+                            tmp)
+                      (loop to-move b (cons s+d moved) last-source))))))))))
 
 ;; allocation := $allocation | $call-allocation | $parallel-move
 ;; sym, term -> (hash-table of sym -> allocation)
