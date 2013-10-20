@@ -628,6 +628,8 @@
               #f)
              (($ $primcall 'resolve (name bound?))
               (eq? sym name))
+             (($ $primcall 'builtin-ref (idx))
+              #f)
              (_ #t)))
          uses))))))
 

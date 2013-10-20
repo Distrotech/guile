@@ -184,6 +184,8 @@
            (emit-resolve asm dst (constant bound?) (slot name)))
           (($ $primcall 'free-ref (closure idx))
            (emit-free-ref asm dst (slot closure) (constant idx)))
+          (($ $primcall 'builtin-ref (name))
+           (emit-builtin-ref asm dst (constant name)))
           (($ $primcall name args)
            ;; FIXME: Inline all the cases.
            (let ((inst (prim-rtl-instruction name)))

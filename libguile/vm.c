@@ -36,6 +36,7 @@
 #include "objcodes.h"
 #include "programs.h"
 #include "vm.h"
+#include "vm-builtins.h"
 
 #include "private-gc.h" /* scm_getenv_int */
 
@@ -602,21 +603,90 @@ vm_error_bad_wide_string_length (size_t len)
 static SCM boot_continuation;
 
 static SCM rtl_boot_continuation;
-static SCM rtl_apply;
-static SCM rtl_values;
+static SCM vm_builtin_apply;
+static SCM vm_builtin_values;
+static SCM vm_builtin_abort_to_prompt;
 
 static const scm_t_uint32 rtl_boot_continuation_code[] = {
   SCM_PACK_RTL_24 (scm_rtl_op_halt, 0)
 };
 
-static const scm_t_uint32 rtl_apply_code[] = {
-  SCM_PACK_RTL_24 (scm_rtl_op_tail_apply, 0) /* proc in r1, args from r2, nargs set */
+static const scm_t_uint32 vm_builtin_apply_code[] = {
+  SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ge, 3),
+  SCM_PACK_RTL_24 (scm_rtl_op_tail_apply, 0), /* proc in r1, args from r2 */
 };
 
-static const scm_t_uint32 rtl_values_code[] = {
+static const scm_t_uint32 vm_builtin_values_code[] = {
   SCM_PACK_RTL_24 (scm_rtl_op_return_values, 0) /* vals from r1 */
 };
 
+static const scm_t_uint32 vm_builtin_abort_to_prompt_code[] = {
+  SCM_PACK_RTL_24 (scm_rtl_op_assert_nargs_ge, 2),
+  SCM_PACK_RTL_24 (scm_rtl_op_abort, 0), /* tag in r1, vals from r2 */
+  /* FIXME: Partial continuation should capture caller regs.  */
+  SCM_PACK_RTL_24 (scm_rtl_op_return_values, 0) /* vals from r1 */
+};
+
+
+static SCM
+scm_vm_builtin_ref (unsigned idx)
+{
+  switch (idx)
+    {
+#define INDEX_TO_NAME(builtin, BUILTIN) \
+      case SCM_VM_BUILTIN_##BUILTIN: return vm_builtin_##builtin;
+      FOR_EACH_VM_BUILTIN(INDEX_TO_NAME)
+#undef INDEX_TO_NAME
+      default: abort();
+    }
+}
+
+SCM_SYMBOL(scm_sym_values, "values");
+SCM_SYMBOL(scm_sym_abort_to_prompt, "abort-to-prompt");
+
+SCM
+scm_vm_builtin_name_to_index (SCM name)
+#define FUNC_NAME "builtin-name->index"
+{
+  SCM_VALIDATE_SYMBOL (1, name);
+
+#define NAME_TO_INDEX(builtin, BUILTIN)                 \
+  if (scm_is_eq (name, scm_sym_##builtin))              \
+    return scm_from_uint (SCM_VM_BUILTIN_##BUILTIN);
+  FOR_EACH_VM_BUILTIN(NAME_TO_INDEX)
+#undef NAME_TO_INDEX
+
+  return SCM_BOOL_F;
+}
+#undef FUNC_NAME
+
+SCM
+scm_vm_builtin_index_to_name (SCM index)
+#define FUNC_NAME "builtin-index->name"
+{
+  unsigned idx;
+
+  SCM_VALIDATE_UINT_COPY (1, index, idx);
+
+  switch (idx)
+    {
+#define INDEX_TO_NAME(builtin, BUILTIN) \
+      case SCM_VM_BUILTIN_##BUILTIN: return scm_sym_##builtin;
+      FOR_EACH_VM_BUILTIN(INDEX_TO_NAME)
+#undef INDEX_TO_NAME
+      default: return SCM_BOOL_F;
+    }
+}
+#undef FUNC_NAME
+
+static void
+scm_init_vm_builtins (void)
+{
+  scm_c_define_gsubr ("builtin-name->index", 1, 0, 0,
+                      scm_vm_builtin_name_to_index);
+  scm_c_define_gsubr ("builtin-index->name", 1, 0, 0,
+                      scm_vm_builtin_index_to_name);
+}
 
 
 /*
@@ -1120,6 +1190,10 @@ scm_bootstrap_vm (void)
   scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
                             "scm_init_vm",
                             (scm_t_extension_init_func)scm_init_vm, NULL);
+  scm_c_register_extension ("libguile-" SCM_EFFECTIVE_VERSION,
+                            "scm_init_vm_builtins",
+                            (scm_t_extension_init_func)scm_init_vm_builtins,
+                            NULL);
 
   initialize_default_stack_size ();
 
@@ -1135,8 +1209,10 @@ scm_bootstrap_vm (void)
   SCM_SET_CELL_WORD_0 (rtl_boot_continuation,
                        (SCM_CELL_WORD_0 (rtl_boot_continuation)
                         | SCM_F_PROGRAM_IS_BOOT));
-  rtl_apply = scm_i_make_rtl_program (rtl_apply_code);
-  rtl_values = scm_i_make_rtl_program (rtl_values_code);
+  vm_builtin_apply = scm_i_make_rtl_program (vm_builtin_apply_code);
+  vm_builtin_values = scm_i_make_rtl_program (vm_builtin_values_code);
+  vm_builtin_abort_to_prompt =
+    scm_i_make_rtl_program (vm_builtin_abort_to_prompt_code);
 
 #ifdef VM_ENABLE_PRECISE_STACK_GC_SCAN
   vm_stack_gc_kind =
