@@ -1,0 +1,1763 @@
+This is guile.info, produced by makeinfo version 4.13 from guile.texi.
+
+This manual documents Guile version 2.0.9.1.
+
+   Copyright (C) 1996, 1997, 2000, 2001, 2002, 2003, 2004, 2005, 2009,
+2010, 2011, 2012, 2013 Free Software Foundation.
+
+   Permission is granted to copy, distribute and/or modify this document
+under the terms of the GNU Free Documentation License, Version 1.3 or
+any later version published by the Free Software Foundation; with no
+Invariant Sections, no Front-Cover Texts, and no Back-Cover Texts.  A
+copy of the license is included in the section entitled "GNU Free
+Documentation License."
+
+INFO-DIR-SECTION The Algorithmic Language Scheme
+START-INFO-DIR-ENTRY
+* Guile Reference: (guile).     The Guile reference manual.
+END-INFO-DIR-ENTRY
+
+
+File: guile.info,  Node: Tree-IL,  Next: GLIL,  Prev: The Scheme Compiler,  Up: Compiling to the Virtual Machine
+
+9.4.3 Tree-IL
+-------------
+
+Tree Intermediate Language (Tree-IL) is a structured intermediate
+language that is close in expressive power to Scheme. It is an
+expanded, pre-analyzed Scheme.
+
+   Tree-IL is "structured" in the sense that its representation is
+based on records, not S-expressions. This gives a rigidity to the
+language that ensures that compiling to a lower-level language only
+requires a limited set of transformations. For example, the Tree-IL
+type `<const>' is a record type with two fields, `src' and `exp'.
+Instances of this type are created via `make-const'.  Fields of this
+type are accessed via the `const-src' and `const-exp' procedures. There
+is also a predicate, `const?'.  *Note Records::, for more information
+on records.
+
+   All Tree-IL types have a `src' slot, which holds source location
+information for the expression. This information, if present, will be
+residualized into the compiled object code, allowing backtraces to show
+source information. The format of `src' is the same as that returned by
+Guile's `source-properties' function. *Note Source Properties::, for
+more information.
+
+   Although Tree-IL objects are represented internally using records,
+there is also an equivalent S-expression external representation for
+each kind of Tree-IL. For example, the S-expression representation of
+`#<const src: #f exp: 3>' expression would be:
+
+     (const 3)
+
+   Users may program with this format directly at the REPL:
+
+     scheme@(guile-user)> ,language tree-il
+     Happy hacking with Tree Intermediate Language!  To switch back, type `,L scheme'.
+     tree-il@(guile-user)> (apply (primitive +) (const 32) (const 10))
+     => 42
+
+   The `src' fields are left out of the external representation.
+
+   One may create Tree-IL objects from their external representations
+via calling `parse-tree-il', the reader for Tree-IL. If any source
+information is attached to the input S-expression, it will be
+propagated to the resulting Tree-IL expressions. This is probably the
+easiest way to compile to Tree-IL: just make the appropriate external
+representations in S-expression format, and let `parse-tree-il' take
+care of the rest.
+
+ -- Scheme Variable: <void> src
+ -- External Representation: (void)
+     An empty expression. In practice, equivalent to Scheme's `(if #f
+     #f)'.
+
+ -- Scheme Variable: <const> src exp
+ -- External Representation: (const EXP)
+     A constant.
+
+ -- Scheme Variable: <primitive-ref> src name
+ -- External Representation: (primitive NAME)
+     A reference to a "primitive". A primitive is a procedure that, when
+     compiled, may be open-coded. For example, `cons' is usually
+     recognized as a primitive, so that it compiles down to a single
+     instruction.
+
+     Compilation of Tree-IL usually begins with a pass that resolves
+     some `<module-ref>' and `<toplevel-ref>' expressions to
+     `<primitive-ref>' expressions. The actual compilation pass has
+     special cases for applications of certain primitives, like `apply'
+     or `cons'.
+
+ -- Scheme Variable: <lexical-ref> src name gensym
+ -- External Representation: (lexical NAME GENSYM)
+     A reference to a lexically-bound variable. The NAME is the
+     original name of the variable in the source program. GENSYM is a
+     unique identifier for this variable.
+
+ -- Scheme Variable: <lexical-set> src name gensym exp
+ -- External Representation: (set! (lexical NAME GENSYM) EXP)
+     Sets a lexically-bound variable.
+
+ -- Scheme Variable: <module-ref> src mod name public?
+ -- External Representation: (@ MOD NAME)
+ -- External Representation: (@@ MOD NAME)
+     A reference to a variable in a specific module. MOD should be the
+     name of the module, e.g. `(guile-user)'.
+
+     If PUBLIC? is true, the variable named NAME will be looked up in
+     MOD's public interface, and serialized with `@'; otherwise it will
+     be looked up among the module's private bindings, and is
+     serialized with `@@'.
+
+ -- Scheme Variable: <module-set> src mod name public? exp
+ -- External Representation: (set! (@ MOD NAME) EXP)
+ -- External Representation: (set! (@@ MOD NAME) EXP)
+     Sets a variable in a specific module.
+
+ -- Scheme Variable: <toplevel-ref> src name
+ -- External Representation: (toplevel NAME)
+     References a variable from the current procedure's module.
+
+ -- Scheme Variable: <toplevel-set> src name exp
+ -- External Representation: (set! (toplevel NAME) EXP)
+     Sets a variable in the current procedure's module.
+
+ -- Scheme Variable: <toplevel-define> src name exp
+ -- External Representation: (define (toplevel NAME) EXP)
+     Defines a new top-level variable in the current procedure's module.
+
+ -- Scheme Variable: <conditional> src test then else
+ -- External Representation: (if TEST THEN ELSE)
+     A conditional. Note that ELSE is not optional.
+
+ -- Scheme Variable: <application> src proc args
+ -- External Representation: (apply PROC . ARGS)
+     A procedure call.
+
+ -- Scheme Variable: <sequence> src exps
+ -- External Representation: (begin . EXPS)
+     Like Scheme's `begin'.
+
+ -- Scheme Variable: <lambda> src meta body
+ -- External Representation: (lambda META BODY)
+     A closure. META is an association list of properties for the
+     procedure. BODY is a single Tree-IL expression of type
+     `<lambda-case>'. As the `<lambda-case>' clause can chain to an
+     alternate clause, this makes Tree-IL's `<lambda>' have the
+     expressiveness of Scheme's `case-lambda'.
+
+ -- Scheme Variable: <lambda-case> req opt rest kw inits gensyms body
+          alternate
+ -- External Representation: (lambda-case ((REQ OPT REST KW INITS
+          GENSYMS) BODY) [ALTERNATE])
+     One clause of a `case-lambda'. A `lambda' expression in Scheme is
+     treated as a `case-lambda' with one clause.
+
+     REQ is a list of the procedure's required arguments, as symbols.
+     OPT is a list of the optional arguments, or `#f' if there are no
+     optional arguments. REST is the name of the rest argument, or `#f'.
+
+     KW is a list of the form, `(ALLOW-OTHER-KEYS?  (KEYWORD NAME VAR)
+     ...)', where KEYWORD is the keyword corresponding to the argument
+     named NAME, and whose corresponding gensym is VAR. INITS are
+     tree-il expressions corresponding to all of the optional and
+     keyword arguments, evaluated to bind variables whose value is not
+     supplied by the procedure caller.  Each INIT expression is
+     evaluated in the lexical context of previously bound variables,
+     from left to right.
+
+     GENSYMS is a list of gensyms corresponding to all arguments: first
+     all of the required arguments, then the optional arguments if any,
+     then the rest argument if any, then all of the keyword arguments.
+
+     BODY is the body of the clause. If the procedure is called with an
+     appropriate number of arguments, BODY is evaluated in tail
+     position. Otherwise, if there is an ALTERNATE, it should be a
+     `<lambda-case>' expression, representing the next clause to try.
+     If there is no ALTERNATE, a wrong-number-of-arguments error is
+     signaled.
+
+ -- Scheme Variable: <let> src names gensyms vals exp
+ -- External Representation: (let NAMES GENSYMS VALS EXP)
+     Lexical binding, like Scheme's `let'. NAMES are the original
+     binding names, GENSYMS are gensyms corresponding to the NAMES, and
+     VALS are Tree-IL expressions for the values.  EXP is a single
+     Tree-IL expression.
+
+ -- Scheme Variable: <letrec> in-order? src names gensyms vals exp
+ -- External Representation: (letrec NAMES GENSYMS VALS EXP)
+ -- External Representation: (letrec* NAMES GENSYMS VALS EXP)
+     A version of `<let>' that creates recursive bindings, like
+     Scheme's `letrec', or `letrec*' if IN-ORDER? is true.
+
+ -- Scheme Variable: <dynlet> fluids vals body
+ -- External Representation: (dynlet FLUIDS VALS BODY)
+     Dynamic binding; the equivalent of Scheme's `with-fluids'.  FLUIDS
+     should be a list of Tree-IL expressions that will evaluate to
+     fluids, and VALS a corresponding list of expressions to bind to
+     the fluids during the dynamic extent of the evaluation of BODY.
+
+ -- Scheme Variable: <dynref> fluid
+ -- External Representation: (dynref FLUID)
+     A dynamic variable reference. FLUID should be a Tree-IL expression
+     evaluating to a fluid.
+
+ -- Scheme Variable: <dynset> fluid exp
+ -- External Representation: (dynset FLUID EXP)
+     A dynamic variable set. FLUID, a Tree-IL expression evaluating to
+     a fluid, will be set to the result of evaluating EXP.
+
+ -- Scheme Variable: <dynwind> winder body unwinder
+ -- External Representation: (dynwind WINDER BODY UNWINDER)
+     A `dynamic-wind'. WINDER and UNWINDER should both evaluate to
+     thunks. Ensure that the winder and the unwinder are called before
+     entering and after leaving BODY. Note that BODY is an expression,
+     without a thunk wrapper.
+
+ -- Scheme Variable: <prompt> tag body handler
+ -- External Representation: (prompt TAG BODY HANDLER)
+     A dynamic prompt. Instates a prompt named TAG, an expression,
+     during the dynamic extent of the execution of BODY, also an
+     expression. If an abort occurs to this prompt, control will be
+     passed to HANDLER, a `<lambda-case>' expression with no optional
+     or keyword arguments, and no alternate. The first argument to the
+     `<lambda-case>' will be the captured continuation, and then all of
+     the values passed to the abort. *Note Prompts::, for more
+     information.
+
+ -- Scheme Variable: <abort> tag args tail
+ -- External Representation: (abort TAG ARGS TAIL)
+     An abort to the nearest prompt with the name TAG, an expression.
+     ARGS should be a list of expressions to pass to the prompt's
+     handler, and TAIL should be an expression that will evaluate to a
+     list of additional arguments. An abort will save the partial
+     continuation, which may later be reinstated, resulting in the
+     `<abort>' expression evaluating to some number of values.
+
+   There are two Tree-IL constructs that are not normally produced by
+higher-level compilers, but instead are generated during the
+source-to-source optimization and analysis passes that the Tree-IL
+compiler does. Users should not generate these expressions directly,
+unless they feel very clever, as the default analysis pass will
+generate them as necessary.
+
+ -- Scheme Variable: <let-values> src names gensyms exp body
+ -- External Representation: (let-values NAMES GENSYMS EXP BODY)
+     Like Scheme's `receive' - binds the values returned by evaluating
+     `exp' to the `lambda'-like bindings described by GENSYMS. That is
+     to say, GENSYMS may be an improper list.
+
+     `<let-values>' is an optimization of `<application>' of the
+     primitive, `call-with-values'.
+
+ -- Scheme Variable: <fix> src names gensyms vals body
+ -- External Representation: (fix NAMES GENSYMS VALS BODY)
+     Like `<letrec>', but only for VALS that are unset `lambda'
+     expressions.
+
+     `fix' is an optimization of `letrec' (and `let').
+
+   Tree-IL implements a compiler to GLIL that recursively traverses
+Tree-IL expressions, writing out GLIL expressions into a linear list.
+The compiler also keeps some state as to whether the current expression
+is in tail context, and whether its value will be used in future
+computations. This state allows the compiler not to emit code for
+constant expressions that will not be used (e.g. docstrings), and to
+perform tail calls when in tail position.
+
+   Most optimization, such as it currently is, is performed on Tree-IL
+expressions as source-to-source transformations. There will be more
+optimizations added in the future.
+
+   Interested readers are encouraged to read the implementation in
+`(language tree-il compile-glil)' for more details.
+
+
+File: guile.info,  Node: GLIL,  Next: Assembly,  Prev: Tree-IL,  Up: Compiling to the Virtual Machine
+
+9.4.4 GLIL
+----------
+
+Guile Lowlevel Intermediate Language (GLIL) is a structured intermediate
+language whose expressions more closely approximate Guile's VM
+instruction set. Its expression types are defined in `(language glil)'.
+
+ -- Scheme Variable: <glil-program> meta . body
+     A unit of code that at run-time will correspond to a compiled
+     procedure. META should be an alist of properties, as in Tree-IL's
+     `<lambda>'. BODY is an ordered list of GLIL expressions.
+
+ -- Scheme Variable: <glil-std-prelude> nreq nlocs else-label
+     A prologue for a function with no optional, keyword, or rest
+     arguments. NREQ is the number of required arguments. NLOCS the
+     total number of local variables, including the arguments. If the
+     procedure was not given exactly NREQ arguments, control will jump
+     to ELSE-LABEL, if given, or otherwise signal an error.
+
+ -- Scheme Variable: <glil-opt-prelude> nreq nopt rest nlocs else-label
+     A prologue for a function with optional or rest arguments. Like
+     `<glil-std-prelude>', with the addition that NOPT is the number of
+     optional arguments (possibly zero) and REST is an index of a local
+     variable at which to bind a rest argument, or `#f' if there is no
+     rest argument.
+
+ -- Scheme Variable: <glil-kw-prelude> nreq nopt rest kw
+          allow-other-keys? nlocs else-label
+     A prologue for a function with keyword arguments. Like
+     `<glil-opt-prelude>', with the addition that KW is a list of
+     keyword arguments, and ALLOW-OTHER-KEYS? is a flag indicating
+     whether to allow unknown keys. *Note `bind-kwargs': Function
+     Prologue Instructions, for details on the format of KW.
+
+ -- Scheme Variable: <glil-bind> . vars
+     An advisory expression that notes a liveness extent for a set of
+     variables. VARS is a list of `(NAME TYPE INDEX)', where TYPE
+     should be either `argument', `local', or `external'.
+
+     `<glil-bind>' expressions end up being serialized as part of a
+     program's metadata and do not form part of a program's code path.
+
+ -- Scheme Variable: <glil-mv-bind> vars rest
+     A multiple-value binding of the values on the stack to VARS.  If
+     REST is true, the last element of VARS will be treated as a rest
+     argument.
+
+     In addition to pushing a binding annotation on the stack, like
+     `<glil-bind>', an expression is emitted at compilation time to
+     make sure that there are enough values available to bind. See the
+     notes on `truncate-values' in *note Procedure Call and Return
+     Instructions::, for more information.
+
+ -- Scheme Variable: <glil-unbind>
+     Closes the liveness extent of the most recently encountered
+     `<glil-bind>' or `<glil-mv-bind>' expression. As GLIL expressions
+     are compiled, a parallel stack of live bindings is maintained;
+     this expression pops off the top element from that stack.
+
+     Bindings are written into the program's metadata so that debuggers
+     and other tools can determine the set of live local variables at a
+     given offset within a VM program.
+
+ -- Scheme Variable: <glil-source> loc
+     Records source information for the preceding expression. LOC
+     should be an association list of containing `line' `column', and
+     `filename' keys, e.g. as returned by `source-properties'.
+
+ -- Scheme Variable: <glil-void>
+     Pushes "the unspecified value" on the stack.
+
+ -- Scheme Variable: <glil-const> obj
+     Pushes a constant value onto the stack. OBJ must be a number,
+     string, symbol, keyword, boolean, character, uniform array, the
+     empty list, or a pair or vector of constants.
+
+ -- Scheme Variable: <glil-lexical> local? boxed? op index
+     Accesses a lexically bound variable. If the variable is not LOCAL?
+     it is free. All variables may have `ref', `set', and `bound?' as
+     their OP. Boxed variables may also have the OPs `box',
+     `empty-box', and `fix', which correspond in semantics to the VM
+     instructions `box', `empty-box', and `fix-closure'. *Note Stack
+     Layout::, for more information.
+
+ -- Scheme Variable: <glil-toplevel> op name
+     Accesses a toplevel variable. OP may be `ref', `set', or `define'.
+
+ -- Scheme Variable: <glil-module> op mod name public?
+     Accesses a variable within a specific module. See Tree-IL's
+     `<module-ref>', for more information.
+
+ -- Scheme Variable: <glil-label> label
+     Creates a new label. LABEL can be any Scheme value, and should be
+     unique.
+
+ -- Scheme Variable: <glil-branch> inst label
+     Branch to a label. LABEL should be a `<ghil-label>'.  `inst' is a
+     branching instruction: `br-if', `br', etc.
+
+ -- Scheme Variable: <glil-call> inst nargs
+     This expression is probably misnamed, as it does not correspond to
+     function calls. `<glil-call>' invokes the VM instruction named
+     INST, noting that it is called with NARGS stack arguments.  The
+     arguments should be pushed on the stack already. What happens to
+     the stack afterwards depends on the instruction.
+
+ -- Scheme Variable: <glil-mv-call> nargs ra
+     Performs a multiple-value call. RA is a `<glil-label>'
+     corresponding to the multiple-value return address for the call.
+     See the notes on `mv-call' in *note Procedure Call and Return
+     Instructions::, for more information.
+
+ -- Scheme Variable: <glil-prompt> label escape-only?
+     Push a dynamic prompt into the stack, with a handler at LABEL.
+     ESCAPE-ONLY? is a flag that is propagated to the prompt, allowing
+     an abort to avoid capturing a continuation in some cases.  *Note
+     Prompts::, for more information.
+
+   Users may enter in GLIL at the REPL as well, though there is a bit
+more bookkeeping to do:
+
+     scheme@(guile-user)> ,language glil
+     Happy hacking with Guile Lowlevel Intermediate Language (GLIL)!
+     To switch back, type `,L scheme'.
+     glil@(guile-user)> (program () (std-prelude 0 0 #f)
+                            (const 3) (call return 1))
+     => 3
+
+   Just as in all of Guile's compilers, an environment is passed to the
+GLIL-to-object code compiler, and one is returned as well, along with
+the object code.
+
+
+File: guile.info,  Node: Assembly,  Next: Bytecode and Objcode,  Prev: GLIL,  Up: Compiling to the Virtual Machine
+
+9.4.5 Assembly
+--------------
+
+Assembly is an S-expression-based, human-readable representation of the
+actual bytecodes that will be emitted for the VM. As such, it is a
+useful intermediate language both for compilation and for decompilation.
+
+   Besides the fact that it is not a record-based language, assembly
+differs from GLIL in four main ways:
+
+   * Labels have been resolved to byte offsets in the program.
+
+   * Constants inside procedures have either been expressed as inline
+     instructions or cached in object arrays.
+
+   * Procedures with metadata (source location information, liveness
+     extents, procedure names, generic properties, etc) have had their
+     metadata serialized out to thunks.
+
+   * All expressions correspond directly to VM instructions - i.e.,
+     there is no `<glil-lexical>' which can be a ref or a set.
+
+   Assembly is isomorphic to the bytecode that it compiles to. You can
+compile to bytecode, then decompile back to assembly, and you have the
+same assembly code.
+
+   The general form of assembly instructions is the following:
+
+     (INST ARG ...)
+
+   The INST names a VM instruction, and its ARGs will be embedded in
+the instruction stream. The easiest way to see assembly is to play
+around with it at the REPL, as can be seen in this annotated example:
+
+     scheme@(guile-user)> ,pp (compile '(+ 32 10) #:to 'assembly)
+     (load-program
+       ((:LCASE16 . 2))  ; Labels, unused in this case.
+       8                 ; Length of the thunk that was compiled.
+       (load-program     ; Metadata thunk.
+         ()
+         17
+         #f              ; No metadata thunk for the metadata thunk.
+         (make-eol)
+         (make-eol)
+         (make-int8 2)   ; Liveness extents, source info, and arities,
+         (make-int8 8)   ; in a format that Guile knows how to parse.
+         (make-int8:0)
+         (list 0 3)
+         (list 0 1)
+         (list 0 3)
+         (return))
+       (assert-nargs-ee/locals 0)  ; Prologue.
+       (make-int8 32)    ; Actual code starts here.
+       (make-int8 10)
+       (add)
+       (return))
+
+   Of course you can switch the REPL to assembly and enter in assembly
+S-expressions directly, like with other languages, though it is more
+difficult, given that the length fields have to be correct.
+
+
+File: guile.info,  Node: Bytecode and Objcode,  Next: Writing New High-Level Languages,  Prev: Assembly,  Up: Compiling to the Virtual Machine
+
+9.4.6 Bytecode and Objcode
+--------------------------
+
+Finally, the raw bytes. There are actually two different "languages"
+here, corresponding to two different ways to represent the bytes.
+
+   "Bytecode" represents code as uniform byte vectors, useful for
+structuring and destructuring code on the Scheme level. Bytecode is the
+next step down from assembly:
+
+     scheme@(guile-user)> (compile '(+ 32 10) #:to 'bytecode)
+     => #vu8(8 0 0 0 25 0 0 0            ; Header.
+            95 0                            ; Prologue.
+            10 32 10 10 148 66 17           ; Actual code.
+            0 0 0 0 0 0 0 9                 ; Metadata thunk.
+            9 10 2 10 8 11 18 0 3 18 0 1 18 0 3 66)
+
+   "Objcode" is bytecode, but mapped directly to a C structure, `struct
+scm_objcode':
+
+     struct scm_objcode {
+       scm_t_uint32 len;
+       scm_t_uint32 metalen;
+       scm_t_uint8 base[0];
+     };
+
+   As one might imagine, objcode imposes a minimum length on the
+bytecode. Also, the `len' and `metalen' fields are in native
+endianness, which makes objcode (and bytecode) system-dependent.
+
+   Objcode also has a couple of important efficiency hacks. First,
+objcode may be mapped directly from disk, allowing compiled code to be
+loaded quickly, often from the system's disk cache, and shared among
+multiple processes. Secondly, objcode may be embedded in other objcode,
+allowing procedures to have the text of other procedures inlined into
+their bodies, without the need for separate allocation of the code. Of
+course, the objcode object itself does need to be allocated.
+
+   Procedures related to objcode are defined in the `(system vm
+objcode)' module.
+
+ -- Scheme Procedure: objcode? obj
+ -- C Function: scm_objcode_p (obj)
+     Returns `#f' if OBJ is object code, `#f' otherwise.
+
+ -- Scheme Procedure: bytecode->objcode bytecode
+ -- C Function: scm_bytecode_to_objcode (bytecode)
+     Makes a bytecode object from BYTECODE, which should be a
+     bytevector. *Note Bytevectors::.
+
+ -- Scheme Variable: load-objcode file
+ -- C Function: scm_load_objcode (file)
+     Load object code from a file named FILE. The file will be mapped
+     into memory via `mmap', so this is a very fast operation.
+
+     On disk, object code has an sixteen-byte cookie prepended to it, to
+     prevent accidental loading of arbitrary garbage.
+
+ -- Scheme Variable: write-objcode objcode file
+ -- C Function: scm_write_objcode (objcode)
+     Write object code out to a file, prepending the sixteen-byte
+     cookie.
+
+ -- Scheme Variable: objcode->bytecode objcode
+ -- C Function: scm_objcode_to_bytecode (objcode)
+     Copy object code out to a bytevector for analysis by Scheme.
+
+   The following procedure is actually in `(system vm program)', but
+we'll mention it here:
+
+ -- Scheme Variable: make-program objcode objtable [free-vars=#f]
+ -- C Function: scm_make_program (objcode, objtable, free_vars)
+     Load up object code into a Scheme program. The resulting program
+     will have OBJTABLE as its object table, which should be a vector or
+     `#f', and will capture the free variables from FREE-VARS.
+
+   Object code from a file may be disassembled at the REPL via the
+meta-command `,disassemble-file', abbreviated as `,xx'.  Programs may
+be disassembled via `,disassemble', abbreviated as `,x'.
+
+   Compiling object code to the fake language, `value', is performed
+via loading objcode into a program, then executing that thunk with
+respect to the compilation environment. Normally the environment
+propagates through the compiler transparently, but users may specify
+the compilation environment manually as well, as a module.
+
+
+File: guile.info,  Node: Writing New High-Level Languages,  Next: Extending the Compiler,  Prev: Bytecode and Objcode,  Up: Compiling to the Virtual Machine
+
+9.4.7 Writing New High-Level Languages
+--------------------------------------
+
+In order to integrate a new language LANG into Guile's compiler system,
+one has to create the module `(language LANG spec)' containing the
+language definition and referencing the parser, compiler and other
+routines processing it. The module hierarchy in `(language brainfuck)'
+defines a very basic Brainfuck implementation meant to serve as
+easy-to-understand example on how to do this. See for instance
+`http://en.wikipedia.org/wiki/Brainfuck' for more information about the
+Brainfuck language itself.
+
+
+File: guile.info,  Node: Extending the Compiler,  Prev: Writing New High-Level Languages,  Up: Compiling to the Virtual Machine
+
+9.4.8 Extending the Compiler
+----------------------------
+
+At this point we take a detour from the impersonal tone of the rest of
+the manual.  Admit it: if you've read this far into the compiler
+internals manual, you are a junkie.  Perhaps a course at your university
+left you unsated, or perhaps you've always harbored a desire to hack the
+holy of computer science holies: a compiler.  Well you're in good
+company, and in a good position.  Guile's compiler needs your help.
+
+   There are many possible avenues for improving Guile's compiler.
+Probably the most important improvement, speed-wise, will be some form
+of native compilation, both just-in-time and ahead-of-time. This could
+be done in many ways. Probably the easiest strategy would be to extend
+the compiled procedure structure to include a pointer to a native code
+vector, and compile from bytecode to native code at run-time after a
+procedure is called a certain number of times.
+
+   The name of the game is a profiling-based harvest of the low-hanging
+fruit, running programs of interest under a system-level profiler and
+determining which improvements would give the most bang for the buck.
+It's really getting to the point though that native compilation is the
+next step.
+
+   The compiler also needs help at the top end, enhancing the Scheme
+that it knows to also understand R6RS, and adding new high-level
+compilers.  We have JavaScript and Emacs Lisp mostly complete, but they
+could use some love; Lua would be nice as well, but whatever language
+it is that strikes your fancy would be welcome too.
+
+   Compilers are for hacking, not for admiring or for complaining about.
+Get to it!
+
+
+File: guile.info,  Node: GNU Free Documentation License,  Next: Concept Index,  Prev: Guile Implementation,  Up: Top
+
+Appendix A GNU Free Documentation License
+*****************************************
+
+                     Version 1.3, 3 November 2008
+
+     Copyright (C) 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc.
+     `http://fsf.org/'
+
+     Everyone is permitted to copy and distribute verbatim copies
+     of this license document, but changing it is not allowed.
+
+  0. PREAMBLE
+
+     The purpose of this License is to make a manual, textbook, or other
+     functional and useful document "free" in the sense of freedom: to
+     assure everyone the effective freedom to copy and redistribute it,
+     with or without modifying it, either commercially or
+     noncommercially.  Secondarily, this License preserves for the
+     author and publisher a way to get credit for their work, while not
+     being considered responsible for modifications made by others.
+
+     This License is a kind of "copyleft", which means that derivative
+     works of the document must themselves be free in the same sense.
+     It complements the GNU General Public License, which is a copyleft
+     license designed for free software.
+
+     We have designed this License in order to use it for manuals for
+     free software, because free software needs free documentation: a
+     free program should come with manuals providing the same freedoms
+     that the software does.  But this License is not limited to
+     software manuals; it can be used for any textual work, regardless
+     of subject matter or whether it is published as a printed book.
+     We recommend this License principally for works whose purpose is
+     instruction or reference.
+
+  1. APPLICABILITY AND DEFINITIONS
+
+     This License applies to any manual or other work, in any medium,
+     that contains a notice placed by the copyright holder saying it
+     can be distributed under the terms of this License.  Such a notice
+     grants a world-wide, royalty-free license, unlimited in duration,
+     to use that work under the conditions stated herein.  The
+     "Document", below, refers to any such manual or work.  Any member
+     of the public is a licensee, and is addressed as "you".  You
+     accept the license if you copy, modify or distribute the work in a
+     way requiring permission under copyright law.
+
+     A "Modified Version" of the Document means any work containing the
+     Document or a portion of it, either copied verbatim, or with
+     modifications and/or translated into another language.
+
+     A "Secondary Section" is a named appendix or a front-matter section
+     of the Document that deals exclusively with the relationship of the
+     publishers or authors of the Document to the Document's overall
+     subject (or to related matters) and contains nothing that could
+     fall directly within that overall subject.  (Thus, if the Document
+     is in part a textbook of mathematics, a Secondary Section may not
+     explain any mathematics.)  The relationship could be a matter of
+     historical connection with the subject or with related matters, or
+     of legal, commercial, philosophical, ethical or political position
+     regarding them.
+
+     The "Invariant Sections" are certain Secondary Sections whose
+     titles are designated, as being those of Invariant Sections, in
+     the notice that says that the Document is released under this
+     License.  If a section does not fit the above definition of
+     Secondary then it is not allowed to be designated as Invariant.
+     The Document may contain zero Invariant Sections.  If the Document
+     does not identify any Invariant Sections then there are none.
+
+     The "Cover Texts" are certain short passages of text that are
+     listed, as Front-Cover Texts or Back-Cover Texts, in the notice
+     that says that the Document is released under this License.  A
+     Front-Cover Text may be at most 5 words, and a Back-Cover Text may
+     be at most 25 words.
+
+     A "Transparent" copy of the Document means a machine-readable copy,
+     represented in a format whose specification is available to the
+     general public, that is suitable for revising the document
+     straightforwardly with generic text editors or (for images
+     composed of pixels) generic paint programs or (for drawings) some
+     widely available drawing editor, and that is suitable for input to
+     text formatters or for automatic translation to a variety of
+     formats suitable for input to text formatters.  A copy made in an
+     otherwise Transparent file format whose markup, or absence of
+     markup, has been arranged to thwart or discourage subsequent
+     modification by readers is not Transparent.  An image format is
+     not Transparent if used for any substantial amount of text.  A
+     copy that is not "Transparent" is called "Opaque".
+
+     Examples of suitable formats for Transparent copies include plain
+     ASCII without markup, Texinfo input format, LaTeX input format,
+     SGML or XML using a publicly available DTD, and
+     standard-conforming simple HTML, PostScript or PDF designed for
+     human modification.  Examples of transparent image formats include
+     PNG, XCF and JPG.  Opaque formats include proprietary formats that
+     can be read and edited only by proprietary word processors, SGML or
+     XML for which the DTD and/or processing tools are not generally
+     available, and the machine-generated HTML, PostScript or PDF
+     produced by some word processors for output purposes only.
+
+     The "Title Page" means, for a printed book, the title page itself,
+     plus such following pages as are needed to hold, legibly, the
+     material this License requires to appear in the title page.  For
+     works in formats which do not have any title page as such, "Title
+     Page" means the text near the most prominent appearance of the
+     work's title, preceding the beginning of the body of the text.
+
+     The "publisher" means any person or entity that distributes copies
+     of the Document to the public.
+
+     A section "Entitled XYZ" means a named subunit of the Document
+     whose title either is precisely XYZ or contains XYZ in parentheses
+     following text that translates XYZ in another language.  (Here XYZ
+     stands for a specific section name mentioned below, such as
+     "Acknowledgements", "Dedications", "Endorsements", or "History".)
+     To "Preserve the Title" of such a section when you modify the
+     Document means that it remains a section "Entitled XYZ" according
+     to this definition.
+
+     The Document may include Warranty Disclaimers next to the notice
+     which states that this License applies to the Document.  These
+     Warranty Disclaimers are considered to be included by reference in
+     this License, but only as regards disclaiming warranties: any other
+     implication that these Warranty Disclaimers may have is void and
+     has no effect on the meaning of this License.
+
+  2. VERBATIM COPYING
+
+     You may copy and distribute the Document in any medium, either
+     commercially or noncommercially, provided that this License, the
+     copyright notices, and the license notice saying this License
+     applies to the Document are reproduced in all copies, and that you
+     add no other conditions whatsoever to those of this License.  You
+     may not use technical measures to obstruct or control the reading
+     or further copying of the copies you make or distribute.  However,
+     you may accept compensation in exchange for copies.  If you
+     distribute a large enough number of copies you must also follow
+     the conditions in section 3.
+
+     You may also lend copies, under the same conditions stated above,
+     and you may publicly display copies.
+
+  3. COPYING IN QUANTITY
+
+     If you publish printed copies (or copies in media that commonly
+     have printed covers) of the Document, numbering more than 100, and
+     the Document's license notice requires Cover Texts, you must
+     enclose the copies in covers that carry, clearly and legibly, all
+     these Cover Texts: Front-Cover Texts on the front cover, and
+     Back-Cover Texts on the back cover.  Both covers must also clearly
+     and legibly identify you as the publisher of these copies.  The
+     front cover must present the full title with all words of the
+     title equally prominent and visible.  You may add other material
+     on the covers in addition.  Copying with changes limited to the
+     covers, as long as they preserve the title of the Document and
+     satisfy these conditions, can be treated as verbatim copying in
+     other respects.
+
+     If the required texts for either cover are too voluminous to fit
+     legibly, you should put the first ones listed (as many as fit
+     reasonably) on the actual cover, and continue the rest onto
+     adjacent pages.
+
+     If you publish or distribute Opaque copies of the Document
+     numbering more than 100, you must either include a
+     machine-readable Transparent copy along with each Opaque copy, or
+     state in or with each Opaque copy a computer-network location from
+     which the general network-using public has access to download
+     using public-standard network protocols a complete Transparent
+     copy of the Document, free of added material.  If you use the
+     latter option, you must take reasonably prudent steps, when you
+     begin distribution of Opaque copies in quantity, to ensure that
+     this Transparent copy will remain thus accessible at the stated
+     location until at least one year after the last time you
+     distribute an Opaque copy (directly or through your agents or
+     retailers) of that edition to the public.
+
+     It is requested, but not required, that you contact the authors of
+     the Document well before redistributing any large number of
+     copies, to give them a chance to provide you with an updated
+     version of the Document.
+
+  4. MODIFICATIONS
+
+     You may copy and distribute a Modified Version of the Document
+     under the conditions of sections 2 and 3 above, provided that you
+     release the Modified Version under precisely this License, with
+     the Modified Version filling the role of the Document, thus
+     licensing distribution and modification of the Modified Version to
+     whoever possesses a copy of it.  In addition, you must do these
+     things in the Modified Version:
+
+       A. Use in the Title Page (and on the covers, if any) a title
+          distinct from that of the Document, and from those of
+          previous versions (which should, if there were any, be listed
+          in the History section of the Document).  You may use the
+          same title as a previous version if the original publisher of
+          that version gives permission.
+
+       B. List on the Title Page, as authors, one or more persons or
+          entities responsible for authorship of the modifications in
+          the Modified Version, together with at least five of the
+          principal authors of the Document (all of its principal
+          authors, if it has fewer than five), unless they release you
+          from this requirement.
+
+       C. State on the Title page the name of the publisher of the
+          Modified Version, as the publisher.
+
+       D. Preserve all the copyright notices of the Document.
+
+       E. Add an appropriate copyright notice for your modifications
+          adjacent to the other copyright notices.
+
+       F. Include, immediately after the copyright notices, a license
+          notice giving the public permission to use the Modified
+          Version under the terms of this License, in the form shown in
+          the Addendum below.
+
+       G. Preserve in that license notice the full lists of Invariant
+          Sections and required Cover Texts given in the Document's
+          license notice.
+
+       H. Include an unaltered copy of this License.
+
+       I. Preserve the section Entitled "History", Preserve its Title,
+          and add to it an item stating at least the title, year, new
+          authors, and publisher of the Modified Version as given on
+          the Title Page.  If there is no section Entitled "History" in
+          the Document, create one stating the title, year, authors,
+          and publisher of the Document as given on its Title Page,
+          then add an item describing the Modified Version as stated in
+          the previous sentence.
+
+       J. Preserve the network location, if any, given in the Document
+          for public access to a Transparent copy of the Document, and
+          likewise the network locations given in the Document for
+          previous versions it was based on.  These may be placed in
+          the "History" section.  You may omit a network location for a
+          work that was published at least four years before the
+          Document itself, or if the original publisher of the version
+          it refers to gives permission.
+
+       K. For any section Entitled "Acknowledgements" or "Dedications",
+          Preserve the Title of the section, and preserve in the
+          section all the substance and tone of each of the contributor
+          acknowledgements and/or dedications given therein.
+
+       L. Preserve all the Invariant Sections of the Document,
+          unaltered in their text and in their titles.  Section numbers
+          or the equivalent are not considered part of the section
+          titles.
+
+       M. Delete any section Entitled "Endorsements".  Such a section
+          may not be included in the Modified Version.
+
+       N. Do not retitle any existing section to be Entitled
+          "Endorsements" or to conflict in title with any Invariant
+          Section.
+
+       O. Preserve any Warranty Disclaimers.
+
+     If the Modified Version includes new front-matter sections or
+     appendices that qualify as Secondary Sections and contain no
+     material copied from the Document, you may at your option
+     designate some or all of these sections as invariant.  To do this,
+     add their titles to the list of Invariant Sections in the Modified
+     Version's license notice.  These titles must be distinct from any
+     other section titles.
+
+     You may add a section Entitled "Endorsements", provided it contains
+     nothing but endorsements of your Modified Version by various
+     parties--for example, statements of peer review or that the text
+     has been approved by an organization as the authoritative
+     definition of a standard.
+
+     You may add a passage of up to five words as a Front-Cover Text,
+     and a passage of up to 25 words as a Back-Cover Text, to the end
+     of the list of Cover Texts in the Modified Version.  Only one
+     passage of Front-Cover Text and one of Back-Cover Text may be
+     added by (or through arrangements made by) any one entity.  If the
+     Document already includes a cover text for the same cover,
+     previously added by you or by arrangement made by the same entity
+     you are acting on behalf of, you may not add another; but you may
+     replace the old one, on explicit permission from the previous
+     publisher that added the old one.
+
+     The author(s) and publisher(s) of the Document do not by this
+     License give permission to use their names for publicity for or to
+     assert or imply endorsement of any Modified Version.
+
+  5. COMBINING DOCUMENTS
+
+     You may combine the Document with other documents released under
+     this License, under the terms defined in section 4 above for
+     modified versions, provided that you include in the combination
+     all of the Invariant Sections of all of the original documents,
+     unmodified, and list them all as Invariant Sections of your
+     combined work in its license notice, and that you preserve all
+     their Warranty Disclaimers.
+
+     The combined work need only contain one copy of this License, and
+     multiple identical Invariant Sections may be replaced with a single
+     copy.  If there are multiple Invariant Sections with the same name
+     but different contents, make the title of each such section unique
+     by adding at the end of it, in parentheses, the name of the
+     original author or publisher of that section if known, or else a
+     unique number.  Make the same adjustment to the section titles in
+     the list of Invariant Sections in the license notice of the
+     combined work.
+
+     In the combination, you must combine any sections Entitled
+     "History" in the various original documents, forming one section
+     Entitled "History"; likewise combine any sections Entitled
+     "Acknowledgements", and any sections Entitled "Dedications".  You
+     must delete all sections Entitled "Endorsements."
+
+  6. COLLECTIONS OF DOCUMENTS
+
+     You may make a collection consisting of the Document and other
+     documents released under this License, and replace the individual
+     copies of this License in the various documents with a single copy
+     that is included in the collection, provided that you follow the
+     rules of this License for verbatim copying of each of the
+     documents in all other respects.
+
+     You may extract a single document from such a collection, and
+     distribute it individually under this License, provided you insert
+     a copy of this License into the extracted document, and follow
+     this License in all other respects regarding verbatim copying of
+     that document.
+
+  7. AGGREGATION WITH INDEPENDENT WORKS
+
+     A compilation of the Document or its derivatives with other
+     separate and independent documents or works, in or on a volume of
+     a storage or distribution medium, is called an "aggregate" if the
+     copyright resulting from the compilation is not used to limit the
+     legal rights of the compilation's users beyond what the individual
+     works permit.  When the Document is included in an aggregate, this
+     License does not apply to the other works in the aggregate which
+     are not themselves derivative works of the Document.
+
+     If the Cover Text requirement of section 3 is applicable to these
+     copies of the Document, then if the Document is less than one half
+     of the entire aggregate, the Document's Cover Texts may be placed
+     on covers that bracket the Document within the aggregate, or the
+     electronic equivalent of covers if the Document is in electronic
+     form.  Otherwise they must appear on printed covers that bracket
+     the whole aggregate.
+
+  8. TRANSLATION
+
+     Translation is considered a kind of modification, so you may
+     distribute translations of the Document under the terms of section
+     4.  Replacing Invariant Sections with translations requires special
+     permission from their copyright holders, but you may include
+     translations of some or all Invariant Sections in addition to the
+     original versions of these Invariant Sections.  You may include a
+     translation of this License, and all the license notices in the
+     Document, and any Warranty Disclaimers, provided that you also
+     include the original English version of this License and the
+     original versions of those notices and disclaimers.  In case of a
+     disagreement between the translation and the original version of
+     this License or a notice or disclaimer, the original version will
+     prevail.
+
+     If a section in the Document is Entitled "Acknowledgements",
+     "Dedications", or "History", the requirement (section 4) to
+     Preserve its Title (section 1) will typically require changing the
+     actual title.
+
+  9. TERMINATION
+
+     You may not copy, modify, sublicense, or distribute the Document
+     except as expressly provided under this License.  Any attempt
+     otherwise to copy, modify, sublicense, or distribute it is void,
+     and will automatically terminate your rights under this License.
+
+     However, if you cease all violation of this License, then your
+     license from a particular copyright holder is reinstated (a)
+     provisionally, unless and until the copyright holder explicitly
+     and finally terminates your license, and (b) permanently, if the
+     copyright holder fails to notify you of the violation by some
+     reasonable means prior to 60 days after the cessation.
+
+     Moreover, your license from a particular copyright holder is
+     reinstated permanently if the copyright holder notifies you of the
+     violation by some reasonable means, this is the first time you have
+     received notice of violation of this License (for any work) from
+     that copyright holder, and you cure the violation prior to 30 days
+     after your receipt of the notice.
+
+     Termination of your rights under this section does not terminate
+     the licenses of parties who have received copies or rights from
+     you under this License.  If your rights have been terminated and
+     not permanently reinstated, receipt of a copy of some or all of
+     the same material does not give you any rights to use it.
+
+ 10. FUTURE REVISIONS OF THIS LICENSE
+
+     The Free Software Foundation may publish new, revised versions of
+     the GNU Free Documentation License from time to time.  Such new
+     versions will be similar in spirit to the present version, but may
+     differ in detail to address new problems or concerns.  See
+     `http://www.gnu.org/copyleft/'.
+
+     Each version of the License is given a distinguishing version
+     number.  If the Document specifies that a particular numbered
+     version of this License "or any later version" applies to it, you
+     have the option of following the terms and conditions either of
+     that specified version or of any later version that has been
+     published (not as a draft) by the Free Software Foundation.  If
+     the Document does not specify a version number of this License,
+     you may choose any version ever published (not as a draft) by the
+     Free Software Foundation.  If the Document specifies that a proxy
+     can decide which future versions of this License can be used, that
+     proxy's public statement of acceptance of a version permanently
+     authorizes you to choose that version for the Document.
+
+ 11. RELICENSING
+
+     "Massive Multiauthor Collaboration Site" (or "MMC Site") means any
+     World Wide Web server that publishes copyrightable works and also
+     provides prominent facilities for anybody to edit those works.  A
+     public wiki that anybody can edit is an example of such a server.
+     A "Massive Multiauthor Collaboration" (or "MMC") contained in the
+     site means any set of copyrightable works thus published on the MMC
+     site.
+
+     "CC-BY-SA" means the Creative Commons Attribution-Share Alike 3.0
+     license published by Creative Commons Corporation, a not-for-profit
+     corporation with a principal place of business in San Francisco,
+     California, as well as future copyleft versions of that license
+     published by that same organization.
+
+     "Incorporate" means to publish or republish a Document, in whole or
+     in part, as part of another Document.
+
+     An MMC is "eligible for relicensing" if it is licensed under this
+     License, and if all works that were first published under this
+     License somewhere other than this MMC, and subsequently
+     incorporated in whole or in part into the MMC, (1) had no cover
+     texts or invariant sections, and (2) were thus incorporated prior
+     to November 1, 2008.
+
+     The operator of an MMC Site may republish an MMC contained in the
+     site under CC-BY-SA on the same site at any time before August 1,
+     2009, provided the MMC is eligible for relicensing.
+
+
+ADDENDUM: How to use this License for your documents
+====================================================
+
+To use this License in a document you have written, include a copy of
+the License in the document and put the following copyright and license
+notices just after the title page:
+
+       Copyright (C)  YEAR  YOUR NAME.
+       Permission is granted to copy, distribute and/or modify this document
+       under the terms of the GNU Free Documentation License, Version 1.3
+       or any later version published by the Free Software Foundation;
+       with no Invariant Sections, no Front-Cover Texts, and no Back-Cover
+       Texts.  A copy of the license is included in the section entitled ``GNU
+       Free Documentation License''.
+
+   If you have Invariant Sections, Front-Cover Texts and Back-Cover
+Texts, replace the "with...Texts." line with this:
+
+         with the Invariant Sections being LIST THEIR TITLES, with
+         the Front-Cover Texts being LIST, and with the Back-Cover Texts
+         being LIST.
+
+   If you have Invariant Sections without Cover Texts, or some other
+combination of the three, merge those two alternatives to suit the
+situation.
+
+   If your document contains nontrivial examples of program code, we
+recommend releasing these examples in parallel under your choice of
+free software license, such as the GNU General Public License, to
+permit their use in free software.
+
+
+File: guile.info,  Node: Concept Index,  Next: Procedure Index,  Prev: GNU Free Documentation License,  Up: Top
+
+Concept Index
+*************
+
+This index contains concepts, keywords and non-Schemey names for several
+features, to make it easier to locate the desired sections.
+
+ [index ]
+* Menu:
+
+* !#:                                    Block Comments.      (line   6)
+* #!:                                    Block Comments.      (line   6)
+* #,():                                  SRFI-10.             (line   6)
+* (ice-9 match):                         Pattern Matching.    (line   6)
+* .guile:                                Init File.           (line   6)
+* .guile file, not loading:              Command-line Options.
+                                                              (line 133)
+* .guile_history:                        Loading Readline Support.
+                                                              (line  32)
+* .inputrc:                              Loading Readline Support.
+                                                              (line  38)
+* /etc/hosts:                            Network Databases.   (line 159)
+* /etc/protocols:                        Network Databases.   (line 291)
+* /etc/services:                         Network Databases.   (line 340)
+* absolute file name:                    File System.         (line 362)
+* addrinfo object type:                  Network Databases.   (line  13)
+* affinity, CPU:                         Processes.           (line 341)
+* alist <1>:                             SRFI-1 Association Lists.
+                                                              (line   6)
+* alist:                                 Association Lists.   (line   6)
+* arbiters:                              Arbiters.            (line   6)
+* argument specialize:                   SRFI-26.             (line   6)
+* arguments (command line):              Command-line Options.
+                                                              (line   6)
+* arity, variable <1>:                   SRFI-16.             (line   6)
+* arity, variable:                       Case-lambda.         (line   6)
+* association list:                      SRFI-1 Association Lists.
+                                                              (line   6)
+* association List:                      Association Lists.   (line   6)
+* asyncs:                                Asyncs.              (line   6)
+* atomic time:                           SRFI-19 Introduction.
+                                                              (line   6)
+* autoload:                              Creating Guile Modules.
+                                                              (line  35)
+* automatic compilation:                 Compilation.         (line  21)
+* automatically-managed memory:          Memory Blocks.       (line   6)
+* begin:                                 begin.               (line   6)
+* binary input:                          R6RS Binary Input.   (line   6)
+* binary output:                         R6RS Binary Output.  (line  40)
+* binary port:                           R6RS Transcoders.    (line   6)
+* binding renamer:                       Using Guile Modules. (line  32)
+* bindir:                                Build Config.        (line  68)
+* bitwise logical:                       SRFI-60.             (line   6)
+* block comments:                        Block Comments.      (line   6)
+* Block read/write:                      Block Reading and Writing.
+                                                              (line   6)
+* BOM:                                   BOM Handling.        (line   6)
+* Breakpoints <1>:                       High-Level Traps.    (line  50)
+* Breakpoints:                           Traps.               (line   6)
+* Buffered input:                        Buffered Input.      (line   6)
+* buildstamp:                            Build Config.        (line  75)
+* byte order:                            Bytevector Endianness.
+                                                              (line   6)
+* byte order mark:                       BOM Handling.        (line   6)
+* bytevector:                            Bytevectors.         (line   6)
+* C port interface:                      C Port Interface.    (line   6)
+* callbacks:                             Dynamic FFI.         (line 101)
+* canonical host type:                   Build Config.        (line  94)
+* case:                                  Conditionals.        (line   6)
+* case folding:                          Characters.          (line 129)
+* chaining environments:                 Chaining.            (line   6)
+* character encoding:                    Representing Strings as Bytes.
+                                                              (line  22)
+* charset:                               Standard Character Sets.
+                                                              (line   9)
+* child processes:                       Processes.           (line   6)
+* class:                                 Class Definition.    (line   8)
+* Closing ports:                         Closing.             (line   6)
+* closure:                               About Closure.       (line   6)
+* code coverage:                         Code Coverage.       (line   6)
+* Code coverage:                         Traps.               (line   6)
+* code point:                            Characters.          (line  13)
+* code point, designated:                Characters.          (line  18)
+* code point, reserved:                  Characters.          (line  26)
+* codec:                                 R6RS Transcoders.    (line   6)
+* codeset:                               Standard Character Sets.
+                                                              (line   9)
+* command line:                          Runtime Environment. (line  11)
+* command line history:                  Readline Support.    (line   6)
+* command-line arguments:                Command-line Options.
+                                                              (line   6)
+* Command-line Options:                  Command-line Options.
+                                                              (line   6)
+* commands:                              REPL Commands.       (line   6)
+* composable continuations:              Prompts.             (line   6)
+* cond:                                  Conditionals.        (line   6)
+* condition variable:                    Mutexes and Condition Variables.
+                                                              (line   6)
+* conditional evaluation:                Conditionals.        (line   6)
+* conditions:                            SRFI-35.             (line   6)
+* conservative garbage collection:       Memory Blocks.       (line   6)
+* continuation, escape:                  Prompt Primitives.   (line 100)
+* continuations:                         Continuations.       (line   6)
+* copying:                               Guile License.       (line   6)
+* coverage:                              Code Coverage.       (line   6)
+* cultural conventions:                  i18n Introduction.   (line  11)
+* curly-infix:                           SRFI-105.            (line   6)
+* curly-infix-and-bracket-lists:         SRFI-105.            (line   6)
+* current directory:                     Processes.           (line   8)
+* custom binary input ports:             R6RS Binary Input.   (line  16)
+* custom binary output ports:            R6RS Binary Output.  (line  25)
+* database:                              Association Lists.   (line   6)
+* datadir:                               Build Config.        (line  68)
+* date <1>:                              SRFI-19 Date.        (line   6)
+* date:                                  SRFI-19.             (line   6)
+* date conversion:                       SRFI-19 Time/Date conversions.
+                                                              (line   6)
+* date to string:                        SRFI-19 Date to string.
+                                                              (line   6)
+* date, from string:                     SRFI-19 String to date.
+                                                              (line   6)
+* debug options:                         Debug Options.       (line   9)
+* Debugging:                             Debugging.           (line   6)
+* debugging virtual machine (command line): Command-line Options.
+                                                              (line 112)
+* Default ports:                         Default Ports.       (line   6)
+* default slot value:                    Slot Options.        (line  15)
+* definition splicing:                   begin.               (line  23)
+* delayed evaluation:                    Delayed Evaluation.  (line   6)
+* delimited continuations:               Prompts.             (line   6)
+* designated code point:                 Characters.          (line  18)
+* device file:                           File System.         (line 291)
+* directory contents:                    File System.         (line 247)
+* directory traversal:                   File Tree Walk.      (line   6)
+* domain-specific language:              Macros.              (line  20)
+* DSL:                                   Macros.              (line  20)
+* duplicate binding:                     Creating Guile Modules.
+                                                              (line  68)
+* duplicate binding handlers:            Creating Guile Modules.
+                                                              (line 108)
+* EDSL:                                  Macros.              (line  20)
+* effective version:                     Parallel Installations.
+                                                              (line   6)
+* Emacs:                                 Using Guile in Emacs.
+                                                              (line   6)
+* emacs regexp:                          Regular Expressions. (line   6)
+* embedded domain-specific language:     Macros.              (line  20)
+* encapsulation:                         Modules.             (line  14)
+* encoding:                              Character Encoding of Source Files.
+                                                              (line  43)
+* encryption:                            Encryption.          (line   6)
+* End of file object:                    Reading.             (line  11)
+* end-of-file:                           R6RS End-of-File.    (line   6)
+* end-of-line style:                     R6RS Transcoders.    (line   6)
+* endianness:                            Bytevector Endianness.
+                                                              (line   6)
+* environment <1>:                       Runtime Environment. (line  66)
+* environment <2>:                       Environments.        (line   6)
+* environment:                           About Environments.  (line   6)
+* environment variables <1>:             SRFI-98.             (line   6)
+* environment variables:                 Environment Variables.
+                                                              (line   6)
+* environment, local:                    Local Variables.     (line   6)
+* environment, top level:                About Environments.  (line   6)
+* EOF:                                   R6RS End-of-File.    (line   6)
+* equality:                              Equality.            (line   6)
+* errno:                                 Conventions.         (line  48)
+* error handling:                        Exceptions.          (line   6)
+* error-signal:                          Handling Errors.     (line  47)
+* evaluate expression, command-line argument: Command-line Options.
+                                                              (line  25)
+* exception handling:                    Exceptions.          (line   6)
+* exceptions:                            SRFI-35.             (line   6)
+* exec_prefix:                           Build Config.        (line  68)
+* export:                                Creating Guile Modules.
+                                                              (line  57)
+* expression sequencing:                 begin.               (line   6)
+* extensiondir <1>:                      Modules and Extensions.
+                                                              (line  17)
+* extensiondir:                          Parallel Installations.
+                                                              (line  42)
+* ffi:                                   Foreign Function Interface.
+                                                              (line   6)
+* file descriptor:                       Ports and File Descriptors.
+                                                              (line   6)
+* file locking:                          Ports and File Descriptors.
+                                                              (line 352)
+* file name separator:                   File System.         (line 362)
+* file options:                          R6RS File Options.   (line   6)
+* File port:                             File Ports.          (line   6)
+* file system:                           File System.         (line   6)
+* file system combinator:                File Tree Walk.      (line  71)
+* file system traversal:                 File Tree Walk.      (line   6)
+* file tree walk:                        File Tree Walk.      (line   6)
+* finalization:                          Smobs.               (line  30)
+* finalizer:                             Smobs.               (line  30)
+* fine-grain parallelism:                Futures.             (line   6)
+* fluids:                                Fluids and Dynamic States.
+                                                              (line   6)
+* fold-case:                             Case Sensitivity.    (line   6)
+* foreign function interface:            Foreign Function Interface.
+                                                              (line   6)
+* formatted output:                      Formatted Output.    (line   6)
+* functional setters:                    SRFI-9 Records.      (line 103)
+* futures:                               Futures.             (line   6)
+* GC-managed memory:                     Memory Blocks.       (line   6)
+* Geiser:                                Using Guile in Emacs.
+                                                              (line  23)
+* general cond clause:                   Conditionals.        (line  68)
+* GNU triplet:                           Build Config.        (line  94)
+* GPL:                                   Guile License.       (line   6)
+* group file:                            User Information.    (line   6)
+* guardians, testing for GC'd objects:   GC Hooks.            (line  46)
+* guild:                                 Using Guile Tools.   (line   6)
+* Guile threads:                         Threads.             (line   6)
+* guile-2 SRFI-0 feature:                SRFI-0.              (line  70)
+* guile-snarf deprecated macros:         Snarfing Macros.     (line   6)
+* guile-snarf example:                   Function Snarfing.   (line  24)
+* guile-snarf invocation:                Function Snarfing.   (line  24)
+* guile-snarf recognized macros:         Snarfing Macros.     (line   6)
+* guile-tools:                           Using Guile Tools.   (line   6)
+* GUILE_HISTORY:                         Loading Readline Support.
+                                                              (line  38)
+* guileversion:                          Build Config.        (line  75)
+* hash-comma:                            SRFI-10.             (line   6)
+* higher-order functions:                Higher-Order Functions.
+                                                              (line   6)
+* host name:                             System Identification.
+                                                              (line  36)
+* host name lookup:                      Network Databases.   (line  13)
+* HTTP:                                  Web.                 (line   6)
+* i18n:                                  Internationalization.
+                                                              (line   6)
+* iconv:                                 Representing Strings as Bytes.
+                                                              (line  22)
+* IEEE-754 floating point numbers:       Bytevectors as Floats.
+                                                              (line   6)
+* if:                                    Conditionals.        (line   6)
+* includedir:                            Build Config.        (line  68)
+* infodir:                               Build Config.        (line  68)
+* information encapsulation:             Modules.             (line  14)
+* init file, not loading:                Command-line Options.
+                                                              (line 133)
+* initialization:                        Environment Variables.
+                                                              (line   6)
+* Initializing Guile:                    Initialization.      (line   6)
+* inlining:                              Inlinable Procedures.
+                                                              (line   6)
+* instance:                              Instance Creation.   (line  12)
+* integers as bits:                      SRFI-60.             (line   6)
+* internationalization:                  Internationalization.
+                                                              (line   6)
+* interpreter:                           Why a VM?.           (line   6)
+* invocation:                            Invoking Guile.      (line   6)
+* invocation (command-line arguments):   Command-line Options.
+                                                              (line   6)
+* IPv4:                                  Network Address Conversion.
+                                                              (line  12)
+* IPv6:                                  Network Address Conversion.
+                                                              (line  74)
+* iteration:                             while do.            (line   6)
+* JACAL:                                 JACAL.               (line   6)
+* Jaffer, Aubrey:                        JACAL.               (line   6)
+* julian day <1>:                        SRFI-19 Date.        (line  64)
+* julian day:                            SRFI-19 Introduction.
+                                                              (line  28)
+* keyword objects:                       SRFI-88.             (line   6)
+* lambda:                                Lambda.              (line   6)
+* LANG:                                  Locales.             (line  25)
+* leap second:                           SRFI-19 Introduction.
+                                                              (line  16)
+* LGPL:                                  Guile License.       (line   6)
+* libdir:                                Build Config.        (line  68)
+* libexecdir:                            Build Config.        (line  68)
+* libguileinterface:                     Build Config.        (line  75)
+* LIBS:                                  Build Config.        (line  72)
+* license:                               Guile License.       (line   6)
+* Line buffered input:                   Buffered Input.      (line  31)
+* Line continuation:                     Buffered Input.      (line   6)
+* Line input/output:                     Line/Delimited.      (line   6)
+* list:                                  SRFI-1.              (line   6)
+* list constructor:                      SRFI-1 Constructors. (line   6)
+* list delete:                           SRFI-1 Deleting.     (line   6)
+* list filter:                           SRFI-1 Filtering and Partitioning.
+                                                              (line   6)
+* list fold:                             SRFI-1 Fold and Map. (line   6)
+* list map:                              SRFI-1 Fold and Map. (line   6)
+* list partition:                        SRFI-1 Filtering and Partitioning.
+                                                              (line   6)
+* list predicate:                        SRFI-1 Predicates.   (line   6)
+* list search:                           SRFI-1 Searching.    (line   6)
+* list selector:                         SRFI-1 Selectors.    (line   6)
+* list set operation:                    SRFI-1 Set Operations.
+                                                              (line   6)
+* load:                                  Character Encoding of Source Files.
+                                                              (line   6)
+* load path:                             Installing Site Packages.
+                                                              (line   6)
+* loading srfi modules (command line):   Command-line Options.
+                                                              (line 100)
+* local bindings:                        Local Bindings.      (line   6)
+* local environment:                     Local Variables.     (line   6)
+* local time:                            Time.                (line  77)
+* local variable:                        Local Variables.     (line   6)
+* local variables:                       Local Bindings.      (line   6)
+* locale <1>:                            Locales.             (line   6)
+* locale <2>:                            i18n Introduction.   (line  18)
+* locale:                                Standard Character Sets.
+                                                              (line   9)
+* locale category:                       i18n Introduction.   (line  18)
+* locale object:                         i18n Introduction.   (line  26)
+* localstatedir:                         Build Config.        (line  68)
+* location:                              About Environments.  (line   6)
+* looping:                               while do.            (line   6)
+* low-level locale information:          Accessing Locale Information.
+                                                              (line   6)
+* macro expansion:                       Macros.              (line  20)
+* macros:                                Macros.              (line  12)
+* mandir:                                Build Config.        (line  68)
+* match structures:                      Match Structures.    (line   6)
+* math - symbolic:                       JACAL.               (line   6)
+* memory-allocation-error:               Handling Errors.     (line  66)
+* misc-error:                            Handling Errors.     (line  73)
+* modified julian day <1>:               SRFI-19 Date.        (line  67)
+* modified julian day:                   SRFI-19 Introduction.
+                                                              (line  28)
+* module version:                        Creating Guile Modules.
+                                                              (line 101)
+* modules:                               Modules.             (line   6)
+* multiline comments:                    Block Comments.      (line   6)
+* multiple values:                       Multiple Values.     (line   6)
+* multiple values and cond:              Conditionals.        (line  68)
+* mutex:                                 Mutexes and Condition Variables.
+                                                              (line   6)
+* name space:                            Modules.             (line  14)
+* name space - private:                  Modules.             (line  29)
+* named let:                             while do.            (line   6)
+* network:                               Networking.          (line   6)
+* network address:                       Network Address Conversion.
+                                                              (line   6)
+* network database:                      Network Databases.   (line   6)
+* network examples:                      Internet Socket Examples.
+                                                              (line   6)
+* network protocols:                     Network Databases.   (line 291)
+* network services:                      Network Databases.   (line 340)
+* network socket:                        Network Sockets and Communication.
+                                                              (line   6)
+* network socket address:                Network Socket Address.
+                                                              (line   6)
+* no-fold-case:                          Case Sensitivity.    (line   6)
+* non-local exit:                        Prompts.             (line   6)
+* numerical-overflow:                    Handling Errors.     (line  56)
+* object array:                          VM Programs.         (line  18)
+* object table:                          VM Programs.         (line  18)
+* options (command line):                Command-line Options.
+                                                              (line   6)
+* options - debug:                       Debug Options.       (line   9)
+* options - print:                       Scheme Write.        (line  30)
+* options - read:                        Scheme Read.         (line  15)
+* out-of-range:                          Handling Errors.     (line  58)
+* overflow, stack:                       Debug Options.       (line  48)
+* overriding binding:                    Creating Guile Modules.
+                                                              (line  68)
+* parallel forms:                        Parallel Forms.      (line   6)
+* parallelism:                           Futures.             (line   6)
+* parameter object:                      Parameters.          (line   6)
+* parameter specialize:                  SRFI-26.             (line   6)
+* parameter specializers:                Generic Function and Method Examples.
+                                                              (line  21)
+* Paredit:                               Using Guile in Emacs.
+                                                              (line  17)
+* partial evaluator:                     Inlinable Procedures.
+                                                              (line  11)
+* password:                              Encryption.          (line  23)
+* password file:                         User Information.    (line   6)
+* pattern matching:                      Pattern Matching.    (line   6)
+* pattern matching (SXML):               sxml-match.          (line   6)
+* pattern variable:                      Pattern Matching.    (line  10)
+* pipe <1>:                              Pipes.               (line   6)
+* pipe:                                  Ports and File Descriptors.
+                                                              (line 186)
+* pkg-config:                            Parallel Installations.
+                                                              (line   6)
+* pkgdatadir:                            Build Config.        (line  68)
+* pkgincludedir:                         Build Config.        (line  68)
+* pkglibdir:                             Build Config.        (line  68)
+* polar form <1>:                        Complex.             (line  13)
+* polar form:                            Complex Numbers.     (line  23)
+* Port:                                  Ports.               (line   6)
+* port buffering:                        Ports and File Descriptors.
+                                                              (line 292)
+* port encoding:                         Character Encoding of Source Files.
+                                                              (line  43)
+* Port implementation:                   Port Implementation. (line   6)
+* Port, block read/write:                Block Reading and Writing.
+                                                              (line   6)
+* Port, C interface:                     C Port Interface.    (line   6)
+* Port, close:                           Closing.             (line   6)
+* Port, default:                         Default Ports.       (line   6)
+* Port, file:                            File Ports.          (line   6)
+* Port, line input/output:               Line/Delimited.      (line   6)
+* Port, random access:                   Random Access.       (line   6)
+* Port, soft:                            Soft Ports.          (line   6)
+* Port, string:                          String Ports.        (line   6)
+* Port, types:                           Port Types.          (line   6)
+* Port, void:                            Void Ports.          (line   6)
+* portability between 2.0 and older versions: SRFI-0.         (line  70)
+* POSIX:                                 POSIX.               (line   6)
+* POSIX threads:                         Threads.             (line   6)
+* precise marking:                       Smobs.               (line  53)
+* prefix:                                Build Config.        (line  68)
+* pretty printing:                       Pretty Printing.     (line   6)
+* primitive procedures:                  Primitive Procedures.
+                                                              (line   6)
+* primitive-load:                        Character Encoding of Source Files.
+                                                              (line   6)
+* primitives:                            Primitive Procedures.
+                                                              (line   6)
+* print options:                         Scheme Write.        (line  30)
+* procedure documentation:               Procedure Properties.
+                                                              (line  55)
+* procedure inlining:                    Inlinable Procedures.
+                                                              (line   6)
+* procedure properties:                  Procedure Properties.
+                                                              (line  26)
+* procedure with setter:                 Procedures with Setters.
+                                                              (line   6)
+* process group:                         Terminals and Ptys.  (line  23)
+* process priority:                      Processes.           (line 311)
+* process time:                          SRFI-19 Time.        (line  34)
+* processes:                             Processes.           (line   6)
+* Profiling:                             Traps.               (line   6)
+* program arguments:                     Runtime Environment. (line  11)
+* promises:                              Delayed Evaluation.  (line   6)
+* prompts:                               Prompts.             (line   6)
+* protocols:                             Network Databases.   (line 291)
+* ptob:                                  C Port Interface.    (line  11)
+* pure module:                           Creating Guile Modules.
+                                                              (line 173)
+* q-empty:                               Queues.              (line  65)
+* queues:                                Queues.              (line   6)
+* R6RS <1>:                              R6RS Support.        (line   6)
+* R6RS <2>:                              R6RS I/O Ports.      (line   6)
+* R6RS:                                  Bytevectors.         (line   6)
+* R6RS block comments:                   Block Comments.      (line  24)
+* R6RS ports:                            R6RS I/O Ports.      (line   6)
+* Random access, ports:                  Random Access.       (line   6)
+* re-export:                             Creating Guile Modules.
+                                                              (line  62)
+* read:                                  Character Encoding of Source Files.
+                                                              (line  43)
+* read options:                          Scheme Read.         (line  15)
+* Reading:                               Reading.             (line   6)
+* readline:                              Readline Support.    (line   6)
+* readline options:                      Readline Options.    (line   6)
+* receive:                               Multiple Values.     (line   6)
+* record <1>:                            SRFI-9 Records.      (line   6)
+* record:                                Record Overview.     (line   6)
+* recursion:                             Tail Calls.          (line   6)
+* recursive expression:                  SRFI-31.             (line   6)
+* regex:                                 Regular Expressions. (line   6)
+* regular expressions:                   Regular Expressions. (line   6)
+* regular-expression-syntax:             Handling Errors.     (line  70)
+* remembering:                           Remembering During Operations.
+                                                              (line   6)
+* REPL server:                           REPL Servers.        (line   6)
+* replace:                               Creating Guile Modules.
+                                                              (line  68)
+* replacing binding:                     Creating Guile Modules.
+                                                              (line  68)
+* reserved code point:                   Characters.          (line  26)
+* sameness:                              Equality.            (line   6)
+* sbindir:                               Build Config.        (line  68)
+* Scheme Shell:                          The Scheme shell (scsh).
+                                                              (line   6)
+* SCM data type:                         The SCM Type.        (line  16)
+* script mode:                           Command-line Options.
+                                                              (line  12)
+* SCSH:                                  The Scheme shell (scsh).
+                                                              (line   6)
+* search and replace:                    Regexp Functions.    (line 204)
+* sequencing:                            begin.               (line   6)
+* service name lookup:                   Network Databases.   (line  13)
+* services:                              Network Databases.   (line 340)
+* setter:                                Procedures with Setters.
+                                                              (line   6)
+* Setting breakpoints:                   High-Level Traps.    (line  50)
+* Setting tracepoints:                   High-Level Traps.    (line  55)
+* shadowing an imported variable binding: Chaining.           (line   6)
+* sharedstatedir:                        Build Config.        (line  68)
+* shell:                                 Environment Variables.
+                                                              (line   6)
+* signal:                                Signals.             (line   6)
+* site:                                  Installing Site Packages.
+                                                              (line   6)
+* site path:                             Installing Site Packages.
+                                                              (line   6)
+* sitedir:                               Parallel Installations.
+                                                              (line  35)
+* SLIB:                                  SLIB.                (line   6)
+* slot:                                  Class Definition.    (line  20)
+* smob:                                  Smobs.               (line   6)
+* socket:                                Network Sockets and Communication.
+                                                              (line   6)
+* socket address:                        Network Socket Address.
+                                                              (line   6)
+* socket client example:                 Internet Socket Examples.
+                                                              (line  11)
+* socket examples:                       Internet Socket Examples.
+                                                              (line   6)
+* socket server example:                 Internet Socket Examples.
+                                                              (line  27)
+* Soft port:                             Soft Ports.          (line   6)
+* sorting:                               Sorting.             (line   6)
+* sorting lists:                         Sorting.             (line   6)
+* sorting vectors:                       Sorting.             (line   6)
+* source file encoding:                  Character Encoding of Source Files.
+                                                              (line   6)
+* source properties:                     Source Properties.   (line   6)
+* specialize parameter:                  SRFI-26.             (line   6)
+* splicing:                              begin.               (line  23)
+* srcdir:                                Build Config.        (line  68)
+* SRFI:                                  SRFI Support.        (line   6)
+* SRFI-0:                                SRFI-0.              (line   6)
+* SRFI-1:                                SRFI-1.              (line   6)
+* SRFI-10:                               SRFI-10.             (line   6)
+* SRFI-105:                              SRFI-105.            (line   6)
+* SRFI-11:                               SRFI-11.             (line   6)
+* SRFI-13:                               SRFI-13.             (line   6)
+* SRFI-14:                               SRFI-14.             (line   6)
+* SRFI-16 <1>:                           SRFI-16.             (line   6)
+* SRFI-16:                               Case-lambda.         (line   6)
+* SRFI-17:                               SRFI-17.             (line   6)
+* SRFI-18:                               SRFI-18.             (line   6)
+* SRFI-19:                               SRFI-19.             (line   6)
+* SRFI-2:                                SRFI-2.              (line   6)
+* SRFI-23:                               SRFI-23.             (line   6)
+* SRFI-26:                               SRFI-26.             (line   6)
+* SRFI-27 <1>:                           SRFI-27 Random Number Generators.
+                                                              (line   6)
+* SRFI-27 <2>:                           SRFI-27 Random Sources.
+                                                              (line   6)
+* SRFI-27 <3>:                           SRFI-27 Default Random Source.
+                                                              (line   6)
+* SRFI-27:                               SRFI-27.             (line   6)
+* SRFI-30:                               SRFI-30.             (line   6)
+* SRFI-30 block comments:                Block Comments.      (line  24)
+* SRFI-31:                               SRFI-31.             (line   6)
+* SRFI-34:                               SRFI-34.             (line   6)
+* SRFI-35:                               SRFI-35.             (line   6)
+* SRFI-37:                               SRFI-37.             (line   6)
+* SRFI-38:                               SRFI-38.             (line   6)
+* SRFI-39 <1>:                           SRFI-39.             (line   6)
+* SRFI-39:                               Parameters.          (line   6)
+* SRFI-4:                                SRFI-4.              (line   6)
+* SRFI-41:                               SRFI-41.             (line   6)
+* SRFI-42:                               SRFI-42.             (line   6)
+* SRFI-45:                               SRFI-45.             (line   6)
+* SRFI-55:                               SRFI-55.             (line   6)
+* SRFI-6:                                SRFI-6.              (line   6)
+* SRFI-60:                               SRFI-60.             (line   6)
+* SRFI-61:                               Conditionals.        (line  68)
+* SRFI-67:                               SRFI-67.             (line   6)
+* SRFI-69:                               SRFI-69.             (line   6)
+* SRFI-8:                                SRFI-8.              (line   6)
+* SRFI-88:                               SRFI-88.             (line   6)
+* SRFI-88 keyword syntax:                Keyword Read Syntax. (line  18)
+* SRFI-9:                                SRFI-9 Records.      (line   6)
+* SRFI-98:                               SRFI-98.             (line   6)
+* stack overflow:                        Debug Options.       (line  48)
+* stack-overflow:                        Handling Errors.     (line  68)
+* standard error output:                 Default Ports.       (line  40)
+* standard input:                        Default Ports.       (line   8)
+* standard output:                       Default Ports.       (line  25)
+* startup (command-line arguments):      Command-line Options.
+                                                              (line   6)
+* streams:                               Streams.             (line   6)
+* String port:                           String Ports.        (line   6)
+* string to date:                        SRFI-19 String to date.
+                                                              (line   6)
+* string, from date:                     SRFI-19 Date to string.
+                                                              (line   6)
+* structure:                             Record Overview.     (line   6)
+* switches (command line):               Command-line Options.
+                                                              (line   6)
+* SXML pattern matching:                 sxml-match.          (line   6)
+* symbolic math:                         JACAL.               (line   6)
+* sysconfdir:                            Build Config.        (line  68)
+* system asyncs:                         Asyncs.              (line   6)
+* system clock:                          SRFI-19 Introduction.
+                                                              (line  24)
+* system name:                           System Identification.
+                                                              (line   6)
+* system-error:                          Handling Errors.     (line  52)
+* TAI <1>:                               SRFI-19 Time.        (line  18)
+* TAI:                                   SRFI-19 Introduction.
+                                                              (line   6)
+* tail calls:                            Tail Calls.          (line   6)
+* temporary file:                        File System.         (line 306)
+* terminal:                              Terminals and Ptys.  (line   8)
+* textual port:                          R6RS Transcoders.    (line   6)
+* thread time:                           SRFI-19 Time.        (line  37)
+* threads:                               Threads.             (line   6)
+* time <1>:                              SRFI-19 Time.        (line   6)
+* time <2>:                              SRFI-19.             (line   6)
+* time:                                  Time.                (line   6)
+* time conversion:                       SRFI-19 Time/Date conversions.
+                                                              (line   6)
+* time formatting:                       Time.                (line 126)
+* time parsing:                          Time.                (line 141)
+* top level environment:                 About Environments.  (line   6)
+* top_srcdir:                            Build Config.        (line  68)
+* Trace:                                 Traps.               (line   6)
+* Tracepoints:                           High-Level Traps.    (line  55)
+* Tracing:                               Traps.               (line   6)
+* transcoder:                            R6RS Transcoders.    (line   6)
+* transformation:                        Macros.              (line  12)
+* Traps:                                 Traps.               (line   6)
+* truncated printing:                    Pretty Printing.     (line  45)
+* Types of ports:                        Port Types.          (line   6)
+* Unicode code point:                    Characters.          (line  13)
+* Unicode string encoding:               Bytevectors as Strings.
+                                                              (line   6)
+* universal time:                        SRFI-19 Introduction.
+                                                              (line   6)
+* unless:                                Conditionals.        (line   6)
+* user asyncs:                           Asyncs.              (line   6)
+* user information:                      User Information.    (line   6)
+* UTC <1>:                               SRFI-19 Time.        (line  15)
+* UTC:                                   SRFI-19 Introduction.
+                                                              (line   6)
+* variable arity <1>:                    SRFI-16.             (line   6)
+* variable arity:                        Case-lambda.         (line   6)
+* variable definition:                   Top Level.           (line   6)
+* variable, local:                       Local Variables.     (line   6)
+* vcell:                                 About Environments.  (line   6)
+* VHash:                                 VHashes.             (line   6)
+* vlist:                                 VLists.              (line   6)
+* VList-based hash lists:                VHashes.             (line   6)
+* VM hooks:                              Traps.               (line   6)
+* VM trace level:                        VM Hooks.            (line  77)
+* Void port:                             Void Ports.          (line   6)
+* warnings, compiler:                    Compilation.         (line  66)
+* Web:                                   Web.                 (line   6)
+* when:                                  Conditionals.        (line   6)
+* wizards:                               Using Guile Tools.   (line   6)
+* word order:                            Bytevector Endianness.
+                                                              (line   6)
+* wrapped pointer types:                 Void Pointers and Byte Access.
+                                                              (line  60)
+* Writing:                               Writing.             (line   6)
+* wrong-number-of-args:                  Handling Errors.     (line  63)
+* wrong-type-arg:                        Handling Errors.     (line  61)
+* WWW:                                   Web.                 (line   6)
+
+
+
+Local Variables:
+coding: utf-8
+End:
