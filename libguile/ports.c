@@ -254,17 +254,26 @@ scm_i_clear_pending_eof (SCM port)
   SCM_PORT_GET_INTERNAL (port)->pending_eof = 0;
 }
 
-SCM
-scm_i_port_alist (SCM port)
+SCM_DEFINE (scm_i_port_alist, "%port-alist", 1, 0, 0,
+            (SCM port),
+            "Return the alist associated with @var{port}.")
+#define FUNC_NAME s_scm_i_port_alist
 {
+  SCM_VALIDATE_OPPORT (1, port);
   return SCM_PORT_GET_INTERNAL (port)->alist;
 }
+#undef FUNC_NAME
 
-void
-scm_i_set_port_alist_x (SCM port, SCM alist)
+SCM_DEFINE (scm_i_set_port_alist_x, "%set-port-alist!", 2, 0, 0,
+            (SCM port, SCM alist),
+            "Set the alist associated with @var{port} to @var{alist}.")
+#define FUNC_NAME s_scm_i_set_port_alist_x
 {
+  SCM_VALIDATE_OPPORT (1, port);
   SCM_PORT_GET_INTERNAL (port)->alist = alist;
+  return SCM_UNSPECIFIED;
 }
+#undef FUNC_NAME
 
 
 
