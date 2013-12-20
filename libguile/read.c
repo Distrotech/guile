@@ -1,5 +1,5 @@
 /* Copyright (C) 1995, 1996, 1997, 1999, 2000, 2001, 2003, 2004, 2006,
- *   2007, 2008, 2009, 2010, 2011, 2012 Free Software Foundation, Inc.
+ *   2007, 2008, 2009, 2010, 2011, 2012, 2013 Free Software Foundation, Inc.
  * 
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -60,8 +60,8 @@
 
 
 SCM_GLOBAL_SYMBOL (scm_sym_dot, ".");
-SCM_SYMBOL (scm_keyword_prefix, "prefix");
-SCM_SYMBOL (scm_keyword_postfix, "postfix");
+SCM_SYMBOL (sym_prefix, "prefix");
+SCM_SYMBOL (sym_postfix, "postfix");
 SCM_SYMBOL (sym_nil, "nil");
 
 /* SRFI-105 curly infix expression support */
@@ -2186,6 +2186,81 @@ set_port_read_option (SCM port, int option, int new_value)
   scm_i_set_port_property_x (port, sym_port_read_options, scm_read_options);
 }
 
+/* Read option symbols */
+SCM_SYMBOL (sym_copy, "copy");
+SCM_SYMBOL (sym_positions, "positions");
+SCM_SYMBOL (sym_case_insensitive, "case-insensitive");
+SCM_SYMBOL (sym_keywords, "keywords");
+SCM_SYMBOL (sym_r6rs_hex_escapes, "r6rs-hex-escapes");
+SCM_SYMBOL (sym_square_brackets, "square-brackets");
+SCM_SYMBOL (sym_hungry_eol_escapes, "hungry-eol-escapes");
+SCM_SYMBOL (sym_curly_infix, "curly-infix");
+
+/* Special 'inherit' value for 'set-port-read-option!'. */
+SCM_SYMBOL (sym_inherit, "inherit");
+
+SCM_DEFINE (scm_set_port_read_option_x, "set-port-read-option!", 3, 0, 0,
+            (SCM port, SCM option, SCM value),
+	    "Set the reader option OPTION to VALUE for the given PORT.")
+#define FUNC_NAME s_scm_set_port_read_option_x
+{
+  SCM_VALIDATE_OPPORT (1, port);
+  if (scm_is_eq (option, sym_keywords))
+    {
+      int new_value;
+
+      if (scm_is_false (value))
+        new_value = KEYWORD_STYLE_HASH_PREFIX;
+      else if (scm_is_eq (value, sym_prefix))
+        new_value = KEYWORD_STYLE_PREFIX;
+      else if (scm_is_eq (value, sym_postfix))
+        new_value = KEYWORD_STYLE_POSTFIX;
+      else if (scm_is_eq (value, sym_inherit))
+        new_value = READ_OPTION_INHERIT;
+      else
+        scm_wrong_type_arg_msg ("set-port-read-option!", 3,
+                                value, "#f, prefix, postfix, or inherit");
+
+      set_port_read_option (port, READ_OPTION_KEYWORD_STYLE, new_value);
+    }
+  else
+    {
+      int option_code, new_value;
+
+      if (scm_is_eq (option, sym_copy))
+        option_code = READ_OPTION_COPY_SOURCE_P;
+      else if (scm_is_eq (option, sym_positions))
+        option_code = READ_OPTION_RECORD_POSITIONS_P;
+      else if (scm_is_eq (option, sym_case_insensitive))
+        option_code = READ_OPTION_CASE_INSENSITIVE_P;
+      else if (scm_is_eq (option, sym_r6rs_hex_escapes))
+        option_code = READ_OPTION_R6RS_ESCAPES_P;
+      else if (scm_is_eq (option, sym_square_brackets))
+        option_code = READ_OPTION_SQUARE_BRACKETS_P;
+      else if (scm_is_eq (option, sym_hungry_eol_escapes))
+        option_code = READ_OPTION_HUNGRY_EOL_ESCAPES_P;
+      else if (scm_is_eq (option, sym_curly_infix))
+        option_code = READ_OPTION_CURLY_INFIX_P;
+      else
+        scm_wrong_type_arg_msg ("set-port-read-option!", 2,
+                                option, "valid read option symbol");
+
+      if (scm_is_false (value))
+        new_value = 0;
+      else if (scm_is_eq (value, SCM_BOOL_T))
+        new_value = 1;
+      else if (scm_is_eq (value, sym_inherit))
+        new_value = READ_OPTION_INHERIT;
+      else
+        scm_wrong_type_arg_msg ("set-port-read-option!", 3,
+                                value, "#t, #f, or inherit");
+
+      set_port_read_option (port, option_code, new_value);
+    }
+  return SCM_UNSPECIFIED;
+}
+#undef FUNC_NAME
+
 /* Set OPTS and PORT's case-insensitivity according to VALUE. */
 static void
 set_port_case_insensitive_p (SCM port, scm_t_read_opts *opts, int value)
@@ -2232,9 +2307,9 @@ init_read_options (SCM port, scm_t_read_opts *opts)
   if (x == READ_OPTION_INHERIT)
     {
       val = SCM_PACK (SCM_KEYWORD_STYLE);
-      if (scm_is_eq (val, scm_keyword_prefix))
+      if (scm_is_eq (val, sym_prefix))
         x = KEYWORD_STYLE_PREFIX;
-      else if (scm_is_eq (val, scm_keyword_postfix))
+      else if (scm_is_eq (val, sym_postfix))
         x = KEYWORD_STYLE_POSTFIX;
       else
         x = KEYWORD_STYLE_HASH_PREFIX;

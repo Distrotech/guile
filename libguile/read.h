@@ -3,7 +3,8 @@
 #ifndef SCM_READ_H
 #define SCM_READ_H
 
-/* Copyright (C) 1995,1996,2000, 2006, 2008, 2009 Free Software Foundation, Inc.
+/* Copyright (C) 1995,1996,2000, 2006, 2008, 2009,
+ *   2013 Free Software Foundation, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
@@ -52,6 +53,7 @@
 
 SCM_API SCM scm_sym_dot;
 
+SCM_API SCM scm_set_port_read_option_x (SCM port, SCM option, SCM value);
 SCM_API SCM scm_read_options (SCM setting);
 SCM_API SCM scm_read (SCM port);
 SCM_API SCM scm_read_hash_extend (SCM chr, SCM proc);
