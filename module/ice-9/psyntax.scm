@@ -3032,43 +3032,74 @@
         ;; not unquoted source) quote expressions where possible and
         ;; choosing optimal construction code otherwise, then emit
         ;; Scheme code corresponding to the intermediate language forms.
-        ((_ e) (emit (quasi #'e 0))))))) 
+        ((_ e) (emit (quasi #'e 0)))))))
+
+(define (%read-files-for-include filename-syntax-objects
+                                 case-insensitive?
+                                 orig-form)
+  (let file-loop ((filename-syntax-objects filename-syntax-objects)
+                  (out '()))
+    (if (null? filename-syntax-objects)
+        (reverse out)
+        (let* ((filename-syntax-object (car filename-syntax-objects))
+               (specified-filename (syntax->datum filename-syntax-object))
+               (src (syntax-source filename-syntax-object))
+               (including-file (and src (assq-ref src 'filename)))
+               (dir (and (string? including-file) (dirname including-file)))
+               (filename
+                (cond ((absolute-file-name? specified-filename)
+                       specified-filename)
+                      (dir
+                       (in-vicinity dir specified-filename))
+                      (else
+                       (syntax-case orig-form ()
+                         ((keyword . rest)
+                          (syntax-violation (syntax->datum #'keyword)
+                                            "relative file name only allowed from within a file"
+                                            orig-form))))))
+               ;; We must use 'open-file' instead of 'open-input-file'
+               ;; here, because during bootstrap 'open-input-file' will
+               ;; be the simpler one from ice-9/r4rs.scm that does not
+               ;; support keyword arguments.
+               (port (open-file filename "r"
+                                #:guess-encoding #t
+                                #:encoding "UTF-8")))
+          (if case-insensitive?
+              (set-port-read-option! port 'case-insensitive #t))
+          (let loop ((out out))
+            (let ((x (read port)))
+              (if (eof-object? x)
+                  (begin (close-port port)
+                         (file-loop (cdr filename-syntax-objects)
+                                    out))
+                  (loop (cons (datum->syntax filename-syntax-object x)
+                              out)))))))))
 
 (define-syntax include
-  (lambda (x)
-    (define read-file
-      (lambda (fn dir k)
-        (let* ((p (open-input-file
-                   (cond ((absolute-file-name? fn)
-                          fn)
-                         (dir
-                          (in-vicinity dir fn))
-                         (else
-                          (syntax-violation
-                           'include
-                           "relative file name only allowed when the include form is in a file"
-                           x)))))
-               (enc (file-encoding p)))
+  (lambda (orig-form)
+    (syntax-case orig-form ()
+      ((_ filename1 filename2 ...)
+       (and-map (lambda (fn)
+                  (string? (syntax->datum fn)))
+                #'(filename1 filename2 ...))
+       (with-syntax (((exp ...)
+                      (%read-files-for-include #'(filename1 filename2 ...)
+                                               #f
+                                               orig-form)))
+         #'(begin exp ...))))))
 
-          ;; Choose the input encoding deterministically.
-          (set-port-encoding! p (or enc "UTF-8"))
-
-          (let f ((x (read p))
-                  (result '()))
-            (if (eof-object? x)
-                (begin
-                  (close-input-port p)
-                  (reverse result))
-                (f (read p)
-                   (cons (datum->syntax k x) result)))))))
-    (let* ((src (syntax-source x))
-           (file (and src (assq-ref src 'filename)))
-           (dir (and (string? file) (dirname file))))
-      (syntax-case x ()
-        ((k filename)
-         (let ((fn (syntax->datum #'filename)))
-           (with-syntax (((exp ...) (read-file fn dir #'filename)))
-             #'(begin exp ...))))))))
+(define-syntax include-ci
+  (lambda (orig-form)
+    (syntax-case orig-form ()
+      ((_ filename1 filename2 ...)
+       (and-map (lambda (fn)
+                  (string? (syntax->datum fn)))
+                #'(filename1 filename2 ...))
+       (with-syntax (((exp ...)
+                      (%read-files-for-include #'(filename1 filename2 ...)
+                                               #t
+                                               orig-form)))
+         #'(begin exp ...))))))
 
 (define-syntax include-from-path
   (lambda (x)

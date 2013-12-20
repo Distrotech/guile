@@ -3123,52 +3123,106 @@
                 "source expression failed to match any pattern"
                 tmp-1))))))))
 
+(define %read-files-for-include
+  (lambda (filename-syntax-objects case-insensitive? orig-form)
+    (let file-loop ((filename-syntax-objects filename-syntax-objects) (out '()))
+      (if (null? filename-syntax-objects)
+        (reverse out)
+        (let ((filename-syntax-object (car filename-syntax-objects)))
+          (let ((specified-filename (syntax->datum filename-syntax-object)))
+            (let ((src (syntax-source filename-syntax-object)))
+              (let ((including-file (if src (assq-ref src 'filename) #f)))
+                (let ((dir (if (string? including-file) (dirname including-file) #f)))
+                  (let ((filename
+                          (if (absolute-file-name? specified-filename)
+                            specified-filename
+                            (if dir
+                              (in-vicinity dir specified-filename)
+                              (let ((tmp-1 orig-form))
+                                (let ((tmp ($sc-dispatch tmp-1 '(any . any))))
+                                  (if tmp
+                                    (apply (lambda (keyword rest)
+                                             (syntax-violation
+                                               (syntax->datum keyword)
+                                               "relative file name only allowed from within a file"
+                                               orig-form))
+                                           tmp)
+                                    (syntax-violation
+                                      #f
+                                      "source expression failed to match any pattern"
+                                      tmp-1))))))))
+                    (let ((port (open-file filename "r" #:guess-encoding #t #:encoding "UTF-8")))
+                      (if case-insensitive?
+                        (set-port-read-option! port 'case-insensitive #t))
+                      (let loop ((out out))
+                        (let ((x (read port)))
+                          (if (eof-object? x)
+                            (begin
+                              (close-port port)
+                              (file-loop (cdr filename-syntax-objects) out))
+                            (loop (cons (datum->syntax filename-syntax-object x) out))))))))))))))))
+
 (define include
   (make-syntax-transformer
     'include
     'macro
-    (lambda (x)
-      (letrec*
-        ((read-file
-           (lambda (fn dir k)
-             (let ((p (open-input-file
-                        (if (absolute-file-name? fn)
-                          fn
-                          (if dir
-                            (in-vicinity dir fn)
-                            (syntax-violation
-                              'include
-                              "relative file name only allowed when the include form is in a file"
-                              x))))))
-               (let ((enc (file-encoding p)))
-                 (set-port-encoding! p (let ((t enc)) (if t t "UTF-8")))
-                 (let f ((x (read p)) (result '()))
-                   (if (eof-object? x)
-                     (begin (close-input-port p) (reverse result))
-                     (f (read p) (cons (datum->syntax k x) result)))))))))
-        (let ((src (syntax-source x)))
-          (let ((file (if src (assq-ref src 'filename) #f)))
-            (let ((dir (if (string? file) (dirname file) #f)))
-              (let ((tmp-1 x))
-                (let ((tmp ($sc-dispatch tmp-1 '(any any))))
-                  (if tmp
-                    (apply (lambda (k filename)
-                             (let ((fn (syntax->datum filename)))
-                               (let ((tmp-1 (read-file fn dir filename)))
-                                 (let ((tmp ($sc-dispatch tmp-1 'each-any)))
-                                   (if tmp
-                                     (apply (lambda (exp)
-                                              (cons '#(syntax-object begin ((top)) (hygiene guile)) exp))
-                                            tmp)
-                                     (syntax-violation
-                                       #f
-                                       "source expression failed to match any pattern"
-                                       tmp-1))))))
-                           tmp)
-                    (syntax-violation
-                      #f
-                      "source expression failed to match any pattern"
-                      tmp-1)))))))))))
+    (lambda (orig-form)
+      (let ((tmp-1 orig-form))
+        (let ((tmp ($sc-dispatch tmp-1 '(_ any . each-any))))
+          (if (if tmp
+                (apply (lambda (filename1 filename2)
+                         (and-map
+                           (lambda (fn) (string? (syntax->datum fn)))
+                           (cons filename1 filename2)))
+                       tmp)
+                #f)
+            (apply (lambda (filename1 filename2)
+                     (let ((tmp-1 (%read-files-for-include (cons filename1 filename2) #f orig-form)))
+                       (let ((tmp ($sc-dispatch tmp-1 'each-any)))
+                         (if tmp
+                           (apply (lambda (exp)
+                                    (cons '#(syntax-object begin ((top)) (hygiene guile)) exp))
+                                  tmp)
+                           (syntax-violation
+                             #f
+                             "source expression failed to match any pattern"
+                             tmp-1)))))
+                   tmp)
+            (syntax-violation
+              #f
+              "source expression failed to match any pattern"
+              tmp-1)))))))
+
+(define include-ci
+  (make-syntax-transformer
+    'include-ci
+    'macro
+    (lambda (orig-form)
+      (let ((tmp-1 orig-form))
+        (let ((tmp ($sc-dispatch tmp-1 '(_ any . each-any))))
+          (if (if tmp
+                (apply (lambda (filename1 filename2)
+                         (and-map
+                           (lambda (fn) (string? (syntax->datum fn)))
+                           (cons filename1 filename2)))
+                       tmp)
+                #f)
+            (apply (lambda (filename1 filename2)
+                     (let ((tmp-1 (%read-files-for-include (cons filename1 filename2) #t orig-form)))
+                       (let ((tmp ($sc-dispatch tmp-1 'each-any)))
+                         (if tmp
+                           (apply (lambda (exp)
+                                    (cons '#(syntax-object begin ((top)) (hygiene guile)) exp))
+                                  tmp)
+                           (syntax-violation
+                             #f
+                             "source expression failed to match any pattern"
+                             tmp-1)))))
+                   tmp)
+            (syntax-violation
+              #f
+              "source expression failed to match any pattern"
+              tmp-1)))))))
 
 (define include-from-path
   (make-syntax-transformer

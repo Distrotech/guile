@@ -1194,13 +1194,16 @@ together: fundamentally, loading up files at run-time using @code{load}
 and @code{load-compiled}.  Guile provides another option to compose
 parts of programs together at expansion-time instead of at run-time.
 
-@deffn {Scheme Syntax} include file-name
-Open @var{file-name}, at expansion-time, and read the Scheme forms that
-it contains, splicing them into the location of the @code{include},
-within a @code{begin}.
+@deffn {Scheme Syntax} include file-name @dots{}
+@deffnx {Scheme Syntax} include-ci file-name @dots{}
+Open @var{file-name}s, at expansion-time, and read the Scheme forms that
+they contain, splicing them into the location of the @code{include} form,
+within a @code{begin}.  @code{include-ci} is the same as @code{include},
+but reads the files with case-folding enabled, such that all symbols
+contained within are converted to lower case.
 
 If @var{file-name} is a relative path, it is searched for relative to
-the path that contains the file that the @code{include} for appears in.
+the path that contains the file that the @var{file-name} string appears in.
 @end deffn
 
 If you are a C programmer, if @code{load} in Scheme is like
