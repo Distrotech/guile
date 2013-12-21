@@ -32,7 +32,7 @@ nobase_ccache_DATA += ice-9/eval.go
 EXTRA_DIST += ice-9/eval.scm
 ETAGS_ARGS += ice-9/eval.scm
 
-ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm
+ice-9/boot-9.go: ice-9/boot-9.scm ice-9/quasisyntax.scm ice-9/r6rs-libraries.scm ice-9/r7rs-libraries.scm
 ice-9/match.go: ice-9/match.scm ice-9/match.upstream.scm
 
 # We can compile these in any order, but it's fastest if we compile
@@ -61,6 +61,7 @@ SOURCES =					\
   $(ICE_9_SOURCES)				\
   $(SRFI_SOURCES)				\
   $(RNRS_SOURCES)				\
+  $(R7RS_SOURCES)				\
   $(OOP_SOURCES)				\
   $(SYSTEM_SOURCES)				\
   $(SCRIPTS_SOURCES)				\
@@ -325,6 +326,24 @@ RNRS_SOURCES =					\
   rnrs/records/syntactic.scm			\
   rnrs.scm
 
+R7RS_SOURCES =					\
+  scheme/base.scm				\
+  scheme/case-lambda.scm			\
+  scheme/char.scm				\
+  scheme/complex.scm				\
+  scheme/cxr.scm				\
+  scheme/eval.scm				\
+  scheme/file.scm				\
+  scheme/inexact.scm				\
+  scheme/lazy.scm				\
+  scheme/load.scm				\
+  scheme/process-context.scm			\
+  scheme/r5rs.scm				\
+  scheme/read.scm				\
+  scheme/repl.scm				\
+  scheme/time.scm				\
+  scheme/write.scm
+
 EXTRA_DIST += scripts/ChangeLog-2008
 EXTRA_DIST += scripts/README
 
@@ -396,6 +415,7 @@ NOCOMP_SOURCES =				\
   ice-9/match.upstream.scm			\
   ice-9/psyntax.scm				\
   ice-9/r6rs-libraries.scm			\
+  ice-9/r7rs-libraries.scm			\
   ice-9/quasisyntax.scm				\
   srfi/srfi-42/ec.scm				\
   srfi/srfi-67/compare.scm			\
