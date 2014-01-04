@@ -227,7 +227,7 @@ VM_DEFINE_FUNCTION (149, ge, "ge?", 2)
 /* Assembly tagged integer arithmetic routines.  This code uses the
    `asm goto' feature introduced in GCC 4.5.  */
 
-#if defined __x86_64__ && SCM_GNUC_PREREQ (4, 5)
+#if defined __x86_64__ && SCM_GNUC_PREREQ (4, 5) && !defined(__ILP32__)
 
 /* The macros below check the CPU's overflow flag to improve fixnum
    arithmetic.  The %rcx register is explicitly clobbered because `asm
