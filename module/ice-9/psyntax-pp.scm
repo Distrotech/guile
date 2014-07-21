@@ -250,11 +250,21 @@
      (lambda (x update) (vector-set! x 2 update)))
    (set-syntax-object-module!
      (lambda (x update) (vector-set! x 3 update)))
+   (source-properties*
+     (lambda (x)
+       (let ((props (source-properties x))) (and (pair? props) props))))
    (source-annotation
      (lambda (x)
-       (let ((props (source-properties
-                      (if (syntax-object? x) (syntax-object-expression x) x))))
-         (and (pair? props) props))))
+       (if (syntax-object? x)
+         (or (source-properties* (syntax-object-expression x))
+             (source-properties* x))
+         (source-properties* x))))
+   (source-map
+     (lambda (f l)
+       (let lp ((l l))
+         (if (null? l)
+           '()
+           (cons (f (car l) (source-properties* l)) (lp (cdr l)))))))
    (extend-env
      (lambda (labels bindings r)
        (if (null? labels)
@@ -535,7 +545,8 @@
                  ((null? x) x)
                  (else (make-syntax-object x w defmod)))))
    (source-wrap
-     (lambda (x w s defmod) (wrap (decorate-source x s) w defmod)))
+     (lambda (x w s defmod)
+       (decorate-source (wrap (decorate-source x s) w defmod) s)))
    (expand-sequence
      (lambda (body r w s mod)
        (build-sequence
@@ -543,7 +554,7 @@
          (let dobody ((body body) (r r) (w w) (mod mod))
            (if (null? body)
              '()
-             (let ((first (expand (car body) r w mod)))
+             (let ((first (expand (car body) r w (source-properties* body) mod)))
                (cons first (dobody (cdr body) r w mod))))))))
    (expand-top-sequence
      (lambda (body r w s m esew mod)
@@ -588,7 +599,7 @@
                                            (syntax-object-expression id))))
                                (record-definition! id var)
                                (list (if (eq? m 'c&e)
-                                       (let ((x (build-global-definition s var (expand e r w mod))))
+                                       (let ((x (build-global-definition s var (expand e r w s mod))))
                                          (top-level-eval-hook x mod)
                                          (lambda () x))
                                        (call-with-values
@@ -598,7 +609,7 @@
                                              (top-level-eval-hook
                                                (build-global-definition s var (build-void s))
                                                mod))
-                                           (lambda () (build-global-definition s var (expand e r w mod)))))))))
+                                           (lambda () (build-global-definition s var (expand e r w s mod)))))))))
                             ((memv key '(define-syntax-form define-syntax-parameter-form))
                              (let* ((id (wrap value w mod))
                                     (label (gen-label))
@@ -609,20 +620,20 @@
                                (let ((key m))
                                  (cond ((memv key '(c))
                                         (cond ((memq 'compile esew)
-                                               (let ((e (expand-install-global var type (expand e r w mod))))
+                                               (let ((e (expand-install-global var type (expand e r w s mod))))
                                                  (top-level-eval-hook e mod)
                                                  (if (memq 'load esew) (list (lambda () e)) '())))
                                               ((memq 'load esew)
-                                               (list (lambda () (expand-install-global var type (expand e r w mod)))))
+                                               (list (lambda () (expand-install-global var type (expand e r w s mod)))))
                                               (else '())))
                                        ((memv key '(c&e))
-                                        (let ((e (expand-install-global var type (expand e r w mod))))
+                                        (let ((e (expand-install-global var type (expand e r w s mod))))
                                           (top-level-eval-hook e mod)
                                           (list (lambda () e))))
                                        (else
                                         (if (memq 'eval esew)
                                           (top-level-eval-hook
-                                            (expand-install-global var type (expand e r w mod))
+                                            (expand-install-global var type (expand e r w s mod))
                                             mod))
                                         '())))))
                             ((memv key '(begin-form))
@@ -826,9 +837,10 @@
              ((self-evaluating? e) (values 'constant #f e e w s mod))
              (else (values 'other #f e e w s mod)))))
    (expand
-     (lambda (e r w mod)
+     (lambda (e r w s mod)
        (call-with-values
-         (lambda () (syntax-type e r w (source-annotation e) #f mod #f))
+         (lambda ()
+           (syntax-type e r w (or (source-annotation e) s) #f mod #f))
          (lambda (type value form e w s mod)
            (expand-expr type value form e r w s mod)))))
    (expand-expr
@@ -839,7 +851,7 @@
                ((memv key '(module-ref))
                 (call-with-values
                   (lambda () (value e r w mod))
-                  (lambda (e r w s mod) (expand e r w mod))))
+                  (lambda (e r w s mod) (expand e r w s mod))))
                ((memv key '(lexical-call))
                 (expand-call
                   (let ((id (car e)))
@@ -868,7 +880,10 @@
                 (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(_ . each-any))))
                   (if tmp
                     (apply (lambda (e)
-                             (build-primcall s value (map (lambda (e) (expand e r w mod)) e)))
+                             (build-primcall
+                               s
+                               value
+                               (source-map (lambda (e s) (expand e r w s mod)) e)))
                            tmp)
                     (syntax-violation
                       #f
@@ -878,7 +893,7 @@
                 (build-data s (strip (source-wrap e w s mod) '(()))))
                ((memv key '(global)) (build-global-reference s value mod))
                ((memv key '(call))
-                (expand-call (expand (car e) r w mod) e r w s mod))
+                (expand-call (expand (car e) r w s mod) e r w s mod))
                ((memv key '(begin-form))
                 (let* ((tmp e) (tmp-1 ($sc-dispatch tmp '(_ any . each-any))))
                   (if tmp-1
@@ -934,7 +949,7 @@
        (let* ((tmp-1 e) (tmp ($sc-dispatch tmp-1 '(any . each-any))))
          (if tmp
            (apply (lambda (e0 e1)
-                    (build-call s x (map (lambda (e) (expand e r w mod)) e1)))
+                    (build-call s x (source-map (lambda (e s) (expand e r w s mod)) e1)))
                   tmp)
            (syntax-violation
              #f
@@ -975,7 +990,7 @@
                      (syntax-violation
                        #f
                        "encountered raw symbol in macro output"
-                       (source-wrap e w (cdr w) mod)
+                       (source-wrap e w s mod)
                        x))
                     (else (decorate-source x s))))))
          (let* ((t-1 transformer-environment) (t (lambda (k) (k e r w s rib mod))))
@@ -991,7 +1006,7 @@
        (let* ((r (cons '("placeholder" placeholder) r))
               (ribcage (make-ribcage '() '() '()))
               (w (cons (car w) (cons ribcage (cdr w)))))
-         (let parse ((body (map (lambda (x) (cons r (wrap x w mod))) body))
+         (let parse ((body (source-map (lambda (x s) (cons r (source-wrap x w s mod))) body))
                      (ids '())
                      (labels '())
                      (var-ids '())
@@ -1026,7 +1041,7 @@
                                 r
                                 (extend-env
                                   (list label)
-                                  (list (cons 'macro (eval-local-transformer (expand e trans-r w mod) mod)))
+                                  (list (cons 'macro (eval-local-transformer (expand e trans-r w s mod) mod)))
                                   (cdr r)))
                               (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
                            ((memv key '(define-syntax-parameter-form))
@@ -1039,7 +1054,7 @@
                                 (extend-env
                                   (list label)
                                   (list (cons 'syntax-parameter
-                                              (list (eval-local-transformer (expand e trans-r w mod) mod))))
+                                              (list (eval-local-transformer (expand e trans-r w s mod) mod))))
                                   (cdr r)))
                               (parse (cdr body) (cons id ids) labels var-ids vars vals bindings)))
                            ((memv key '(begin-form))
@@ -1083,8 +1098,9 @@
                            ((null? ids)
                             (build-sequence
                               #f
-                              (map (lambda (x) (expand (cdr x) (car x) '(()) mod))
-                                   (cons (cons er (source-wrap e w s mod)) (cdr body)))))
+                              (source-map
+                                (lambda (x s) (expand (cdr x) (car x) '(()) s mod))
+                                (cons (cons er (source-wrap e w s mod)) (cdr body)))))
                            (else
                             (if (not (valid-bound-ids? ids))
                               (syntax-violation
@@ -1097,11 +1113,13 @@
                               #t
                               (reverse (map syntax->datum var-ids))
                               (reverse vars)
-                              (map (lambda (x) (expand (cdr x) (car x) '(()) mod)) (reverse vals))
+                              (map (lambda (x) (expand (cdr x) (car x) '(()) #f mod))
+                                   (reverse vals))
                               (build-sequence
                                 #f
-                                (map (lambda (x) (expand (cdr x) (car x) '(()) mod))
-                                     (cons (cons er (source-wrap e w s mod)) (cdr body))))))))))))))))
+                                (source-map
+                                  (lambda (x s) (expand (cdr x) (car x) '(()) s mod))
+                                  (cons (cons er (source-wrap e w s mod)) (cdr body))))))))))))))))
    (expand-local-syntax
      (lambda (rec? e r w s mod k)
        (let* ((tmp e)
@@ -1117,7 +1135,8 @@
                                labels
                                (let ((w (if rec? new-w w)) (trans-r (macros-only-env r)))
                                  (map (lambda (x)
-                                        (cons 'macro (eval-local-transformer (expand x trans-r w mod) mod)))
+                                        (cons 'macro
+                                              (eval-local-transformer (expand x trans-r w #f mod) mod)))
                                       val))
                                r)
                              new-w
@@ -1368,7 +1387,7 @@
                                       r**
                                       w**
                                       (cons (syntax->datum id) out)
-                                      (cons (expand i r* w* mod) inits))))
+                                      (cons (expand i r* w* #f mod) inits))))
                                 tmp)
                          (syntax-violation
                            #f
@@ -1425,7 +1444,7 @@
                                  w**
                                  aok
                                  (cons (list (syntax->datum k) (syntax->datum id) v) out)
-                                 (cons (expand i r* w* mod) inits))))
+                                 (cons (expand i r* w* #f mod) inits))))
                            tmp)
                     (syntax-violation
                       #f
@@ -1592,7 +1611,7 @@
                          (bindings
                            (let ((trans-r (macros-only-env r)))
                              (map (lambda (x)
-                                    (cons 'macro (eval-local-transformer (expand x trans-r w mod) mod)))
+                                    (cons 'macro (eval-local-transformer (expand x trans-r w s mod) mod)))
                                   val))))
                      (expand-body
                        (cons e1 e2)
@@ -1908,7 +1927,7 @@
                    s
                    (map syntax->datum ids)
                    new-vars
-                   (map (lambda (x) (expand x r w mod)) vals)
+                   (map (lambda (x) (expand x r w #f mod)) vals)
                    (expand-body exps (source-wrap e nw s mod) nr nw mod))))))))
       (lambda (e r w s mod)
         (let* ((tmp-1 e)
@@ -1943,7 +1962,7 @@
                              #f
                              (map syntax->datum ids)
                              new-vars
-                             (map (lambda (x) (expand x r w mod)) val)
+                             (map (lambda (x) (expand x r w #f mod)) val)
                              (expand-body (cons e1 e2) (source-wrap e w s mod) r w mod)))))))
                  tmp)
           (syntax-violation 'letrec "bad letrec" (source-wrap e w s mod))))))
@@ -1966,7 +1985,7 @@
                              #t
                              (map syntax->datum ids)
                              new-vars
-                             (map (lambda (x) (expand x r w mod)) val)
+                             (map (lambda (x) (expand x r w #f mod)) val)
                              (expand-body (cons e1 e2) (source-wrap e w s mod) r w mod)))))))
                  tmp)
           (syntax-violation 'letrec* "bad letrec*" (source-wrap e w s mod))))))
@@ -1986,12 +2005,12 @@
                                   s
                                   (syntax->datum id)
                                   value
-                                  (expand val r w mod)))
+                                  (expand val r w s mod)))
                                ((memv key '(global))
-                                (build-global-assignment s value (expand val r w mod) id-mod))
+                                (build-global-assignment s value (expand val r w s mod) id-mod))
                                ((memv key '(macro))
                                 (if (procedure-property value 'variable-transformer)
-                                  (expand (expand-macro value e r w s #f mod) r '(()) mod)
+                                  (expand (expand-macro value e r w s #f mod) r '(()) s mod)
                                   (syntax-violation
                                     'set!
                                     "not a variable transformer"
@@ -2009,7 +2028,7 @@
                          (lambda (type value ee* ee ww ss modmod)
                            (let ((key type))
                              (if (memv key '(module-ref))
-                               (let ((val (expand val r w mod)))
+                               (let ((val (expand val r w s mod)))
                                  (call-with-values
                                    (lambda () (value (cons head tail) r w mod))
                                    (lambda (e r w s* mod)
@@ -2027,8 +2046,9 @@
                                    (list '#(syntax-object setter ((top)) (hygiene guile)) head)
                                    r
                                    w
+                                   s
                                    mod)
-                                 (map (lambda (e) (expand e r w mod)) (append tail (list val)))))))))
+                                 (map (lambda (e) (expand e r w #f mod)) (append tail (list val)))))))))
                      tmp)
               (syntax-violation 'set! "bad set!" (source-wrap e w s mod))))))))
   (global-extend
@@ -2122,8 +2142,8 @@
           (apply (lambda (test then)
                    (build-conditional
                      s
-                     (expand test r w mod)
-                     (expand then r w mod)
+                     (expand test r w s mod)
+                     (expand then r w s mod)
                      (build-void #f)))
                  tmp-1)
           (let ((tmp-1 ($sc-dispatch tmp '(_ any any any))))
@@ -2131,9 +2151,9 @@
               (apply (lambda (test then else)
                        (build-conditional
                          s
-                         (expand test r w mod)
-                         (expand then r w mod)
-                         (expand else r w mod)))
+                         (expand test r w s mod)
+                         (expand then r w s mod)
+                         (expand else r w s mod)))
                      tmp-1)
               (syntax-violation
                 #f
@@ -2238,6 +2258,7 @@
                                   (map cdr pvars))
                              r)
                            (make-binding-wrap ids labels '(()))
+                           #f
                            mod))
                        y))))))
        (gen-clause
@@ -2293,7 +2314,7 @@
                                      (lambda (x) (not (free-id=? pat x)))
                                      (cons '#(syntax-object ... ((top)) (hygiene guile)) keys)))
                             (if (free-id=? pat '#(syntax-object _ ((top)) (hygiene guile)))
-                              (expand exp r '(()) mod)
+                              (expand exp r '(()) #f mod)
                               (let ((labels (list (gen-label))) (var (gen-var pat)))
                                 (build-call
                                   #f
@@ -2307,6 +2328,7 @@
                                       exp
                                       (extend-env labels (list (cons 'syntax (cons var 0))) r)
                                       (make-binding-wrap (list pat) labels '(()))
+                                      #f
                                       mod))
                                   (list x))))
                             (gen-clause x keys (cdr clauses) r pat #t exp mod)))
@@ -2339,7 +2361,7 @@
                                m
                                r
                                mod))
-                           (list (expand val r '(()) mod))))
+                           (list (expand val r '(()) #f mod))))
                        (syntax-violation 'syntax-case "invalid literals list" e)))
                    tmp)
             (syntax-violation
@@ -2473,12 +2495,13 @@
       'syntax-locally-bound-identifiers
       syntax-locally-bound-identifiers))
   (letrec*
-    ((match-each
-       (lambda (e p w mod)
+    ((source* (lambda (e s) (or (source-properties* e) s)))
+     (match-each
+       (lambda (e p w s mod)
          (cond ((pair? e)
-                (let ((first (match (car e) p w '() mod)))
+                (let ((first (match (car e) p w '() (source* e s) mod)))
                   (and first
-                       (let ((rest (match-each (cdr e) p w mod)))
+                       (let ((rest (match-each (cdr e) p w (source* e s) mod)))
                          (and rest (cons first rest))))))
                ((null? e) '())
                ((syntax-object? e)
@@ -2486,34 +2509,40 @@
                   (syntax-object-expression e)
                   p
                   (join-wraps w (syntax-object-wrap e))
+                  (source* e s)
                   (syntax-object-module e)))
                (else #f))))
      (match-each+
-       (lambda (e x-pat y-pat z-pat w r mod)
-         (let f ((e e) (w w))
+       (lambda (e x-pat y-pat z-pat w r s mod)
+         (let f ((e e) (w w) (s s))
            (cond ((pair? e)
                   (call-with-values
-                    (lambda () (f (cdr e) w))
+                    (lambda () (f (cdr e) w (source* e s)))
                     (lambda (xr* y-pat r)
                       (if r
                         (if (null? y-pat)
-                          (let ((xr (match (car e) x-pat w '() mod)))
+                          (let ((xr (match (car e) x-pat w '() (source* e s) mod)))
                             (if xr (values (cons xr xr*) y-pat r) (values #f #f #f)))
-                          (values '() (cdr y-pat) (match (car e) (car y-pat) w r mod)))
+                          (values
+                            '()
+                            (cdr y-pat)
+                            (match (car e) (car y-pat) w r (source* e s) mod)))
                         (values #f #f #f)))))
                  ((syntax-object? e)
-                  (f (syntax-object-expression e) (join-wraps w e)))
-                 (else (values '() y-pat (match e z-pat w r mod)))))))
+                  (f (syntax-object-expression e) (join-wraps w e) (source* e s)))
+                 (else (values '() y-pat (match e z-pat w r (source* e s) mod)))))))
      (match-each-any
-       (lambda (e w mod)
+       (lambda (e w s mod)
          (cond ((pair? e)
-                (let ((l (match-each-any (cdr e) w mod)))
-                  (and l (cons (wrap (car e) w mod) l))))
+                (let ((l (match-each-any (cdr e) w (source* e s) mod)))
+                  (and l
+                       (cons (source-wrap (car e) w (source* (car e) (source* e s)) mod) l))))
                ((null? e) '())
                ((syntax-object? e)
                 (match-each-any
                   (syntax-object-expression e)
                   (join-wraps w (syntax-object-wrap e))
+                  (source* e s)
                   mod))
                (else #f))))
      (match-empty
@@ -2538,19 +2567,24 @@
        (lambda (r* r)
          (if (null? (car r*)) r (cons (map car r*) (combine (map cdr r*) r)))))
      (match*
-       (lambda (e p w r mod)
+       (lambda (e p w r s mod)
          (cond ((null? p) (and (null? e) r))
                ((pair? p)
                 (and (pair? e)
-                     (match (car e) (car p) w (match (cdr e) (cdr p) w r mod) mod)))
+                     (match (car e)
+                            (car p)
+                            w
+                            (match (cdr e) (cdr p) w r (source* e s) mod)
+                            (source* e s)
+                            mod)))
                ((eq? p 'each-any)
-                (let ((l (match-each-any e w mod))) (and l (cons l r))))
+                (let ((l (match-each-any e w s mod))) (and l (cons l r))))
                (else
                 (let ((key (vector-ref p 0)))
                   (cond ((memv key '(each))
                          (if (null? e)
                            (match-empty (vector-ref p 1) r)
-                           (let ((l (match-each e (vector-ref p 1) w mod)))
+                           (let ((l (match-each e (vector-ref p 1) w s mod)))
                              (and l
                                   (let collect ((l l))
                                     (if (null? (car l)) r (cons (map car l) (collect (map cdr l)))))))))
@@ -2564,6 +2598,7 @@
                                (vector-ref p 3)
                                w
                                r
+                               s
                                mod))
                            (lambda (xr* y-pat r)
                              (and r
@@ -2573,19 +2608,22 @@
                          (and (id? e) (free-id=? (wrap e w mod) (vector-ref p 1)) r))
                         ((memv key '(atom)) (and (equal? (vector-ref p 1) (strip e w)) r))
                         ((memv key '(vector))
-                         (and (vector? e) (match (vector->list e) (vector-ref p 1) w r mod)))))))))
-     (match (lambda (e p w r mod)
+                         (and (vector? e)
+                              (match (vector->list e) (vector-ref p 1) w r (source* e s) mod)))))))))
+     (match (lambda (e p w r s mod)
               (cond ((not r) #f)
                     ((eq? p '_) r)
-                    ((eq? p 'any) (cons (wrap e w mod) r))
+                    ((eq? p 'any)
+                     (cons (source-wrap e w (or (source-annotation e) s) mod) r))
                     ((syntax-object? e)
                      (match*
                        (syntax-object-expression e)
                        p
                        (join-wraps w (syntax-object-wrap e))
                        r
+                       (source* e s)
                        (syntax-object-module e)))
-                    (else (match* e p w r mod))))))
+                    (else (match* e p w r s mod))))))
     (set! $sc-dispatch
       (lambda (e p)
         (cond ((eq? p 'any) (list e))
@@ -2596,8 +2634,9 @@
                  p
                  (syntax-object-wrap e)
                  '()
+                 (source* e #f)
                  (syntax-object-module e)))
-              (else (match* e p '(()) '() #f)))))))
+              (else (match* e p '(()) '() #f #f)))))))
 
 (define with-syntax
   (make-syntax-transformer
