@@ -432,9 +432,8 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
                                 : ((chr == '[') ? ']'
                                    : ')'));
 
-  /* Need to capture line and column numbers here. */
-  long line = SCM_LINUM (port);
-  int column = SCM_COL (port) - 1;
+  long start_line = SCM_LINUM (port);
+  int start_column = SCM_COL (port) - 1;
 
   c = flush_ws (port, opts, FUNC_NAME);
   if (terminating_char == c)
@@ -461,6 +460,8 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
   while (terminating_char != (c = flush_ws (port, opts, FUNC_NAME)))
     {
       SCM new_tail;
+      long line = SCM_LINUM (port);
+      int column = SCM_COL (port) - 1;
 
       if (c == ')' || (c == ']' && opts->square_brackets_p)
           || ((c == '}' || c == ']') && opts->curly_infix_p))
@@ -469,6 +470,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
                            scm_list_1 (SCM_MAKE_CHAR (c)));
 
       scm_ungetc_unlocked (c, port);
+
       tmp = scm_read_expression (port, opts);
 
       /* See above note about scm_sym_dot.  */
@@ -484,6 +486,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
 	}
 
       new_tail = scm_cons (tmp, SCM_EOL);
+      new_tail = maybe_annotate_source (new_tail, port, opts, line, column);
       SCM_SETCDR (tl, new_tail);
       tl = new_tail;
     }
@@ -541,7 +544,7 @@ scm_read_sexp (scm_t_wchar chr, SCM port, scm_t_read_opts *opts)
         ans = scm_cons (sym_nfx, ans);
     }
 
-  return maybe_annotate_source (ans, port, opts, line, column);
+  return maybe_annotate_source (ans, port, opts, start_line, start_column);
 }
 #undef FUNC_NAME
 
