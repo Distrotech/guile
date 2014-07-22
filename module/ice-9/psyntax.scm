@@ -903,12 +903,12 @@
           ;; macro-introduced syntax parameters.
           (resolve-identifier n w r mod resolve-syntax-parameters?))
          ((symbol? n)
-          (resolve-global n (if (syntax-object? id)
-                                (syntax-object-module id)
+          (resolve-global n (or (and (syntax-object? id)
+                                     (syntax-object-module id))
                                 mod)))
          ((string? n)
-          (resolve-lexical n (if (syntax-object? id)
-                                 (syntax-object-module id)
+          (resolve-lexical n (or (and (syntax-object? id)
+                                      (syntax-object-module id))
                                  mod)))
          (else
           (error "unexpected id-var-name" id w n)))))
@@ -1009,7 +1009,6 @@
     (define wrap
       (lambda (x w defmod)
         (cond
-         ((and (null? (wrap-marks w)) (null? (wrap-subst w))) x)
          ((syntax-object? x)
           (make-syntax-object
            (syntax-object-expression x)
@@ -2449,8 +2448,8 @@
                      (syntax-case e (@@ primitive)
                        ((_ primitive id)
                         (and (id? #'id)
-                             (equal? (cdr (if (syntax-object? #'id)
-                                              (syntax-object-module #'id)
+                             (equal? (cdr (or (and (syntax-object? #'id)
+                                                   (syntax-object-module #'id))
                                               mod))
                                      '(guile)))
                         ;; Strip the wrap from the identifier and return top-wrap
@@ -2866,7 +2865,8 @@
                            (match (car e) (car y-pat) w r (source* e s) mod)))
                       (values #f #f #f)))))
              ((syntax-object? e)
-              (f (syntax-object-expression e) (join-wraps w e) (source* e s)))
+              (f (syntax-object-expression e) (join-wraps w (syntax-object-wrap e))
+                 (source* e s)))
              (else
               (values '() y-pat (match e z-pat w r (source* e s) mod)))))))
 
