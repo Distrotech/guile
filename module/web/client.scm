@@ -1,6 +1,6 @@
 ;;; Web client
 
-;; Copyright (C) 2011, 2012, 2013 Free Software Foundation, Inc.
+;; Copyright (C) 2011, 2012, 2013, 2014 Free Software Foundation, Inc.
 
 ;; This library is free software; you can redistribute it and/or
 ;; modify it under the terms of the GNU Lesser General Public
@@ -74,7 +74,8 @@
       (delete-duplicates
        (getaddrinfo (uri-host uri)
                     (cond (port => number->string)
-                          (else (symbol->string (uri-scheme uri))))
+                          ((uri-scheme uri) => symbol->string)
+                          (else (error "Not an absolute URI" uri)))
                     (if port
                         AI_NUMERICSERV
                         0))
