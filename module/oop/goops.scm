@@ -507,6 +507,43 @@
 ;;; {Methods}
 ;;;
 
+;; Note: `a' and `b' can have unequal lengths (i.e. one can be one
+;; element longer than the other when we have a dotted parameter
+;; list). For instance, with the call
+;;
+;;   (M 1)
+;;
+;; with
+;;
+;;   (define-method M (a . l) ....)
+;;   (define-method M (a) ....)
+;; 
+;; we consider that the second method is more specific.
+;; 
+;; Precondition: `a' and `b' are methods and are applicable to `types'.
+(define (%method-more-specific? a b types)
+  (let lp ((a-specializers (method-specializers a))
+           (b-specializers (method-specializers b))
+           (types types))
+    (cond
+     ((null? a-specializers) #t)
+     ((null? b-specializers) #f)
+     (else
+      (let ((a-specializer (car a-specializers))
+            (b-specializer (car b-specializers))
+            (a-specializers (cdr a-specializers))
+            (b-specializers (cdr b-specializers))
+            (type (car types))
+            (types (cdr types)))
+        (if (eq? a-specializer b-specializer)
+            (lp a-specializers b-specializers types)
+            (let lp ((cpl (class-precedence-list type)))
+              (let ((elt (car cpl)))
+                (cond
+                 ((eq? a-specializer elt) #t)
+                 ((eq? b-specializer elt) #f)
+                 (else (lp (cdr cpl))))))))))))
+
 (define (%sort-applicable-methods methods types)
   (sort methods (lambda (a b) (%method-more-specific? a b types))))
 
