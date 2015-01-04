@@ -133,8 +133,6 @@
             slot-exists? make find-method get-keyword)
   #:no-backtrace)
 
-(define *goops-module* (current-module))
-
 (eval-when (compile load eval)
   ;;; The standard class precedence list computation algorithm
   ;;;
