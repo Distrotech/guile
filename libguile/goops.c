@@ -1895,12 +1895,7 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   create_struct_classes ();
   create_port_classes ();
 
-  {
-    SCM name = scm_from_latin1_symbol ("no-applicable-method");
-    scm_no_applicable_method =
-      scm_make (scm_list_3 (scm_class_generic, k_name, name));
-    scm_module_define (scm_module_goops, name, scm_no_applicable_method);
-  }
+  scm_no_applicable_method = scm_variable_ref (scm_c_lookup ("no-applicable-method"));
 
   return SCM_UNSPECIFIED;
 }

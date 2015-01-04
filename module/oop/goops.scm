@@ -27,6 +27,7 @@
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
+  #:use-module (oop goops util)
   #:export-syntax (define-class class standard-define-class
                     define-generic define-accessor define-method
                     define-extended-generic define-extended-generics
@@ -510,14 +511,15 @@
   (define-standard-class <input-port> (<port>))
   (define-standard-class <output-port> (<port>))
   (define-standard-class <input-output-port> (<input-port> <output-port>))
-  )
+
+  (define no-applicable-method
+    (make <generic> #:name 'no-applicable-method)))
 
 (eval-when (compile load eval)
   (%goops-early-init))
 
 ;; Then load the rest of GOOPS
-(use-modules (oop goops util)
-	     (oop goops dispatch)
+(use-modules (oop goops dispatch)
 	     (oop goops compile))
 
 
