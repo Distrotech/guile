@@ -121,7 +121,6 @@ static SCM class_procedure_class;
 static SCM class_applicable_struct_class;
 static SCM class_applicable_struct_with_setter_class;
 static SCM class_number, class_list;
-static SCM class_keyword;
 static SCM class_port, class_input_output_port;
 static SCM class_input_port, class_output_port;
 static SCM class_foreign_slot;
@@ -880,8 +879,6 @@ create_smob_classes (void)
   for (i = 0; i < SCM_I_MAX_SMOB_TYPE_COUNT; ++i)
     scm_i_smob_class[i] = SCM_BOOL_F;
 
-  scm_i_smob_class[SCM_TC2SMOBNUM (scm_tc16_keyword)] = class_keyword;
-
   for (i = 0; i < scm_numsmob; ++i)
     if (scm_is_false (scm_i_smob_class[i]))
       scm_i_smob_class[i] = scm_make_extended_class (SCM_SMOBNAME (i),
@@ -1136,7 +1133,6 @@ SCM_DEFINE (scm_sys_goops_early_init, "%goops-early-init", 0, 0, 0,
   class_real = scm_variable_ref (scm_c_lookup ("<real>"));
   class_integer = scm_variable_ref (scm_c_lookup ("<integer>"));
   class_fraction = scm_variable_ref (scm_c_lookup ("<fraction>"));
-  class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
   class_unknown = scm_variable_ref (scm_c_lookup ("<unknown>"));
   class_procedure = scm_variable_ref (scm_c_lookup ("<procedure>"));
   class_primitive_generic = scm_variable_ref (scm_c_lookup ("<primitive-generic>"));

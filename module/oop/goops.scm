@@ -608,7 +608,6 @@
 (define-standard-class <real> (<complex>))
 (define-standard-class <integer> (<real>))
 (define-standard-class <fraction> (<real>))
-(define-standard-class <keyword> (<top>))
 (define-standard-class <unknown> (<top>))
 (define-standard-class <procedure> (<applicable>)
   #:metaclass <procedure-class>)

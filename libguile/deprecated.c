@@ -183,7 +183,7 @@ scm_init_deprecated_goops (void)
   scm_class_real = scm_variable_ref (scm_c_lookup ("<real>"));
   scm_class_integer = scm_variable_ref (scm_c_lookup ("<integer>"));
   scm_class_fraction = scm_variable_ref (scm_c_lookup ("<fraction>"));
-  scm_class_keyword = scm_variable_ref (scm_c_lookup ("<keyword>"));
+  scm_class_keyword = scm_i_smob_class[SCM_TC2SMOBNUM (scm_tc16_keyword)];
   scm_class_unknown = scm_variable_ref (scm_c_lookup ("<unknown>"));
   scm_class_procedure = scm_variable_ref (scm_c_lookup ("<procedure>"));
   scm_class_primitive_generic = scm_variable_ref (scm_c_lookup ("<primitive-generic>"));
