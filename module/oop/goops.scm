@@ -27,7 +27,6 @@
 (define-module (oop goops)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
-  #:use-module (oop goops util)
   #:use-module (system base target)
   #:export-syntax (define-class class standard-define-class
                     define-generic define-accessor define-method
@@ -1761,6 +1760,31 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 (define-method (add-method! obj (m <method>))
   (goops-error "~S is not a valid generic function" obj))
+
+;;;
+;;; {Utilities}
+;;;
+;;; These are useful when dealing with specializers lists, which might
+;;; have a rest argument.
+;;;
+
+(define (map* fn . l) 		; A map which accepts dotted lists (arg lists  
+  (cond 			; must be "isomorph"
+   ((null? (car l)) '())
+   ((pair? (car l)) (cons (apply fn      (map car l))
+			  (apply map* fn (map cdr l))))
+   (else            (apply fn l))))
+
+(define (for-each* fn . l) 	; A for-each which accepts dotted lists (arg lists  
+  (cond 			; must be "isomorph"
+   ((null? (car l)) '())
+   ((pair? (car l)) (apply fn (map car l)) (apply for-each* fn (map cdr l)))
+   (else            (apply fn l))))
+
+(define (length* ls)
+  (do ((n 0 (+ 1 n))
+       (ls ls (cdr ls)))
+      ((not (pair? ls)) n)))
 
 ;;;
 ;;; {Access to meta objects}
