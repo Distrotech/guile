@@ -767,9 +767,14 @@ followed by its associated value.  If @var{l} does not hold a value for
          (scm-error 'wrong-type-arg #f "Not a keyword: ~S" (list kw) #f))
        (if (eq? kw key) arg (lp l))))))
 
+(define *unbound* (list 'unbound))
+
+(define-inlinable (unbound? x)
+  (eq? x *unbound*))
+
 (define (%allocate-instance class)
   (let ((obj (allocate-struct class (struct-ref class class-index-nfields))))
-    (%clear-fields! obj)
+    (%clear-fields! obj *unbound*)
     obj))
 
 (define (make class . args)
@@ -1300,7 +1305,7 @@ followed by its associated value.  If @var{l} does not hold a value for
            head
            (find-duplicate tail)))))
 
-  (let* ((name (get-keyword #:name options (make-unbound)))
+  (let* ((name (get-keyword #:name options *unbound*))
          (supers (if (not (or-map (lambda (class)
                                     (memq <object>
                                           (class-precedence-list class)))
@@ -1939,10 +1944,10 @@ followed by its associated value.  If @var{l} does not hold a value for
 
 (define (slot-definition-init-value s)
   ;; can be #f, so we can't use #f as non-value
-  (get-keyword #:init-value (cdr s) (make-unbound)))
+  (get-keyword #:init-value (cdr s) *unbound*))
 
 (define (slot-definition-init-form s)
-  (get-keyword #:init-form (cdr s) (make-unbound)))
+  (get-keyword #:init-form (cdr s) *unbound*))
 
 (define (slot-definition-init-thunk s)
   (get-keyword #:init-thunk (cdr s) #f))
@@ -2525,7 +2530,7 @@ followed by its associated value.  If @var{l} does not hold a value for
     (else    (next-method))))
 
 (define (make-closure-variable class)
-  (let ((shared-variable (make-unbound)))
+  (let ((shared-variable *unbound*))
     (list (lambda (o) shared-variable)
           (lambda (o v) (set! shared-variable v)))))
 
@@ -2539,8 +2544,6 @@ followed by its associated value.  If @var{l} does not hold a value for
 ;;;
 ;;; {Initialize}
 ;;;
-
-(define *unbound* (make-unbound))
 
 ;; FIXME: This could be much more efficient.
 (define (%initialize-object obj initargs)
