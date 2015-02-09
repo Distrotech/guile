@@ -70,10 +70,10 @@ SCM_DEFINE (scm_shared_array_root, "shared-array-root", 1, 0, 0,
 {
   if (SCM_I_ARRAYP (ra))
     return SCM_I_ARRAY_V (ra);
-  else if (!scm_is_array (ra))
-    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
-  else
+  else if (scm_is_array (ra))
     return ra;
+  else
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
 }
 #undef FUNC_NAME
 
@@ -83,13 +83,12 @@ SCM_DEFINE (scm_shared_array_offset, "shared-array-offset", 1, 0, 0,
 	    "Return the root vector index of the first element in the array.")
 #define FUNC_NAME s_scm_shared_array_offset
 {
-  scm_t_array_handle handle;
-  SCM res;
-
-  scm_array_get_handle (ra, &handle);
-  res = scm_from_size_t (handle.base);
-  scm_array_handle_release (&handle);
-  return res;
+  if (SCM_I_ARRAYP (ra))
+    return scm_from_size_t (SCM_I_ARRAY_BASE (ra));
+  else if (scm_is_array (ra))
+    return scm_from_size_t (0);
+  else
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
 }
 #undef FUNC_NAME
 
@@ -99,18 +98,19 @@ SCM_DEFINE (scm_shared_array_increments, "shared-array-increments", 1, 0, 0,
 	    "For each dimension, return the distance between elements in the root vector.")
 #define FUNC_NAME s_scm_shared_array_increments
 {
-  scm_t_array_handle handle;
-  SCM res = SCM_EOL;
-  size_t k;
-  scm_t_array_dim *s;
-
-  scm_array_get_handle (ra, &handle);
-  k = scm_array_handle_rank (&handle);
-  s = scm_array_handle_dims (&handle);
-  while (k--)
-    res = scm_cons (scm_from_ssize_t (s[k].inc), res);
-  scm_array_handle_release (&handle);
-  return res;
+  if (SCM_I_ARRAYP (ra))
+    {
+      size_t k = SCM_I_ARRAY_NDIM (ra);
+      SCM res = SCM_EOL;
+      scm_t_array_dim *dims = SCM_I_ARRAY_DIMS (ra);
+      while (k--)
+        res = scm_cons (scm_from_ssize_t (dims[k].inc), res);
+      return res;
+    }
+  else if (scm_is_array (ra))
+    return scm_list_1 (scm_from_ssize_t (1));
+  else
+    scm_wrong_type_arg_msg (FUNC_NAME, SCM_ARG1, ra, "array");
 }
 #undef FUNC_NAME
 
