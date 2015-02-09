@@ -37,8 +37,6 @@
 /** Arrays */
 
 SCM_API SCM scm_make_array (SCM fill, SCM bounds);
-SCM_API SCM scm_from_contiguous_array (SCM bounds, const SCM *elts,
-                                       size_t len);
 SCM_API SCM scm_make_typed_array (SCM type, SCM fill, SCM bounds);
 SCM_API SCM scm_from_contiguous_typed_array (SCM type, SCM bounds,
                                              const void *bytes,
