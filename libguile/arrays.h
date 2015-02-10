@@ -52,7 +52,7 @@ SCM_API SCM scm_list_to_typed_array (SCM type, SCM ndim, SCM lst);
 
 /* internal. */
 
-#define SCM_I_ARRAY_FLAG_CONTIGUOUS (1 << 0)
+#define SCM_I_ARRAY_FLAG_CONTIGUOUS (1 << 0)  /* currently unused */
 
 #define SCM_I_ARRAYP(a)	    SCM_TYP16_PREDICATE (scm_tc7_array, a)
 #define SCM_I_ARRAY_NDIM(x)  ((size_t) (SCM_CELL_WORD_0 (x)>>17))

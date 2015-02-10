@@ -187,7 +187,6 @@ SCM_DEFINE (scm_make_typed_array, "make-typed-array", 2, 0, 1,
   SCM ra;
 
   ra = scm_i_shap2ra (bounds);
-  SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
   s = SCM_I_ARRAY_DIMS (ra);
   k = SCM_I_ARRAY_NDIM (ra);
 
@@ -224,7 +223,6 @@ scm_from_contiguous_typed_array (SCM type, SCM bounds, const void *bytes,
   size_t sz;
 
   ra = scm_i_shap2ra (bounds);
-  SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
   s = SCM_I_ARRAY_DIMS (ra);
   k = SCM_I_ARRAY_NDIM (ra);
 
@@ -277,27 +275,6 @@ SCM_DEFINE (scm_make_array, "make-array", 1, 0, 1,
   return scm_make_typed_array (SCM_BOOL_T, fill, bounds);
 }
 #undef FUNC_NAME
-
-static void
-scm_i_ra_set_contp (SCM ra)
-{
-  size_t k = SCM_I_ARRAY_NDIM (ra);
-  if (k)
-    {
-      ssize_t inc = SCM_I_ARRAY_DIMS (ra)[k - 1].inc;
-      while (k--)
-	{
-	  if (inc != SCM_I_ARRAY_DIMS (ra)[k].inc)
-	    {
-	      SCM_CLR_ARRAY_CONTIGUOUS_FLAG (ra);
-	      return;
-	    }
-	  inc *= (SCM_I_ARRAY_DIMS (ra)[k].ubnd
-		  - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1);
-	}
-    }
-  SCM_SET_ARRAY_CONTIGUOUS_FLAG (ra);
-}
 
 
 SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
@@ -412,7 +389,6 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 	return scm_make_generalized_vector (scm_array_type (ra), SCM_INUM0,
                                             SCM_UNDEFINED);
     }
-  scm_i_ra_set_contp (ra);
   return ra;
 }
 #undef FUNC_NAME
@@ -511,16 +487,12 @@ SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
 	}
       if (ndim > 0)
 	SCM_MISC_ERROR ("bad argument list", SCM_EOL);
-      scm_i_ra_set_contp (res);
       return res;
     }
 }
 #undef FUNC_NAME
 
-/* attempts to unroll an array into a one-dimensional array.
-   returns the unrolled array or #f if it can't be done.  */
-/* if strict is true, return #f if returned array
-   wouldn't have contiguous elements.  */
+
 SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
            (SCM ra, SCM strict),
 	    "If @var{ra} may be @dfn{unrolled} into a one dimensional shared\n"
@@ -530,31 +502,38 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
 	    "@code{make-array} and @code{make-uniform-array} may be unrolled,\n"
 	    "some arrays made by @code{make-shared-array} may not be.  If\n"
 	    "the optional argument @var{strict} is provided, a shared array\n"
-	    "will be returned only if its elements are stored internally\n"
-	    "contiguous in memory.")
+	    "will be returned only if its elements are stored contiguously\n"
+	    "in memory.")
 #define FUNC_NAME s_scm_array_contents
 {
-  if (!scm_is_array (ra))
-    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
-  else if (SCM_I_ARRAYP (ra))
+  if (SCM_I_ARRAYP (ra))
     {
       SCM v;
-      size_t k, ndim = SCM_I_ARRAY_NDIM (ra), len = 1;
-      if (!SCM_I_ARRAY_CONTP (ra))
-	return SCM_BOOL_F;
-      for (k = 0; k < ndim; k++)
-	len *= SCM_I_ARRAY_DIMS (ra)[k].ubnd - SCM_I_ARRAY_DIMS (ra)[k].lbnd + 1;
+      size_t ndim = SCM_I_ARRAY_NDIM (ra);
+      scm_t_array_dim *s = SCM_I_ARRAY_DIMS (ra);
+      size_t k = ndim;
+      size_t len = 1;
+
+      if (k)
+        {
+          ssize_t last_inc = s[k - 1].inc;
+          while (k--)
+            {
+              if (len*last_inc != s[k].inc)
+                return SCM_BOOL_F;
+              len *= (s[k].ubnd - s[k].lbnd + 1);
+            }
+        }
+
       if (!SCM_UNBNDP (strict) && scm_is_true (strict))
 	{
-	  if (ndim && (1 != SCM_I_ARRAY_DIMS (ra)[ndim - 1].inc))
+	  if (ndim && (1 != s[ndim - 1].inc))
 	    return SCM_BOOL_F;
-	  if (scm_is_bitvector (SCM_I_ARRAY_V (ra)))
-	    {
-	      if (len != scm_c_bitvector_length (SCM_I_ARRAY_V (ra)) ||
-		  SCM_I_ARRAY_BASE (ra) % SCM_LONG_BIT ||
-		  len % SCM_LONG_BIT)
-		return SCM_BOOL_F;
-	    }
+	  if (scm_is_bitvector (SCM_I_ARRAY_V (ra))
+              && (len != scm_c_bitvector_length (SCM_I_ARRAY_V (ra)) ||
+                  SCM_I_ARRAY_BASE (ra) % SCM_LONG_BIT ||
+                  len % SCM_LONG_BIT))
+            return SCM_BOOL_F;
 	}
 
       v = SCM_I_ARRAY_V (ra);
@@ -571,8 +550,10 @@ SCM_DEFINE (scm_array_contents, "array-contents", 1, 1, 0,
           return sra;
         }
     }
-  else
+  else if (scm_is_array (ra))
     return ra;
+  else
+    scm_wrong_type_arg_msg (NULL, 0, ra, "array");
 }
 #undef FUNC_NAME
 
