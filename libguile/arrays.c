@@ -394,6 +394,159 @@ SCM_DEFINE (scm_make_shared_array, "make-shared-array", 2, 0, 1,
 #undef FUNC_NAME
 
 
+#define ARRAY_FROM_POS(error_args)                                      \
+  scm_t_array_handle handle;                                            \
+  scm_array_get_handle (ra, &handle);                                   \
+  scm_t_array_dim * s = scm_array_handle_dims (&handle);                \
+  size_t ndim = scm_array_handle_rank (&handle);                        \
+  size_t k = ndim;                                                      \
+  ssize_t pos = 0;                                                      \
+  SCM i = indices;                                                      \
+  for (; k>0 && scm_is_pair (i); --k, ++s, i=scm_cdr (i))               \
+    {                                                                   \
+      ssize_t ik = scm_to_ssize_t (scm_car (i));                        \
+      if (ik<s->lbnd || ik>s->ubnd)                                     \
+        {                                                               \
+          scm_array_handle_release (&handle);                           \
+          scm_misc_error (FUNC_NAME, "indices out of range", error_args); \
+        }                                                               \
+      pos += (ik-s->lbnd) * s->inc;                                     \
+    }
+
+#define ARRAY_FROM_GET_O                        \
+  o = scm_i_make_array (k);                     \
+  SCM_I_ARRAY_SET_V (o, handle.vector);         \
+  SCM_I_ARRAY_SET_BASE (o, pos + handle.base);  \
+  scm_t_array_dim * os = SCM_I_ARRAY_DIMS (o);  \
+  for (; k>0; --k, ++s, ++os)                   \
+    {                                           \
+      os->ubnd = s->ubnd;                       \
+      os->lbnd = s->lbnd;                       \
+      os->inc = s->inc;                         \
+    }
+
+
+SCM_DEFINE (scm_array_from_s, "array-from*", 1, 0, 1,
+           (SCM ra, SCM indices),
+            "Return the array slice @var{ra}[@var{indices} ..., ...]\n"
+            "The rank of @var{ra} must equal to the number of indices or larger.\n\n"
+            "See also @code{array-ref}, @code{array-from}, @code{array-set-from!}.\n\n"
+            "@code{array-from*} may return a rank-0 array. For example:\n"
+            "@lisp\n"
+            "(array-from* #2((1 2 3) (4 5 6)) 1 1) @result{} #0(5)\n"
+            "(array-from* #2((1 2 3) (4 5 6)) 1) @result{} #(4 5 6)\n"
+            "(array-from* #2((1 2 3) (4 5 6))) @result{} #2((1 2 3) (4 5 6))\n"
+            "(array-from* #0(5) @result{} #0(5).\n"
+            "@end lisp")
+#define FUNC_NAME s_scm_array_from_s
+{
+  ARRAY_FROM_POS(scm_list_2 (ra, indices))
+  SCM o;
+  if (k==ndim)
+    o = ra;
+  else if (scm_is_null (i))
+    { ARRAY_FROM_GET_O }
+  else
+    {
+      scm_array_handle_release (&handle);
+      scm_misc_error(FUNC_NAME, "too many indices", scm_list_2 (ra, indices));
+    }
+  scm_array_handle_release (&handle);
+  return o;
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_array_from, "array-from", 1, 0, 1,
+           (SCM ra, SCM indices),
+            "Return the element at the @code{(@var{indices} ...)} position\n"
+            "in array @var{ra}, or the array slice @var{ra}[@var{indices} ..., ...]\n"
+            "if the rank of @var{ra} is larger than the number of indices.\n\n"
+            "See also @code{array-ref}, @code{array-from*}, @code{array-set-from!}.\n\n"
+            "@code{array-from} never returns a rank 0 array. For example:\n"
+            "@lisp\n"
+            "(array-from #2((1 2 3) (4 5 6)) 1 1) @result{} 5\n"
+            "(array-from #2((1 2 3) (4 5 6)) 1) @result{} #(4 5 6)\n"
+            "(array-from #2((1 2 3) (4 5 6))) @result{} #2((1 2 3) (4 5 6))\n"
+            "(array-from #0(5) @result{} 5.\n"
+            "@end lisp")
+#define FUNC_NAME s_scm_array_from
+{
+  ARRAY_FROM_POS(scm_list_2 (ra, indices))
+  SCM o;
+  if (k>0)
+    {
+      if (k==ndim)
+        o = ra;
+      else
+        { ARRAY_FROM_GET_O }
+    }
+  else if (scm_is_null(i))
+    o = scm_array_handle_ref (&handle, pos);
+  else
+    {
+      scm_array_handle_release (&handle);
+      scm_misc_error(FUNC_NAME, "too many indices", scm_list_2 (ra, indices));
+    }
+  scm_array_handle_release (&handle);
+  return o;
+}
+#undef FUNC_NAME
+
+
+SCM_DEFINE (scm_array_set_from_x, "array-set-from!", 2, 0, 1,
+            (SCM ra, SCM b, SCM indices),
+            "Set the array slice @var{ra}[@var{indices} ..., ...] to @var{b}\n."
+            "Equivalent to @code{(array-copy! @var{b} (apply array-from @var{ra} @var{indices}))}\n"
+            "if the number of indices is smaller than the rank of @var{ra}; otherwise\n"
+            "equivalent to @code{(apply array-set! @var{ra} @var{b} @var{indices})}.\n"
+            "This function returns the modified array @var{ra}.\n\n"
+            "See also @code{array-ref}, @code{array-from}, @code{array-from*}.\n\n"
+            "For example:\n"
+            "@lisp\n"
+            "(define A (list->array 2 '((1 2 3) (4 5 6))))\n"
+            "(array-set-from! A #0(99) 1 1) @result{} #2((1 2 3) (4 #0(99) 6))\n"
+            "(array-set-from! A 99 1 1) @result{} #2((1 2 3) (4 99 6))\n"
+            "(array-set-from! A #(a b c) 0) @result{} #2((a b c) (4 99 6))\n"
+            "(array-set-from! A #2((x y z) (9 8 7))) @result{} #2((x y z) (9 8 7))\n\n"
+            "(define B (make-array 0))\n"
+            "(array-set-from! B 15) @result{} #0(15)\n"
+            "@end lisp")
+#define FUNC_NAME s_scm_array_set_from_x
+{
+  ARRAY_FROM_POS(scm_list_3 (ra, b, indices))
+  SCM o;
+  if (k>0)
+    {
+      if (k==ndim)
+        o = ra;
+      else
+        { ARRAY_FROM_GET_O }
+      scm_array_handle_release(&handle);
+      /* an error is still possible here if o and b don't match. */
+      /* TODO copying like this wastes the handle, and the bounds matching
+         behavior of array-copy! is not strict. */
+      scm_array_copy_x(b, o);
+    }
+  else if (scm_is_null(i))
+    {
+      scm_array_handle_set (&handle, pos, b);  /* ra may be non-ARRAYP */
+      scm_array_handle_release (&handle);
+    }
+  else
+    {
+      scm_array_handle_release (&handle);
+      scm_misc_error(FUNC_NAME, "too many indices", scm_list_3 (ra, b, indices));
+    }
+  return ra;
+}
+#undef FUNC_NAME
+
+
+#undef ARRAY_FROM_POS
+#undef ARRAY_FROM_GET_O
+
+
 /* args are RA . DIMS */
 SCM_DEFINE (scm_transpose_array, "transpose-array", 1, 0, 1,
            (SCM ra, SCM args),
