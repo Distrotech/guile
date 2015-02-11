@@ -430,7 +430,7 @@ SCM_DEFINE (scm_array_from_s, "array-from*", 1, 0, 1,
            (SCM ra, SCM indices),
             "Return the array slice @var{ra}[@var{indices} ..., ...]\n"
             "The rank of @var{ra} must equal to the number of indices or larger.\n\n"
-            "See also @code{array-ref}, @code{array-from}, @code{array-set-from!}.\n\n"
+            "See also @code{array-ref}, @code{array-from}, @code{array-amend!}.\n\n"
             "@code{array-from*} may return a rank-0 array. For example:\n"
             "@lisp\n"
             "(array-from* #2((1 2 3) (4 5 6)) 1 1) @result{} #0(5)\n"
@@ -462,7 +462,7 @@ SCM_DEFINE (scm_array_from, "array-from", 1, 0, 1,
             "Return the element at the @code{(@var{indices} ...)} position\n"
             "in array @var{ra}, or the array slice @var{ra}[@var{indices} ..., ...]\n"
             "if the rank of @var{ra} is larger than the number of indices.\n\n"
-            "See also @code{array-ref}, @code{array-from*}, @code{array-set-from!}.\n\n"
+            "See also @code{array-ref}, @code{array-from*}, @code{array-amend!}.\n\n"
             "@code{array-from} never returns a rank 0 array. For example:\n"
             "@lisp\n"
             "(array-from #2((1 2 3) (4 5 6)) 1 1) @result{} 5\n"
@@ -494,7 +494,7 @@ SCM_DEFINE (scm_array_from, "array-from", 1, 0, 1,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_array_set_from_x, "array-set-from!", 2, 0, 1,
+SCM_DEFINE (scm_array_amend_x, "array-amend!", 2, 0, 1,
             (SCM ra, SCM b, SCM indices),
             "Set the array slice @var{ra}[@var{indices} ..., ...] to @var{b}\n."
             "Equivalent to @code{(array-copy! @var{b} (apply array-from @var{ra} @var{indices}))}\n"
@@ -505,14 +505,14 @@ SCM_DEFINE (scm_array_set_from_x, "array-set-from!", 2, 0, 1,
             "For example:\n"
             "@lisp\n"
             "(define A (list->array 2 '((1 2 3) (4 5 6))))\n"
-            "(array-set-from! A #0(99) 1 1) @result{} #2((1 2 3) (4 #0(99) 6))\n"
-            "(array-set-from! A 99 1 1) @result{} #2((1 2 3) (4 99 6))\n"
-            "(array-set-from! A #(a b c) 0) @result{} #2((a b c) (4 99 6))\n"
-            "(array-set-from! A #2((x y z) (9 8 7))) @result{} #2((x y z) (9 8 7))\n\n"
+            "(array-amend! A #0(99) 1 1) @result{} #2((1 2 3) (4 #0(99) 6))\n"
+            "(array-amend! A 99 1 1) @result{} #2((1 2 3) (4 99 6))\n"
+            "(array-amend! A #(a b c) 0) @result{} #2((a b c) (4 99 6))\n"
+            "(array-amend! A #2((x y z) (9 8 7))) @result{} #2((x y z) (9 8 7))\n\n"
             "(define B (make-array 0))\n"
-            "(array-set-from! B 15) @result{} #0(15)\n"
+            "(array-amend! B 15) @result{} #0(15)\n"
             "@end lisp")
-#define FUNC_NAME s_scm_array_set_from_x
+#define FUNC_NAME s_scm_array_amend_x
 {
   ARRAY_FROM_POS(scm_list_3 (ra, b, indices))
   SCM o;

@@ -1778,8 +1778,8 @@ a @result{} #2((a a) (a b)).
 @end deffn
 
 
-@deffn {Scheme Procedure} array-set-from! array x idx @dots{}
-@deffnx {C Function} scm_array_set_from_x (array, x, idxlist)
+@deffn {Scheme Procedure} array-amend! array x idx @dots{}
+@deffnx {C Function} scm_array_amend_x (array, x, idxlist)
 If the length of @var{idxlist} equals the rank @math{n} of
 @var{array}, set the element at @code{(idx @dots{})} of @var{array} to
 @var{x}, just like @code{(array-set! array x idx @dots{})}. If,
@@ -1795,12 +1795,12 @@ For example:
 
 @example
 @lisp
-(array-set-from! (make-array 'a 2 2) b 1 1) @result{} #2((a a) (a b))
-(array-set-from! (make-array 'a 2 2) #(x y) 1) @result{} #2((a a) (x y))
+(array-amend! (make-array 'a 2 2) b 1 1) @result{} #2((a a) (a b))
+(array-amend! (make-array 'a 2 2) #(x y) 1) @result{} #2((a a) (x y))
 @end lisp
 @end example
 
-@code{(apply array-set-from! array x indices)} is equivalent to
+@code{(apply array-amend! array x indices)} is equivalent to
 
 @lisp
 (let ((len (length indices)))
@@ -1809,6 +1809,8 @@ For example:
     (array-copy! x (apply array-from array indices)))
   array)
 @end lisp
+
+The name `amend' comes from the J language.
 @end deffn
 
 

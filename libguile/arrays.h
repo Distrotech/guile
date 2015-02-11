@@ -51,7 +51,7 @@ SCM_API SCM scm_transpose_array (SCM ra, SCM args);
 SCM_API SCM scm_array_contents (SCM ra, SCM strict);
 SCM_API SCM scm_array_from_s (SCM ra, SCM indices);
 SCM_API SCM scm_array_from (SCM ra, SCM indices);
-SCM_API SCM scm_array_set_from_x (SCM ra, SCM b, SCM indices);
+SCM_API SCM scm_array_amend_x (SCM ra, SCM b, SCM indices);
 
 SCM_API SCM scm_list_to_array (SCM ndim, SCM lst);
 SCM_API SCM scm_list_to_typed_array (SCM type, SCM ndim, SCM lst);
