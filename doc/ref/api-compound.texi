@@ -30,7 +30,7 @@ values can be looked up within them.
 * Structures::                  Low-level record representation.
 * Dictionary Types::            About dictionary types in general.
 * Association Lists::           List-based dictionaries.
-* VHashes::                     VList-based dictionaries.   
+* VHashes::                     VList-based dictionaries.
 * Hash Tables::                 Table-based dictionaries.
 @end menu
 
@@ -241,7 +241,7 @@ or a pair which has a list in its cdr.
 @c FIXME::martin: What is a proper, what an improper list?
 @c What is a circular list?
 
-@c FIXME::martin: Maybe steal some graphics from the Elisp reference 
+@c FIXME::martin: Maybe steal some graphics from the Elisp reference
 @c manual?
 
 @menu
@@ -1117,7 +1117,7 @@ bv
 @end example
 
 If @var{uvec} is a uniform vector of unsigned long integers, then
-they're indexes into @var{bitvector} which are set to @var{bool}.  
+they're indexes into @var{bitvector} which are set to @var{bool}.
 
 @example
 (define bv #*01000010)
@@ -1200,10 +1200,10 @@ numeric vectors, bytevectors, bit vectors and ordinary vectors as one
 dimensional arrays.
 
 @menu
-* Array Syntax::                
-* Array Procedures::            
-* Shared Arrays::               
-* Accessing Arrays from C::     
+* Array Syntax::
+* Array Procedures::
+* Shared Arrays::
+* Accessing Arrays from C::
 @end menu
 
 @node Array Syntax
@@ -1247,7 +1247,7 @@ As a special case, an array of rank 0 is printed as
 @code{#0<vectag>(<scalar>)}, where @code{<scalar>} is the result of
 printing the single element of the array.
 
-Thus, 
+Thus,
 
 @table @code
 @item #(1 2 3)
@@ -1708,6 +1708,109 @@ access to the new array but only on some sample points to establish a
 base and stride for new array indices in @var{oldarray} data.  A few
 sample points are enough because @var{mapfunc} is linear.
 @end deffn
+
+
+@deffn {Scheme Procedure} array-ref array idx @dots{}
+@deffnx {C Function} scm_array_ref (array, idxlist)
+Return the element at @code{(idx @dots{})} in @var{array}.
+@end deffn
+
+@deffn {Scheme Procedure} array-from array idx @dots{}
+@deffnx {C Function} scm_array_from (array, idxlist)
+If the length of @var{idxlist} equals the rank @math{n} of
+@var{array}, return the element at @code{(idx @dots{})}, just like
+@code{(array-ref array idx @dots{})}. If, however, the length @math{k}
+of @var{idxlist} is shorter than @math{n}, then return the shared
+@math{(n-k)}-rank prefix cell of @var{array} given by @var{idxlist}.
+
+For example:
+
+@example
+@lisp
+(array-from #2((a b) (c d)) 0) @result{} #(a b)
+(array-from #2((a b) (c d)) 1) @result{} #(c d)
+(array-from #2((a b) (c d)) 1 1) @result{} d
+(array-from #2((a b) (c d))) @result{} #2((a b) (c d))
+@end lisp
+@end example
+
+@code{(apply array-from array indices)} is equivalent to
+
+@lisp
+(let ((len (length indices)))
+  (if (= (array-rank a) len)
+    (apply array-ref a indices)
+    (apply make-shared-array a
+           (lambda t (append indices t))
+           (drop (array-dimensions a) len))))
+@end lisp
+
+The name `from' comes from the J language.
+@end deffn
+
+@deffn {Scheme Procedure} array-from* array idx @dots{}
+@deffnx {C Function} scm_array_from_s (array, idxlist)
+Like @code{(array-from array idx @dots{})}, but return a 0-rank shared
+array if the length of @var{idxlist} matches the rank of
+@var{array}. This can be useful when using @var{ARRAY} as destination
+of copies.
+
+Compare:
+
+@example
+@lisp
+(array-from #2((a b) (c d)) 1 1) @result{} d
+(array-from* #2((a b) (c d)) 1) @result{} #0(d)
+(define a (make-array 'a 2 2))
+(array-fill! (array-from* a 1 1) 'b)
+a @result{} #2((a a) (a b)).
+(array-fill! (array-from a 1 1) 'b) @result{} error: not an array
+@end lisp
+@end example
+
+@code{(apply array-from* array indices)} is equivalent to
+
+@lisp
+(apply make-shared-array a
+  (lambda t (append indices t))
+  (drop (array-dimensions a) (length indices)))
+@end lisp
+@end deffn
+
+
+@deffn {Scheme Procedure} array-set-from! array x idx @dots{}
+@deffnx {C Function} scm_array_set_from_x (array, x, idxlist)
+If the length of @var{idxlist} equals the rank @math{n} of
+@var{array}, set the element at @code{(idx @dots{})} of @var{array} to
+@var{x}, just like @code{(array-set! array x idx @dots{})}. If,
+however, the length @math{k} of @var{idxlist} is shorter than
+@math{n}, then copy the @math{(n-k)}-rank array @var{x}
+into @math{(n-k)}-rank prefix cell of @var{array} given by
+@var{idxlist}. In this case, the last @math{(n-k)} dimensions of
+@var{array} and the dimensions of @var{x} must match exactly.
+
+This function returns the modified @var{array}.
+
+For example:
+
+@example
+@lisp
+(array-set-from! (make-array 'a 2 2) b 1 1) @result{} #2((a a) (a b))
+(array-set-from! (make-array 'a 2 2) #(x y) 1) @result{} #2((a a) (x y))
+@end lisp
+@end example
+
+@code{(apply array-set-from! array x indices)} is equivalent to
+
+@lisp
+(let ((len (length indices)))
+  (if (= (array-rank array) len)
+    (apply array-set! array x indices)
+    (array-copy! x (apply array-from array indices)))
+  array)
+@end lisp
+@end deffn
+
 
 @deffn {Scheme Procedure} shared-array-increments array
 @deffnx {C Function} scm_shared_array_increments (array)
@@ -2716,7 +2819,7 @@ Set field number @var{n} in @var{struct} to @var{value}.  The first
 field is number 0.
 
 An error is thrown if @var{n} is out of range, or if the field cannot
-be written because it's @code{r} read-only or @code{o} opaque.  
+be written because it's @code{r} read-only or @code{o} opaque.
 @end deffn
 
 @deffn {Scheme Procedure} struct-vtable struct
@@ -2864,7 +2967,7 @@ scheme@@(guile-user)> (struct-ref $3 vtable-index-layout)
 $6 = pruhsruhpwphuhuhprprpw
 scheme@@(guile-user)> (struct-ref $4 vtable-index-layout)
 $7 = pruhsruhpwphuhuh
-scheme@@(guile-user)> standard-vtable-fields 
+scheme@@(guile-user)> standard-vtable-fields
 $8 = "pruhsruhpwphuhuh"
 scheme@@(guile-user)> (struct-ref $2 vtable-offset-user)
 $9 = module
@@ -2934,7 +3037,7 @@ class fields.
   (let* ((fields (compute-fields parent fields))
          (layout (compute-layout fields)))
     (make-struct/no-tail <class>
-      layout 
+      layout
       (lambda (x port)
         (print-instance x port))
       name
