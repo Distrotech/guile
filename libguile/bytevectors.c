@@ -192,11 +192,6 @@
 #define SCM_BYTEVECTOR_SET_PARENT(_bv, _parent)	\
   SCM_SET_CELL_OBJECT_3 ((_bv), (_parent))
 
-#define SCM_BYTEVECTOR_TYPE_SIZE(var)                           \
-  (scm_i_array_element_type_sizes[SCM_BYTEVECTOR_ELEMENT_TYPE (var)]/8)
-#define SCM_BYTEVECTOR_TYPED_LENGTH(var)                        \
-  (SCM_BYTEVECTOR_LENGTH (var) / SCM_BYTEVECTOR_TYPE_SIZE (var))
-
 /* The empty bytevector.  */
 SCM scm_null_bytevector = SCM_UNSPECIFIED;
 
@@ -414,7 +409,7 @@ scm_i_print_bytevector (SCM bv, SCM port, scm_print_state *pstate SCM_UNUSED)
 {
   ssize_t ubnd, inc, i;
   scm_t_array_handle h;
-  
+
   scm_array_get_handle (bv, &h);
 
   scm_putc_unlocked ('#', port);
@@ -643,7 +638,7 @@ SCM_DEFINE (scm_uniform_array_to_bytevector, "uniform-array->bytevector",
   size_t len, sz, byte_len;
   scm_t_array_handle h;
   const void *elts;
-  
+
   contents = scm_array_contents (array, SCM_BOOL_T);
   if (scm_is_false (contents))
     scm_wrong_type_arg_msg (FUNC_NAME, 0, array, "uniform contiguous array");
@@ -1939,7 +1934,7 @@ utf_encoding_name (char *name, size_t utf_width, SCM endianness)
   memcpy (SCM_BYTEVECTOR_CONTENTS (utf), c_utf, c_utf_len);             \
   scm_dynwind_end ();                                                   \
                                                                         \
-  return (utf); 
+  return (utf);
 
 
 
@@ -2000,7 +1995,7 @@ SCM_DEFINE (scm_string_to_utf32, "string->utf32",
   if (!scm_is_eq (SCM_UNBNDP (endianness) ? scm_endianness_big : endianness,
                   scm_i_native_endianness))
     swap_u32 (wchars, wchar_len);
-  
+
   bv = make_bytevector (bytes_len, SCM_ARRAY_ELEMENT_TYPE_VU8);
   memcpy (SCM_BYTEVECTOR_CONTENTS (bv), wchars, bytes_len);
   free (wchars);

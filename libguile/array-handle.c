@@ -1,6 +1,6 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005,
  * 2006, 2009, 2011, 2013, 2014 Free Software Foundation, Inc.
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -185,15 +185,13 @@ scm_array_get_handle (SCM array, scm_t_array_handle *h)
       break;
     case scm_tc7_bytevector:
       {
-        size_t byte_length, length, element_byte_size;
+        size_t length;
         scm_t_array_element_type element_type;
         scm_t_vector_ref vref;
         scm_t_vector_set vset;
 
-        byte_length = scm_c_bytevector_length (array);
         element_type = SCM_BYTEVECTOR_ELEMENT_TYPE (array);
-        element_byte_size = scm_i_array_element_type_sizes[element_type] / 8;
-        length = byte_length / element_byte_size;
+        length = SCM_BYTEVECTOR_TYPED_LENGTH (array);
 
         switch (element_type)
           {
@@ -248,7 +246,7 @@ scm_array_handle_pos (scm_t_array_handle *h, SCM indices)
   scm_t_array_dim *s = scm_array_handle_dims (h);
   ssize_t pos = 0, i;
   size_t k = scm_array_handle_rank (h);
-  
+
   while (k > 0 && scm_is_pair (indices))
     {
       i = scm_to_signed_integer (SCM_CAR (indices), s->lbnd, s->ubnd);
@@ -340,7 +338,7 @@ scm_init_array_handle (void)
 {
 #define DEFINE_ARRAY_TYPE(tag, TAG)                             \
   scm_i_array_element_types[SCM_ARRAY_ELEMENT_TYPE_##TAG] = scm_from_utf8_symbol (#tag)
-  
+
   scm_i_array_element_types[SCM_ARRAY_ELEMENT_TYPE_SCM] = SCM_BOOL_T;
   DEFINE_ARRAY_TYPE (a, CHAR);
   DEFINE_ARRAY_TYPE (b, BIT);
