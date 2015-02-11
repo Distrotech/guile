@@ -65,7 +65,7 @@ AC_CANONICAL_HOST
 AC_LIBTOOL_WIN32_DLL
 
 AC_PROG_INSTALL
-AC_PROG_CC
+AC_PROG_CC_C99
 gl_EARLY
 AC_PROG_CPP
 AC_PROG_SED
@@ -175,19 +175,19 @@ dnl  investigation of problems with "64" system and library calls on
 dnl  Darwin (MacOS X).  The libguile code (_scm.h) assumes that if a
 dnl  system has stat64, it will have all the other 64 APIs too; but on
 dnl  Darwin, stat64 is there but other APIs are missing.
-dnl 
+dnl
 dnl  It also appears, from the Darwin docs, that most system call APIs
 dnl  there (i.e. the traditional ones _without_ "64" in their names) have
 dnl  been 64-bit-capable for a long time now, so it isn't necessary to
 dnl  use "64" versions anyway.  For example, Darwin's off_t is 64-bit.
-dnl 
+dnl
 dnl  A similar problem has been reported for HP-UX:
 dnl  http://www.nabble.com/Building-guile-1.8.2-on-hpux-td13106681.html
-dnl 
+dnl
 dnl  Therefore, and also because a Guile without LARGEFILE64 support is
 dnl  better than no Guile at all, we provide this option to suppress
 dnl  trying to use "64" calls.
-dnl 
+dnl
 dnl  It may be that for some 64-bit function on Darwin/HP-UX we do need
 dnl  to use a "64" call, and hence that by using --without-64-calls we're
 dnl  missing out on that.  If so, someone can work on that in the future.
@@ -849,7 +849,7 @@ volatile complex double z = - _Complex_I;
 int
 main (void)
 {
-  z = csqrt (z);	
+  z = csqrt (z);
   if (creal (z) > 0.0)
     return 0;  /* good */
   else
@@ -906,9 +906,9 @@ AC_CHECK_SIZEOF(size_t)
 AC_CHECK_SIZEOF(ssize_t)
 ffi_size_type=uint$(($ac_cv_sizeof_size_t*8))
 ffi_ssize_type=sint$(($ac_cv_sizeof_ssize_t*8))
-AC_DEFINE_UNQUOTED([ffi_type_size_t], ffi_type_${ffi_size_type}, 
+AC_DEFINE_UNQUOTED([ffi_type_size_t], ffi_type_${ffi_size_type},
 		   [ffi type for size_t])
-AC_DEFINE_UNQUOTED([ffi_type_ssize_t], ffi_type_${ffi_ssize_type}, 
+AC_DEFINE_UNQUOTED([ffi_type_ssize_t], ffi_type_${ffi_ssize_type},
 		   [ffi type for ssize_t])
 
 dnl i18n tests
@@ -1263,7 +1263,7 @@ LIBS="$save_LIBS"
 
 AC_CHECK_SIZEOF(float)
 if test "$ac_cv_sizeof_float" -le "$ac_cv_sizeof_long"; then
-    AC_DEFINE([SCM_SINGLES], 1, 
+    AC_DEFINE([SCM_SINGLES], 1,
               [Define this if floats are the same size as longs.])
 fi
 
@@ -1394,7 +1394,7 @@ case "$with_threads" in
 
     # On Solaris, sched_yield lives in -lrt.
     AC_SEARCH_LIBS(sched_yield, rt)
-    
+
   ;;
 esac
 
@@ -1470,7 +1470,7 @@ GUILE_THREAD_LOCAL_STORAGE
 fi # with_threads=pthreads
 
 
-## Cross building	
+## Cross building
 if test "$cross_compiling" = "yes"; then
   AC_MSG_CHECKING(cc for build)
   ## /usr/bin/cc still uses wrong assembler
@@ -1478,8 +1478,8 @@ if test "$cross_compiling" = "yes"; then
   CC_FOR_BUILD="${CC_FOR_BUILD-PATH=/usr/bin:$PATH cc}"
 else
   CC_FOR_BUILD="${CC_FOR_BUILD-$CC}"
-fi   
-     
+fi
+
 ## AC_MSG_CHECKING("if we are cross compiling")
 ## AC_MSG_RESULT($cross_compiling)
 if test "$cross_compiling" = "yes"; then
@@ -1492,14 +1492,14 @@ CCLD_FOR_BUILD="$CC_FOR_BUILD"
 AC_SUBST(cross_compiling)
 AC_ARG_VAR(CC_FOR_BUILD,[build system C compiler])
 AC_SUBST(CCLD_FOR_BUILD)
-	
+
 ## libtool erroneously calls CC_FOR_BUILD HOST_CC;
 ## --HOST is the platform that PACKAGE is compiled for.
 HOST_CC="$CC_FOR_BUILD"
 AC_SUBST(HOST_CC)
 
 GUILE_CHECK_GUILE_FOR_BUILD
-  			
+
 ## If we're using GCC, add flags to reduce strictness of undefined
 ## behavior, and ask for aggressive warnings.
 GCC_CFLAGS=""
@@ -1516,8 +1516,7 @@ case "$GCC" in
     ## <http://lists.gnu.org/archive/html/guile-devel/2012-01/msg00487.html>.
 
     POTENTIAL_GCC_CFLAGS="-Wall -Wmissing-prototypes \
-      -Wdeclaration-after-statement -Wpointer-arith \
-      -Wswitch-enum -fno-strict-aliasing -fwrapv"
+      -Wpointer-arith -Wswitch-enum -fno-strict-aliasing -fwrapv"
     # Do this here so we don't screw up any of the tests above that might
     # not be "warning free"
     if test "${GUILE_ERROR_ON_WARNING}" = yes
