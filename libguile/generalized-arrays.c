@@ -1,5 +1,5 @@
 /* Copyright (C) 1995,1996,1997,1998,2000,2001,2002,2003,2004, 2005, 2006, 2009, 2010, 2013, 2014 Free Software Foundation, Inc.
- * 
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public License
  * as published by the Free Software Foundation; either version 3 of
@@ -104,27 +104,6 @@ SCM_DEFINE (scm_typed_array_p, "typed-array?", 2, 0, 0,
 }
 #undef FUNC_NAME
 
-size_t
-scm_c_array_rank (SCM array)
-{
-  scm_t_array_handle handle;
-  size_t res;
-
-  scm_array_get_handle (array, &handle);
-  res = scm_array_handle_rank (&handle);
-  scm_array_handle_release (&handle);
-  return res;
-}
-
-SCM_DEFINE (scm_array_rank, "array-rank", 1, 0, 0, 
-           (SCM array),
-	    "Return the number of dimensions of the array @var{array.}\n")
-#define FUNC_NAME s_scm_array_rank
-{
-  return scm_from_size_t (scm_c_array_rank (array));
-}
-#undef FUNC_NAME
-
 
 size_t
 scm_c_array_length (SCM array)
@@ -144,7 +123,7 @@ scm_c_array_length (SCM array)
   return res;
 }
 
-SCM_DEFINE (scm_array_length, "array-length", 1, 0, 0, 
+SCM_DEFINE (scm_array_length, "array-length", 1, 0, 0,
            (SCM array),
 	    "Return the length of an array: its first dimension.\n"
             "It is an error to ask for the length of an array of rank 0.")
@@ -155,7 +134,7 @@ SCM_DEFINE (scm_array_length, "array-length", 1, 0, 0,
 #undef FUNC_NAME
 
 
-SCM_DEFINE (scm_array_dimensions, "array-dimensions", 1, 0, 0, 
+SCM_DEFINE (scm_array_dimensions, "array-dimensions", 1, 0, 0,
            (SCM ra),
 	    "@code{array-dimensions} is similar to @code{array-shape} but replaces\n"
 	    "elements with a @code{0} minimum with one greater than the maximum. So:\n"
@@ -168,7 +147,7 @@ SCM_DEFINE (scm_array_dimensions, "array-dimensions", 1, 0, 0,
   scm_t_array_dim *s;
   SCM res = SCM_EOL;
   size_t k;
-      
+
   scm_array_get_handle (ra, &handle);
   s = scm_array_handle_dims (&handle);
   k = scm_array_handle_rank (&handle);
@@ -186,7 +165,7 @@ SCM_DEFINE (scm_array_dimensions, "array-dimensions", 1, 0, 0,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_array_type, "array-type", 1, 0, 0, 
+SCM_DEFINE (scm_array_type, "array-type", 1, 0, 0,
            (SCM ra),
 	    "")
 #define FUNC_NAME s_scm_array_type
@@ -197,7 +176,7 @@ SCM_DEFINE (scm_array_type, "array-type", 1, 0, 0,
   scm_array_get_handle (ra, &h);
   type = scm_array_handle_element_type (&h);
   scm_array_handle_release (&h);
-  
+
   return type;
 }
 #undef FUNC_NAME
@@ -220,7 +199,7 @@ SCM_DEFINE (scm_array_type_code,
 }
 #undef FUNC_NAME
 
-SCM_DEFINE (scm_array_in_bounds_p, "array-in-bounds?", 1, 0, 1, 
+SCM_DEFINE (scm_array_in_bounds_p, "array-in-bounds?", 1, 0, 1,
            (SCM ra, SCM args),
 	    "Return @code{#t} if its arguments would be acceptable to\n"
 	    "@code{array-ref}.")
@@ -376,7 +355,7 @@ SCM_DEFINE (scm_i_array_set_x, "array-set!", 2, 2, 1,
 #undef FUNC_NAME
 
 
-static SCM 
+static SCM
 array_to_list (scm_t_array_handle *h, size_t dim, unsigned long pos)
 {
   if (dim == scm_array_handle_rank (h))
@@ -397,7 +376,7 @@ array_to_list (scm_t_array_handle *h, size_t dim, unsigned long pos)
     }
 }
 
-SCM_DEFINE (scm_array_to_list, "array->list", 1, 0, 0, 
+SCM_DEFINE (scm_array_to_list, "array->list", 1, 0, 0,
             (SCM array),
 	    "Return a list representation of @var{array}.\n\n"
             "It is easiest to specify the behavior of this function by\n"
@@ -410,8 +389,8 @@ SCM_DEFINE (scm_array_to_list, "array->list", 1, 0, 0,
 #define FUNC_NAME s_scm_array_to_list
 {
   scm_t_array_handle h;
-  SCM res;  
-  
+  SCM res;
+
   scm_array_get_handle (array, &h);
   res = array_to_list (&h, 0, 0);
   scm_array_handle_release (&h);

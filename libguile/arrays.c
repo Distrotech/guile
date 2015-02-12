@@ -63,6 +63,27 @@
   (SCM_SET_CELL_WORD_0 ((x), SCM_CELL_WORD_0 (x) & ~(SCM_I_ARRAY_FLAG_CONTIGUOUS << 16)))
 
 
+size_t
+scm_c_array_rank (SCM array)
+{
+  if (SCM_I_ARRAYP (array))
+    return SCM_I_ARRAY_NDIM (array);
+  else if (scm_is_array (array))
+    return 1;
+  else
+    scm_wrong_type_arg_msg ("array-rank", SCM_ARG1, array, "array");
+}
+
+SCM_DEFINE (scm_array_rank, "array-rank", 1, 0, 0,
+           (SCM array),
+	    "Return the number of dimensions of the array @var{array.}\n")
+#define FUNC_NAME s_scm_array_rank
+{
+  return scm_from_size_t (scm_c_array_rank (array));
+}
+#undef FUNC_NAME
+
+
 SCM_DEFINE (scm_shared_array_root, "shared-array-root", 1, 0, 0,
            (SCM ra),
 	    "Return the root vector of a shared array.")
